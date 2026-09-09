@@ -1,0 +1,234 @@
+/* ===== 全局动画样式（零依赖，纯 CSS） ===== */
+
+/* ---------- keyframes ---------- */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shine-sweep {
+  from {
+    transform: translateX(-130%) skewX(-18deg);
+  }
+  to {
+    transform: translateX(230%) skewX(-18deg);
+  }
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(22, 119, 255, 0.28);
+  }
+  50% {
+    box-shadow: 0 0 0 9px rgba(22, 119, 255, 0);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes ripple-expand {
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes empty-bounce {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+/* ---------- 入场动画类 ---------- */
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-fade-in-scale {
+  animation: fadeInScale 0.4s ease both;
+}
+
+.animate-pop-in {
+  animation: pop-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ---------- 交错延迟 ---------- */
+
+/* 动态档位：宿主元素上设置 --stagger-i: <序号>，配合任意入场动画类使用 */
+.stagger-dyn {
+  animation-delay: calc(var(--stagger-i, 0) * 70ms);
+}
+
+/* 固定档位 0~9（60ms 步进），供无 index 变量的场景使用 */
+.stagger-0  { animation-delay: 0ms; }
+.stagger-1  { animation-delay: 60ms; }
+.stagger-2  { animation-delay: 120ms; }
+.stagger-3  { animation-delay: 180ms; }
+.stagger-4  { animation-delay: 240ms; }
+.stagger-5  { animation-delay: 300ms; }
+.stagger-6  { animation-delay: 360ms; }
+.stagger-7  { animation-delay: 420ms; }
+.stagger-8  { animation-delay: 480ms; }
+.stagger-9  { animation-delay: 540ms; }
+
+/* ---------- 高光扫过 ---------- */
+/* 宿主需 position: relative 且 overflow: hidden，::after 空闲可用 */
+
+.hover-shine::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 34%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  transform: translateX(-130%) skewX(-18deg);
+  pointer-events: none;
+}
+
+.hover-shine:hover::after {
+  animation: shine-sweep 0.9s ease;
+}
+
+/* ---------- 骨架屏 shimmer ---------- */
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #f0f5ff 25%,
+    #e6f0ff 50%,
+    #f0f5ff 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+/* ---------- 涟漪效果 ---------- */
+
+.global-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(22, 119, 255, 0.15);
+  transform: scale(0);
+  animation: ripple-expand 0.6s ease-out forwards;
+  pointer-events: none;
+}
+
+/* ---------- Message 质感（入场动画交给 AntD 内置过渡，避免双重触发） ---------- */
+
+.ant-message-notice-content {
+  border-radius: var(--app-radius-sm, 8px);
+  box-shadow: var(--app-shadow, 0 10px 30px rgba(37, 99, 235, 0.08));
+}
+
+/* ---------- 空状态弹跳 ---------- */
+
+.ant-empty-image {
+  animation: empty-bounce 2s ease-in-out infinite;
+}
+
+/* ---------- 滚动入场 ---------- */
+
+.observe-animate {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.observe-animate.animate-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ---------- 无障碍降级 ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  /* 完全禁用动画的元素 */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 保留过渡但缩短时间（如 hover 效果） */
+  .picture-card,
+  .ant-input,
+  .ant-btn,
+  .ant-tag-checkable {
+    transition-duration: 0.15s !important;
+  }
+
+  /* 滚动显现元素直接可见，不做位移动画 */
+  .observe-animate {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  /* 背景渐变动画保留但极慢 */
+  .app-frame {
+    animation-duration: 60s !important;
+  }
+
+  /* 浮动装饰元素禁用 */
+  .content::before,
+  .content::after {
+    animation: none !important;
+  }
+}

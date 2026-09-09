@@ -1,0 +1,11 @@
+# ===== 系统与编辑器 =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.sw?
+
+# ===== 日志 =====
+*.log
+logs/

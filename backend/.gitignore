@@ -1,0 +1,48 @@
+HELP.md
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+interview-prep-2028-java-intern.md
+
+### Custom ###
+application-local.yaml
+application-prod.yaml
+application-test.yaml
+
+### 本地工具与压测产物 ###
+.zcode/
+jmeter/
+# docs/ 整个目录不纳入版本控制
+docs/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### 本地测试脚本与凭据 ###
+httpTest/

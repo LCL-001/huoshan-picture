@@ -1,0 +1,116 @@
+server:
+  port: 8124
+  servlet:
+    context-path: /api
+    # cookie 7 天过期；SameSite=Lax 防 CSRF 场景下的跨站携带；HttpOnly 防脚本读取
+    session:
+      cookie:
+        max-age: 604800
+        http-only: true
+        same-site: lax
+
+spring:
+  application:
+    name: yun-picture-backend
+  profiles:
+    active: local
+  # 邮件（邮箱验证码）：本地在 application-local.yaml 填真实值，生产走 MAIL_* 环境变量
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+  # Redis 配置
+  redis:
+    database: 1
+    host: 127.0.0.1
+    port: 6379
+    timeout: 5000
+  # session 7 天过期（与 sa-token timeout 对齐）
+  session:
+    timeout: 604800
+  # 数据库配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/yu_picture
+    username: root
+    password: ${DB_PASSWORD:}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+  #  profiles:
+  #    active: local
+  # 空间图片分表
+  shardingsphere:
+    datasource:
+      names: yu_picture
+      yu_picture:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://localhost:3306/yu_picture
+        username: root
+        password: ${DB_PASSWORD:}
+    rules:
+      sharding:
+        tables:
+          picture:
+            actual-data-nodes: yu_picture.picture  # 动态分表
+            table-strategy:
+              standard:
+                sharding-column: spaceId
+                sharding-algorithm-name: picture_sharding_algorithm  # 使用自定义分片算法
+        sharding-algorithms:
+          picture_sharding_algorithm:
+            type: CLASS_BASED
+            props:
+              strategy: standard
+              algorithmClassName: com.lcl.yunpicturebackend.manager.sharding.PictureShardingAlgorithm
+    props:
+      sql-show: true
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: false
+    # 仅在开发环境开启日志
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
+      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
+      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
+    enable-sql-runner: true
+# 应用自定义配置
+app:
+  cors:
+    # 默认面向本地开发；生产环境由 application-prod.yaml 覆盖为线上域名
+    allowed-origins: http://localhost:*,http://127.0.0.1:*,https://www.lincode.online,https://lincode.online
+  auth:
+    # 图形/邮箱验证码校验与登录限流开关，默认开启；
+    # 仅压测/联调时由 application-test.yaml 覆盖为 false
+    captcha-enabled: true
+    login-limit-enabled: true
+# Sa-Token 配置：satoken Cookie 默认可被 JS 读取，必须加 HttpOnly/SameSite；
+# secure 仅在 application-prod.yaml 开启（本地 http 调试需要非 secure Cookie）
+sa-token:
+  token-name: satoken
+  timeout: 604800
+  cookie:
+    http-only: true
+    same-site: lax
+knife4j:
+  enable: true
+  openapi:
+    title: 接口文档
+    version: 1.0
+    group:
+      test1:
+        group-name: default
+        api-rule: package
+        api-rule-resources:
+          - com.lcl.yunpicturebackend.controller

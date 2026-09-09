@@ -1,0 +1,324 @@
+:root {
+  --app-primary: #1677ff;
+  --app-primary-hover: #4096ff;
+  --app-primary-soft: #eaf4ff;
+  --app-primary-softer: #f4f9ff;
+  --app-text: #1f2937;
+  --app-text-secondary: #64748b;
+  --app-border: #d9e8f8;
+  --app-border-soft: #edf4fb;
+  --app-bg: #f6faff;
+  --app-surface: #ffffff;
+  --app-shadow: 0 10px 30px rgba(37, 99, 235, 0.08);
+  --app-shadow-hover: 0 16px 42px rgba(37, 99, 235, 0.14);
+  --app-radius-sm: 8px;
+  --app-radius-md: 12px;
+  --app-radius-lg: 16px;
+  /* 玻璃拟态令牌：换全局玻璃质感只改这里 */
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-bg-strong: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-blur: 16px;
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  /* 背景氛围光令牌：藏在磨砂玻璃后面的柔光，只做蓝/青调 */
+  --grad-ambient-a: rgba(125, 211, 252, 0.32);
+  --grad-ambient-b: rgba(103, 232, 249, 0.2);
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--app-text);
+  background: var(--app-bg);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+}
+
+a {
+  color: var(--app-primary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--app-primary-hover);
+}
+
+/* 轻玻璃卡片：半透明 + 描边 + 内高光，不加 blur（列表大量卡片，blur 有 GPU 成本，
+ * 且背景本就是柔光渐变，blur 视觉收益极小）。真磨砂只给弹窗/浮层/登录卡。 */
+.ant-card {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--app-radius-lg);
+  background: var(--glass-bg);
+  box-shadow: var(--app-shadow), var(--glass-highlight);
+}
+
+.ant-card .ant-card-head {
+  border-bottom-color: var(--app-border-soft);
+  border-radius: var(--app-radius-lg) var(--app-radius-lg) 0 0;
+}
+
+.ant-card .ant-card-cover img {
+  border-radius: var(--app-radius-lg) var(--app-radius-lg) 0 0;
+}
+
+.ant-btn {
+  border-radius: var(--app-radius-sm);
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.ant-btn-primary {
+  background: var(--app-primary);
+  box-shadow: 0 8px 18px rgba(22, 119, 255, 0.18);
+}
+
+.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):hover {
+  background: var(--app-primary-hover);
+  box-shadow: 0 10px 22px rgba(22, 119, 255, 0.22);
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-picker,
+.ant-select-selector,
+.ant-input-search .ant-input {
+  border-radius: var(--app-radius-sm) !important;
+  background: rgba(255, 255, 255, 0.66);
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ant-input-search .ant-input-group-addon .ant-btn {
+  border-radius: var(--app-radius-sm) !important;
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ant-input:hover,
+.ant-input-affix-wrapper:hover,
+.ant-input-number:hover,
+.ant-picker:hover,
+.ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border-color: #8ec5ff;
+  transform: translateY(-1px);
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-affix-wrapper-focused,
+.ant-input-number-focused,
+.ant-picker-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: var(--app-primary) !important;
+  box-shadow:
+    0 0 0 4px rgba(22, 119, 255, 0.08),
+    0 0 12px rgba(22, 119, 255, 0.12) !important;
+  transform: translateY(0);
+}
+
+.ant-tag {
+  border-radius: 999px;
+  padding: 2px 10px;
+  line-height: 22px;
+  border-color: #cfe4ff;
+  background: var(--app-primary-softer);
+  color: #2366b8;
+}
+
+.ant-tag-checkable {
+  padding: 5px 14px;
+  line-height: 20px;
+  font-size: 13px;
+  border: 1px solid var(--app-border-soft);
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--app-text-secondary);
+  transition:
+    color 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-color 0.25s ease,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.2s ease;
+}
+
+.ant-tag-checkable:hover {
+  color: var(--app-primary);
+  background: var(--app-primary-soft);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.12);
+}
+
+.ant-tag-checkable:active {
+  transform: scale(0.95);
+}
+
+.ant-tag-checkable-checked {
+  border-color: transparent;
+  background: var(--app-primary) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.3);
+  animation: tagCheckPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes tagCheckPop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 分段控件式 tabs：玻璃轨道 + 白玻璃激活胶囊 */
+.ant-tabs .ant-tabs-nav {
+  margin-bottom: 18px;
+  padding: 6px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--app-shadow), var(--glass-highlight);
+}
+
+/* 去掉 AntD 默认底部分隔线与激活指示线 */
+.ant-tabs .ant-tabs-nav::before {
+  display: none;
+}
+
+.ant-tabs .ant-tabs-ink-bar {
+  display: none;
+}
+
+.ant-tabs .ant-tabs-tab {
+  position: relative;
+  overflow: hidden;
+  padding: 8px 20px;
+  border-radius: 12px;
+  font-size: 15px;
+  transition:
+    color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ant-tabs .ant-tabs-tab:hover {
+  background: rgba(255, 255, 255, 0.75);
+  transform: translateY(-1px);
+}
+
+.ant-tabs .ant-tabs-tab:active {
+  transform: scale(0.97);
+}
+
+.ant-tabs .ant-tabs-tab.ant-tabs-tab-active {
+  background: var(--glass-bg-strong);
+  box-shadow: 0 2px 10px rgba(22, 119, 255, 0.14), var(--glass-highlight);
+}
+
+.ant-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--app-primary) !important;
+  font-weight: 600;
+}
+
+.ant-table-wrapper .ant-table {
+  border-radius: var(--app-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--app-shadow);
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th {
+  background: #f2f8ff;
+  color: #334155;
+  font-weight: 600;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom-color: var(--app-border-soft);
+}
+
+.ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: var(--app-primary-softer);
+}
+
+.ant-pagination {
+  margin-top: 22px;
+}
+
+.ant-pagination .ant-pagination-item,
+.ant-pagination .ant-pagination-prev .ant-pagination-item-link,
+.ant-pagination .ant-pagination-next .ant-pagination-item-link {
+  border-radius: var(--app-radius-sm);
+}
+
+.ant-modal .ant-modal-content {
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border-radius: var(--app-radius-lg);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18), var(--glass-highlight);
+}
+
+/* 标题栏透明，避免白底色块压在玻璃弹窗上 */
+.ant-modal .ant-modal-header {
+  background: transparent;
+}
+
+/* 浮层（下拉/气泡）真磨砂 */
+.ant-dropdown .ant-dropdown-menu,
+.ant-popover .ant-popover-inner,
+.ant-select-dropdown {
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12), var(--glass-highlight);
+}
+
+.ant-upload-wrapper.ant-upload-picture-card-wrapper .ant-upload.ant-upload-select,
+.ant-upload-wrapper.ant-upload-picture-card-wrapper .ant-upload-list.ant-upload-list-picture-card .ant-upload-list-item {
+  border-radius: var(--app-radius-lg);
+}
+
+/* ========== 通用工具类 ========== */
+
+/* hover 轻抬升（卡片/面板通用） */
+.hover-lift {
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--app-shadow-hover);
+}
+
+/* ========== 全局弹出动画（已移除）========== */
+/* 说明：Ant Design Vue 组件已内置过渡效果，CSS animation 叠加会导致重复触发（弹两次）。
+ * 如需自定义过渡，请在各组件上包裹 Vue <Transition> 实现。 */
+
+/* ========== 移动端降级 ========== */
+/* 磨砂模糊减半，保证低端设备滚动流畅 */
+@media (max-width: 768px) {
+  :root {
+    --glass-blur: 8px;
+  }
+}
