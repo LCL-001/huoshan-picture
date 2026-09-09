@@ -53,7 +53,3 @@ npm run dev
 VITE_API_BASE=http://localhost:8124
 ```
 
-## 说明
-
-- `application-local.yaml`、`application-prod.yaml`、`application-test.yaml` 含密钥或环境配置，未纳入版本控制。
-- `backend/jmeter/` 为本地压测产物，未纳入版本控制。
