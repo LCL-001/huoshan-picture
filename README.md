@@ -35,7 +35,7 @@ mvn spring-boot:run
 
 默认地址：http://localhost:8124/api
 
-数据库口令、对象存储与 AI 密钥等本地配置放在 `backend/src/main/resources/application-local.yaml`，该文件已被 `.gitignore` 忽略，clone 后需自行创建。
+数据库口令、对象存储与 AI 密钥等本地配置放在 `backend/src/main/resources/application-local.yaml`，clone 后需自行创建。
 
 ### 前端
 
