@@ -1,0 +1,52 @@
+<!--
+  契约样本：取自 Bing 异步图片接口的真实响应
+  https://cn.bing.com/images/async?q=cat&first=10&mmasync=1 （2026-09-10 抓取，HTTP 200）
+
+  为便于维护，只保留结果容器与 a.iusc 条目的骨架；m 属性里的 JSON 只留 cid/murl/turl
+  三个字段（真实响应对应条目字段更全，但不影响契约）。
+  最后两个条目是补的边界样本：murl 带 query、murl 为空。
+
+  契约要点（Bing 改版时本文件与 BingImageParserContractTest 应一起失败）：
+    1. 结果容器：class 含 dgControl 的 div（ul.dgControl_list 是另一个类，不应被选中）
+    2. 条目：容器内 a.iusc，元数据放在 m 属性（HTML 转义的 JSON）
+    3. 原图地址：m 的 murl 字段，需去掉 query 再使用
+-->
+<div id="mmComponent_images_1" class="dgControl dtl hover" style="width:1004px">
+    <ul data-row="0" class="dgControl_list" data-infullrow="1">
+        <li data-idx="1">
+            <div class="iuscp isv"><div class="imgpt">
+                <a aria-label="cat 的图片结果" role="link" class="iusc" style="height:180px;width:194px"
+                   m="{&quot;cid&quot;:&quot;esZre5UZ&quot;,&quot;murl&quot;:&quot;https://i.gei6.com/p_img/danci/cat-1.jpg&quot;,&quot;turl&quot;:&quot;https://ts4.mm.bing.net/th?id=OIP.esZre5UZ&quot;}"
+                   href="/images/search?view=detailV2&amp;ccid=esZre5UZ">cat-1</a>
+            </div></div>
+        </li>
+        <li data-idx="2">
+            <div class="iuscp isv"><div class="imgpt">
+                <a aria-label="cat 的图片结果" role="link" class="iusc" style="height:180px;width:264px"
+                   m="{&quot;cid&quot;:&quot;uUC/TCOn&quot;,&quot;murl&quot;:&quot;https://betterwithcats.net/wp-content/uploads/2022/08/cat-is-laying-on-a-old-wooden-table.jpg&quot;,&quot;turl&quot;:&quot;https://ts4.mm.bing.net/th?id=OIP.uUC_TCOnglPWTd2yn5vNPw&quot;}"
+                   href="/images/search?view=detailV2&amp;ccid=uUC%2fTCOn">cat-2</a>
+            </div></div>
+        </li>
+        <li data-idx="3">
+            <div class="iuscp isv"><div class="imgpt">
+                <a aria-label="cat 的图片结果" role="link" class="iusc" style="height:180px;width:261px"
+                   m="{&quot;cid&quot;:&quot;G7QYaDF4&quot;,&quot;murl&quot;:&quot;https://www.thesprucepets.com/thmb/LT1TK3rcLHo15M66c7kIH8lIm44=/2782x1855/filters:fill(auto,1)/calico-cats-profile-554694-hero.jpg&quot;,&quot;turl&quot;:&quot;https://ts2.mm.bing.net/th?id=OIP.G7QYaDF4&quot;}"
+                   href="/images/search?view=detailV2&amp;ccid=G7QYaDF4">cat-3</a>
+            </div></div>
+        </li>
+        <li data-idx="4">
+            <div class="iuscp isv"><div class="imgpt">
+                <a role="link" class="iusc"
+                   m="{&quot;cid&quot;:&quot;EDGE0001&quot;,&quot;murl&quot;:&quot;https://example.com/with-query.jpg?w=800&amp;h=600&quot;,&quot;turl&quot;:&quot;https://ts1.mm.bing.net/th?id=EDGE0001&quot;}"
+                   href="/images/search?view=detailV2&amp;ccid=EDGE0001">edge-query</a>
+            </div></div>
+        </li>
+        <li data-idx="5">
+            <div class="iuscp isv"><div class="imgpt">
+                <a role="link" class="iusc"
+                   m="{&quot;cid&quot;:&quot;EDGE0002&quot;,&quot;murl&quot;:&quot;&quot;,&quot;turl&quot;:&quot;https://ts1.mm.bing.net/th?id=EDGE0002&quot;}"
+                   href="/images/search?view=detailV2&amp;ccid=EDGE0002">edge-blank-murl</a>
+            </div></div>
+        </li>
+    </ul>
+</div>

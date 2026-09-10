@@ -114,6 +114,14 @@ app:
     edit-lock-idle-timeout-ms: 300000
     # 空闲锁扫描间隔（毫秒）
     edit-lock-sweep-interval-ms: 60000
+  bing-image:
+    # Bing 图片搜索结果的 DOM 契约（改版时只改这里，并由 BingImageParserContractTest 先行暴露）
+    container-selector: ".dgControl"
+    item-selector: ".iusc"
+    # 条目上存放元数据的属性名，值是 JSON 字符串
+    metadata-attribute: "m"
+    # 元数据 JSON 中原图地址的字段名
+    image-url-field: "murl"
 # Sa-Token 配置：satoken Cookie 默认可被 JS 读取，必须加 HttpOnly/SameSite；
 # secure 仅在 application-prod.yaml 开启（本地 http 调试需要非 secure Cookie）
 sa-token:

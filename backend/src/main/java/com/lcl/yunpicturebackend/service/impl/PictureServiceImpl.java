@@ -6,7 +6,6 @@ import cn.hutool.core.lang.TypeReference;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
@@ -34,6 +33,7 @@ import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
 import com.lcl.yunpicturebackend.manager.cache.PictureListCacheInvalidator;
+import com.lcl.yunpicturebackend.manager.crawler.BingImageParser;
 import com.lcl.yunpicturebackend.manager.observability.PictureListCacheMetrics;
 import com.lcl.yunpicturebackend.manager.observability.TraceContext;
 import com.lcl.yunpicturebackend.manager.upload.FilePictureUpload;
@@ -55,8 +55,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -194,6 +192,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private final PictureFileCleanupService pictureFileCleanupService;
 
     private final PictureListCacheInvalidator pictureListCacheInvalidator;
+
+    private final BingImageParser bingImageParser;
 
     /**
      * 图片列表本地缓存，Bean 定义见 CacheConfig（已开启 recordStats，用于统计命中率）
@@ -350,40 +350,14 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取页面失败");
         }
 
-        Element div = document.getElementsByClass("dgControl").first();
-        if (ObjUtil.isNull(div)) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取元素失败");
+        // 解析原图地址：选择器与字段名走配置（app.bing-image.*），
+        // 契约由 BingImageParserContractTest 用固定样本钉住，Bing 改版时构建期就能暴露
+        List<String> imageUrls = bingImageParser.parseImageUrls(document.html(),
+                pictureUploadByBatchRequest.getCount());
+        List<Map.Entry<Integer, String>> indexedUrls = new ArrayList<>(imageUrls.size());
+        for (int i = 0; i < imageUrls.size(); i++) {
+            indexedUrls.add(new AbstractMap.SimpleEntry<>(i, imageUrls.get(i)));
         }
-
-        Elements imgElementList = div.select(".iusc");
-
-        List<Map.Entry<Integer, String>> indexedUrls = new ArrayList<>();
-        int index = 0;
-        for (Element imgElement : imgElementList) {
-            String dataM = imgElement.attr("m");
-            try {
-                JSONObject jsonObject = JSONUtil.parseObj(dataM);
-                String fileURL = jsonObject.getStr("murl");
-
-                if (StrUtil.isBlank(fileURL)) {
-                    continue;
-                }
-
-                int questionMarkIndex = fileURL.indexOf("?");
-                if (questionMarkIndex > -1) {
-                    fileURL = fileURL.substring(0, questionMarkIndex);
-                }
-
-                indexedUrls.add(new AbstractMap.SimpleEntry<>(index++, fileURL));
-            } catch (Exception e) {
-                log.error("解析图片数据失败", e);
-            }
-
-            if (indexedUrls.size() >= pictureUploadByBatchRequest.getCount()) {
-                break;
-            }
-        }
-
         String finalNamePrefix = namePrefix;
         List<CompletableFuture<UploadResult>> futures = indexedUrls.stream()
                 .map(entry -> {
