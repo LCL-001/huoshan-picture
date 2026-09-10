@@ -33,6 +33,7 @@ import com.lcl.yunpicturebackend.manager.CosManager;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
+import com.lcl.yunpicturebackend.manager.cache.PictureListCacheInvalidator;
 import com.lcl.yunpicturebackend.manager.observability.PictureListCacheMetrics;
 import com.lcl.yunpicturebackend.manager.observability.TraceContext;
 import com.lcl.yunpicturebackend.manager.upload.FilePictureUpload;
@@ -138,6 +139,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private final AliYunAiApi aliYunAiApi;
 
     private final PictureFileCleanupService pictureFileCleanupService;
+
+    private final PictureListCacheInvalidator pictureListCacheInvalidator;
 
     /**
      * 图片列表本地缓存，Bean 定义见 CacheConfig（已开启 recordStats，用于统计命中率）
@@ -701,9 +704,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         // 版本号 +1 使所有旧版本 key 立即失效，旧 key 靠 TTL 自然过期
         // 避免使用 KEYS 通配符全库扫描阻塞 Redis
         stringRedisTemplate.opsForValue().increment(PICTURE_LIST_CACHE_VERSION_KEY);
-        // 本地缓存无法感知分布式版本变化，直接整体失效
-        // 多节点部署时其它节点的本地缓存由 TTL（5~10 分钟）兜底
-        localCache.invalidateAll();
+        // 先自增版本号再广播：其它实例收到广播清空本地缓存后回源，读到的是新版本 key，
+        // 不会把旧数据写回本地。广播失败时由本地 TTL（5~10 分钟）兜底
+        pictureListCacheInvalidator.invalidateAll();
     }
 
     /**
