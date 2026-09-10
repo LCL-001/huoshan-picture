@@ -74,6 +74,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 import java.awt.*;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -102,6 +105,21 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private static final String OUT_PAINTING_OWNER_KEY = "yupicture:outpainting:owner:";
 
     /**
+     * AI 扩图任务幂等键前缀：用户 + 图片 + 参数指纹，保证同参数重复提交只产生一个付费任务
+     */
+    private static final String OUT_PAINTING_IDEMPOTENT_KEY = "yupicture:outpainting:idempotent:";
+
+    /**
+     * AI 扩图每日配额键前缀（按用户 + 自然日）
+     */
+    private static final String OUT_PAINTING_QUOTA_KEY = "yupicture:outpainting:quota:";
+
+    /**
+     * 幂等占位值：任务已提交但尚未拿到 taskId
+     */
+    private static final String OUT_PAINTING_PENDING = "PENDING";
+
+    /**
      * 图片列表缓存版本号的 Redis key
      */
     private static final String PICTURE_LIST_CACHE_VERSION_KEY = "yupicture:listPictureVOByPage:version";
@@ -111,6 +129,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
      */
     private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            Long.class);
+
+    /**
+     * 回滚扩图配额占用的 Lua 脚本：key 不存在或已为 0 时什么都不做。
+     * 避免跨天 key 刚过期时 decrement 凭空造出一个 -1 且没有 TTL 的残留 key。
+     */
+    private static final DefaultRedisScript<Long> QUOTA_ROLLBACK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('exists', KEYS[1]) == 1 and tonumber(redis.call('get', KEYS[1])) > 0 "
+                    + "then return redis.call('decr', KEYS[1]) else return 0 end",
             Long.class);
 
     /**
@@ -137,6 +164,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
      */
     @Value("${app.cache.rebuild-warn-ms:5000}")
     private long cacheRebuildWarnMs;
+
+    /**
+     * 单个用户每日可创建的 AI 扩图任务上限（扩图按量计费，必须有硬上限）
+     */
+    @Value("${app.outpainting.daily-quota:20}")
+    private int outPaintingDailyQuota;
 
     private final IUserService userService;
 
@@ -1136,20 +1169,85 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在"));
         // 权限校验
         this.checkPictureAuth(loginUser, picture);
-        // 构建请求参数
-        CreateOutPaintingTaskRequest taskRequest = new CreateOutPaintingTaskRequest();
-        CreateOutPaintingTaskRequest.Input input = new CreateOutPaintingTaskRequest.Input();
-        input.setImageUrl(picture.getUrl());
-        taskRequest.setInput(input);
-        BeanUtil.copyProperties(createPictureOutPaintingTaskRequest, taskRequest);
-        // 创建任务
-        CreateOutPaintingTaskResponse response = aliYunAiApi.createOutPaintingTask(taskRequest);
-        // 记录任务归属，查询任务结果时校验（TTL 1 天，与任务生命周期相当）
-        if (response.getOutput() != null && StrUtil.isNotBlank(response.getOutput().getTaskId())) {
-            stringRedisTemplate.opsForValue().set(OUT_PAINTING_OWNER_KEY + response.getOutput().getTaskId(),
-                    String.valueOf(loginUser.getId()), 1, TimeUnit.DAYS);
+
+        // 幂等：同用户 + 同图片 + 同参数只允许一个任务，避免狂点创建出多个付费任务。
+        // 先占位再调接口：占位成功才继续；占位失败说明已有任务在途或已创建
+        String idempotentKey = buildOutPaintingIdempotentKey(loginUser.getId(), pictureId,
+                createPictureOutPaintingTaskRequest.getParameters());
+        Boolean claimed = stringRedisTemplate.opsForValue()
+                .setIfAbsent(idempotentKey, OUT_PAINTING_PENDING, 1, TimeUnit.DAYS);
+        if (!Boolean.TRUE.equals(claimed)) {
+            String existing = stringRedisTemplate.opsForValue().get(idempotentKey);
+            if (OUT_PAINTING_PENDING.equals(existing)) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "相同参数的扩图任务正在创建中，请稍后查看任务状态");
+            }
+            log.info("命中扩图任务幂等键，复用已有任务, userId={}, pictureId={}, taskId={}",
+                    loginUser.getId(), pictureId, existing);
+            CreateOutPaintingTaskResponse.Output output = new CreateOutPaintingTaskResponse.Output();
+            output.setTaskId(existing);
+            CreateOutPaintingTaskResponse reused = new CreateOutPaintingTaskResponse();
+            reused.setOutput(output);
+            return reused;
         }
-        return response;
+
+        String quotaKey = OUT_PAINTING_QUOTA_KEY + loginUser.getId() + ":" + LocalDate.now();
+        try {
+            // 配额只对"真正新建"的任务计数，幂等命中不扣额度
+            consumeOutPaintingQuota(quotaKey);
+            // 构建请求参数
+            CreateOutPaintingTaskRequest taskRequest = new CreateOutPaintingTaskRequest();
+            CreateOutPaintingTaskRequest.Input input = new CreateOutPaintingTaskRequest.Input();
+            input.setImageUrl(picture.getUrl());
+            taskRequest.setInput(input);
+            BeanUtil.copyProperties(createPictureOutPaintingTaskRequest, taskRequest);
+            // 创建任务
+            CreateOutPaintingTaskResponse response = aliYunAiApi.createOutPaintingTask(taskRequest);
+            if (response.getOutput() == null || StrUtil.isBlank(response.getOutput().getTaskId())) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "扩图任务创建失败：未返回任务 id");
+            }
+            String taskId = response.getOutput().getTaskId();
+            // 把占位改写成 taskId，后续同参数请求直接复用，不再重复调用付费接口
+            stringRedisTemplate.opsForValue().set(idempotentKey, taskId, 1, TimeUnit.DAYS);
+            // 记录任务归属，查询任务结果时校验（TTL 1 天，与任务生命周期相当）
+            stringRedisTemplate.opsForValue().set(OUT_PAINTING_OWNER_KEY + taskId,
+                    String.valueOf(loginUser.getId()), 1, TimeUnit.DAYS);
+            return response;
+        } catch (RuntimeException e) {
+            // 创建失败（含超额、AI 报错）时释放占位并回滚配额，让用户可以真正重试；
+            // CAS 删除只删 PENDING，已绑定 taskId 的记录不会被误删
+            stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(idempotentKey),
+                    OUT_PAINTING_PENDING);
+            stringRedisTemplate.execute(QUOTA_ROLLBACK_SCRIPT, Collections.singletonList(quotaKey));
+            throw e;
+        }
+    }
+
+    /**
+     * 构建扩图任务幂等键：用户 + 图片 + 参数指纹，三者一致即视为同一次提交
+     */
+    private String buildOutPaintingIdempotentKey(Long userId, Long pictureId,
+                                                 CreateOutPaintingTaskRequest.Parameters parameters) {
+        String paramsHash = DigestUtils.md5DigestAsHex(
+                JSONUtil.toJsonStr(parameters).getBytes(StandardCharsets.UTF_8));
+        return OUT_PAINTING_IDEMPOTENT_KEY + userId + ":" + pictureId + ":" + paramsHash;
+    }
+
+    /**
+     * 扣减当日扩图配额：INCR 计数，首次创建时把 key 过期时间设到当天 24 点，避免跨天计数残留。
+     * <p>
+     * 超额只抛业务异常、本方法不做回滚：回滚统一放在调用方的 catch 里，
+     * 否则"超额抛异常"和"外层回滚"会各减一次，把计数减成错的。
+     */
+    private void consumeOutPaintingQuota(String quotaKey) {
+        Long used = stringRedisTemplate.opsForValue().increment(quotaKey);
+        if (used != null && used == 1L) {
+            Date expireAt = Date.from(LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant());
+            stringRedisTemplate.expireAt(quotaKey, expireAt);
+        }
+        if (used != null && used > outPaintingDailyQuota) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    String.format("今日扩图任务额度已用完（每日 %d 次），请明天再试", outPaintingDailyQuota));
+        }
     }
 
     @Override

@@ -105,6 +105,9 @@ app:
     rebuild-lock-ttl-seconds: 30
     # 重建耗时超过该值打 WARN，作为"TTL 余量可能不够"的早期信号
     rebuild-warn-ms: 5000
+  outpainting:
+    # 单用户每日可创建的 AI 扩图任务数上限（按量计费，防止狂点产生付费任务）
+    daily-quota: 20
 # Sa-Token 配置：satoken Cookie 默认可被 JS 读取，必须加 HttpOnly/SameSite；
 # secure 仅在 application-prod.yaml 开启（本地 http 调试需要非 secure Cookie）
 sa-token:
