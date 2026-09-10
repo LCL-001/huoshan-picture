@@ -34,9 +34,9 @@ public class SocialServiceImpl implements ISocialService {
     private final IUserService userService;
     private final UserNotificationMapper notificationMapper;
 
-    private static final String TIMELINE_KEY = "user:timeline:";
-    private static final String UNREAD_COUNT_KEY = "user:unread:";
-    private static final String LIKE_USERS_KEY = "post:like:users:";
+    private static final String TIMELINE_KEY = "huoshantuku:user:timeline:";
+    private static final String UNREAD_COUNT_KEY = "huoshantuku:user:unread:";
+    private static final String LIKE_USERS_KEY = "huoshantuku:post:like:users:";
     private static final int TIMELINE_MAX = 200;
     private static final int FAN_THRESHOLD = 1000;
 

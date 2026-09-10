@@ -28,9 +28,9 @@ public class UserFollowServiceImpl extends ServiceImpl<UserFollowMapper, UserFol
     private final StringRedisTemplate stringRedisTemplate;
     private final IUserService userService;
 
-    private static final String FOLLOWING_KEY = "user:following:";
-    private static final String FOLLOWING_COUNT_KEY = "user:following:count:";
-    private static final String FOLLOWER_COUNT_KEY = "user:follower:count:";
+    private static final String FOLLOWING_KEY = "huoshantuku:user:following:";
+    private static final String FOLLOWING_COUNT_KEY = "huoshantuku:user:following:count:";
+    private static final String FOLLOWER_COUNT_KEY = "huoshantuku:user:follower:count:";
 
     @Override
     @Transactional(rollbackFor = Exception.class)

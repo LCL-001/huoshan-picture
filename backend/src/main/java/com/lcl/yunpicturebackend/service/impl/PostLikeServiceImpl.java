@@ -23,8 +23,8 @@ public class PostLikeServiceImpl extends ServiceImpl<PostLikeMapper, PostLike> i
     private final StringRedisTemplate stringRedisTemplate;
     private final IPostService postService;
 
-    private static final String LIKE_COUNT_KEY = "post:like:count:";
-    private static final String LIKE_USERS_KEY = "post:like:users:";
+    private static final String LIKE_COUNT_KEY = "huoshantuku:post:like:count:";
+    private static final String LIKE_USERS_KEY = "huoshantuku:post:like:users:";
 
     @Override
     @Transactional(rollbackFor = Exception.class)

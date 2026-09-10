@@ -43,8 +43,8 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements IP
     @Lazy
     private final ISocialService socialService;
 
-    private static final String POST_VIEW_USERS_KEY = "post:view:users:";
-    private static final String LIKE_USERS_KEY = "post:like:users:";
+    private static final String POST_VIEW_USERS_KEY = "huoshantuku:post:view:users:";
+    private static final String LIKE_USERS_KEY = "huoshantuku:post:like:users:";
 
     @Override
     @Transactional(rollbackFor = Exception.class)
