@@ -99,6 +99,12 @@ app:
     # 仅压测/联调时由 application-test.yaml 覆盖为 false
     captcha-enabled: true
     login-limit-enabled: true
+  cache:
+    # 缓存重建分布式锁的 TTL（秒）：必须大于"查库 + 组装 VO"的耗时上界，
+    # 否则锁会在重建中途过期，让后来的请求重复回源
+    rebuild-lock-ttl-seconds: 30
+    # 重建耗时超过该值打 WARN，作为"TTL 余量可能不够"的早期信号
+    rebuild-warn-ms: 5000
 # Sa-Token 配置：satoken Cookie 默认可被 JS 读取，必须加 HttpOnly/SameSite；
 # secure 仅在 application-prod.yaml 开启（本地 http 调试需要非 secure Cookie）
 sa-token:

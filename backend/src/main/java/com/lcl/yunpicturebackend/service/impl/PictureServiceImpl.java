@@ -58,6 +58,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -117,6 +118,25 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
      */
     private static final int CACHE_REBUILD_RETRY_TIMES = 5;
     private static final long CACHE_REBUILD_RETRY_INTERVAL_MS = 50;
+
+    /**
+     * 缓存重建锁的 TTL（秒）。
+     * <p>
+     * 取值必须大于"查库 + 组装 VO + 序列化"的耗时上界：锁一旦在持有者仍在重建时提前过期，
+     * 后续请求会再抢到锁并重复查库（双写竞争），双重检查只能减轻影响、不能消除重复回源。
+     * 实测本机单次重建在百毫秒级，30 秒留了一个数量级余量；可通过配置按 P95 重建耗时调整。
+     * <p>
+     * 不做看门狗自动续期、也不引 Redisson：自研锁是为了理解原理，单机 + 单 Redis 够用，
+     * 不值得为一个锁引入整套客户端；真需要续期再换 Redisson 或加后台续期线程。
+     */
+    @Value("${app.cache.rebuild-lock-ttl-seconds:30}")
+    private long cacheRebuildLockTtlSeconds;
+
+    /**
+     * 重建耗时超过该阈值打 WARN，作为"重建变慢、TTL 余量可能不够"的早期信号
+     */
+    @Value("${app.cache.rebuild-warn-ms:5000}")
+    private long cacheRebuildWarnMs;
 
     private final IUserService userService;
 
@@ -565,9 +585,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         String lockKey = "huoshantuku:lock:" + hashKey;
         // value 使用随机标识，释放时校验归属，避免误删他人锁
         String lockValue = UUID.randomUUID().toString();
-        Boolean lock = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, 10, TimeUnit.SECONDS);
+        Boolean lock = stringRedisTemplate.opsForValue()
+                .setIfAbsent(lockKey, lockValue, cacheRebuildLockTtlSeconds, TimeUnit.SECONDS);
         if (Boolean.TRUE.equals(lock)) {
             // 获取锁成功
+            long rebuildStart = System.currentTimeMillis();
             try {
                 // 双重检查：获取锁后再检查一次缓存
                 cachedValue = getFromRedisCache(key);
@@ -578,11 +600,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                     Page<PictureVO> pictureVOPage = JSONUtil.toBean(cachedValue, new TypeReference<Page<PictureVO>>() {}, false);
                     return pictureVOPage;
                 }
-                // 查询数据库
-                Page<Picture> picturePage = page(new Page<>(current, size), getQueryWrapper(pictureQueryRequest));
-
-                // 获取封装类
-                Page<PictureVO> pictureVOPage = getPictureVOPage(picturePage, request);
+                // 查询数据库 + 组装封装类
+                Page<PictureVO> pictureVOPage = loadFromDb(pictureQueryRequest, current, size, request);
                 // 写入本地缓存
                 String cacheValue = JSONUtil.toJsonStr(pictureVOPage);
                 localCache.put(hashKey, cacheValue);
@@ -598,6 +617,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 stringRedisTemplate.opsForValue().set(key, cacheValue, cacheExpireTime, TimeUnit.SECONDS);
                 return pictureVOPage;
             } finally {
+                long rebuildCost = System.currentTimeMillis() - rebuildStart;
+                if (rebuildCost > cacheRebuildWarnMs) {
+                    // 重建耗时逼近锁 TTL 时应提前告警扩容/优化回源，而不是等锁提前释放暴露成重复查库
+                    log.warn("[cache-rebuild] 重建耗时 {}ms 超过预警阈值 {}ms（锁 TTL={}s）, key={}",
+                            rebuildCost, cacheRebuildWarnMs, cacheRebuildLockTtlSeconds, key);
+                } else {
+                    log.info("[cache-rebuild] 重建完成, 耗时={}ms, 锁 TTL={}s, key={}",
+                            rebuildCost, cacheRebuildLockTtlSeconds, key);
+                }
                 // 仅当 value 匹配时才释放，避免锁超时后误删他人持有的锁
                 stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(lockKey), lockValue);
             }
@@ -619,6 +647,18 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             // 返回空 Page 会误导前端“没有数据”，改为明确提示重试
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "系统繁忙，请稍后重试");
         }
+    }
+
+    /**
+     * 缓存未命中时的回源：查库 + 组装 VO。
+     * <p>
+     * 单独抽出来是为了给"重建耗时"一个明确的边界：锁 TTL 必须覆盖它，
+     * 测试也能在这里注入慢查询来验证锁不会提前释放。
+     */
+    protected Page<PictureVO> loadFromDb(PictureQueryRequest pictureQueryRequest, long current, long size,
+                                         HttpServletRequest request) {
+        Page<Picture> picturePage = page(new Page<>(current, size), getQueryWrapper(pictureQueryRequest));
+        return getPictureVOPage(picturePage, request);
     }
 
     /**
