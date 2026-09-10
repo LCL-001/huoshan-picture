@@ -1,0 +1,31 @@
+name: CI
+
+# 目标：在没有 MySQL / Redis 的干净环境里也能验证"编译通过 + 不依赖外部服务的用例通过"。
+# 最有价值的是 Bing 抓取契约测试——Bing 改版时让构建期就红，而不是等线上抓取到 0 张图。
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 约定：需要 MySQL / Redis 的测试类以 IntegrationTest 结尾。
+      # RedisStringTest 与 YunPictureBaseApplicationTests 是历史的 Spring 上下文测试，按名字排除。
+      # 排除语法用 !pattern（surefire 2.19+），只写排除项即"其余全跑"，
+      # 这样以后新增的纯单测会自动进入 CI，不需要改这个 workflow。
+      - name: Unit tests (no MySQL / Redis required)
+        working-directory: backend
+        run: >
+          mvn -B test
+          -Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests'
+          -DfailIfNoTests=false

@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
         "app.websocket.edit-lock-idle-timeout-ms=400",
         "app.websocket.edit-lock-sweep-interval-ms=600000"
 })
-class PictureEditHandlerIdleLockTest {
+class PictureEditHandlerIdleLockIntegrationTest {
 
     private static final long PICTURE_ID = 1001L;
     private static final long OTHER_PICTURE_ID = 1002L;
