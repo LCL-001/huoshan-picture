@@ -31,4 +31,9 @@ public class PictureEditEvent {
      */
     private Long pictureId;
 
+    /**
+     * 链路标识：Disruptor 消费线程与 WebSocket IO 线程不同，需要随事件传递才能延续 traceId
+     */
+    private String traceId;
+
 }

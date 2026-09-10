@@ -1,5 +1,6 @@
 package com.lcl.yunpicturebackend.config;
 
+import com.lcl.yunpicturebackend.manager.observability.MdcThreadPoolExecutor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,7 +17,8 @@ public class ThreadPoolConfig {
         int maxPoolSize = corePoolSize * 2;
         long keepAliveTime = 60L;
         
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+        // 用带 MDC 透传的实现：异步抓取/上传的日志同样能带上请求的 traceId
+        MdcThreadPoolExecutor executor = new MdcThreadPoolExecutor(
                 corePoolSize,
                 maxPoolSize,
                 keepAliveTime,

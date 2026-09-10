@@ -74,6 +74,10 @@ spring:
               algorithmClassName: com.lcl.yunpicturebackend.manager.sharding.PictureShardingAlgorithm
     props:
       sql-show: true
+# 日志格式：在级别后追加 traceId，便于按一次请求串联全链路日志
+logging:
+  pattern:
+    level: "%5p [%X{traceId:-}]"
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false

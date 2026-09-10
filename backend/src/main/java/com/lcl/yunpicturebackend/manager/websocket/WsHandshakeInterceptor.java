@@ -8,6 +8,7 @@ import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.enums.SpaceTypeEnum;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
+import com.lcl.yunpicturebackend.manager.observability.TraceContext;
 import com.lcl.yunpicturebackend.service.IPictureService;
 import com.lcl.yunpicturebackend.service.ISpaceService;
 import com.lcl.yunpicturebackend.service.IUserService;
@@ -97,6 +98,9 @@ public class WsHandshakeInterceptor implements HandshakeInterceptor {
             attributes.put("user", loginUser);
             attributes.put("userId", loginUser.getId());
             attributes.put("pictureId", Long.valueOf(pictureId)); // 记得转换为 Long 类型
+            // 把握手请求的 traceId 带到会话上，后续编辑事件的日志可以继续串联
+            String traceId = TraceContext.current();
+            attributes.put(TraceContext.TRACE_ID, StrUtil.isNotBlank(traceId) ? traceId : TraceContext.resolve(null));
         }
         return true;
     }

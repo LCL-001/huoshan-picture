@@ -35,6 +35,7 @@ import com.lcl.yunpicturebackend.manager.CosManager;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
+import com.lcl.yunpicturebackend.manager.observability.TraceContext;
 import com.lcl.yunpicturebackend.manager.upload.FilePictureUpload;
 import com.lcl.yunpicturebackend.manager.upload.PictureUploadTemplate;
 import com.lcl.yunpicturebackend.manager.upload.URLFilePictureUpload;
@@ -300,7 +301,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 searchText, offset + 10);
         Document document;
         try {
-            document = Jsoup.connect(fetchURL).get();
+            document = Jsoup.connect(fetchURL)
+                    // 出站请求带上 traceId：外部依赖超时/改版时，可以和本地日志串起来
+                    .header(TraceContext.TRACE_ID_HEADER, TraceContext.currentOrDefault())
+                    .get();
         } catch (IOException e) {
             log.error("获取页面失败", e);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取页面失败");

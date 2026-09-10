@@ -1,6 +1,7 @@
 package com.lcl.yunpicturebackend.manager.websocket.disruptor;
 
 import com.lcl.yunpicturebackend.domain.po.User;
+import com.lcl.yunpicturebackend.manager.observability.TraceContext;
 import com.lcl.yunpicturebackend.manager.websocket.model.PictureEditRequestMessage;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -30,6 +31,7 @@ public class PictureEditEventProducer {
         pictureEditEvent.setPictureEditRequestMessage(pictureEditRequestMessage);
         pictureEditEvent.setUser(user);
         pictureEditEvent.setPictureId(pictureId);
+        pictureEditEvent.setTraceId((String) session.getAttributes().get(TraceContext.TRACE_ID));
         // 发布事件
         ringBuffer.publish(next);
     }

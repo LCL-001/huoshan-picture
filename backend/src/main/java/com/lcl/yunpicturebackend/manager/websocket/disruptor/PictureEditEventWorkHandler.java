@@ -2,6 +2,7 @@ package com.lcl.yunpicturebackend.manager.websocket.disruptor;
 
 import cn.hutool.json.JSONUtil;
 import com.lcl.yunpicturebackend.domain.po.User;
+import com.lcl.yunpicturebackend.manager.observability.TraceContext;
 import com.lcl.yunpicturebackend.manager.websocket.PictureEditHandler;
 import com.lcl.yunpicturebackend.manager.websocket.model.PictureEditMessageTypeEnum;
 import com.lcl.yunpicturebackend.manager.websocket.model.PictureEditRequestMessage;
@@ -32,6 +33,16 @@ public class PictureEditEventWorkHandler implements WorkHandler<PictureEditEvent
 
     @Override
     public void onEvent(PictureEditEvent event) throws Exception {
+        // Disruptor 消费线程与 WebSocket IO 线程不是同一条，必须显式恢复事件的 traceId
+        TraceContext.set(event.getTraceId());
+        try {
+            handleEvent(event);
+        } finally {
+            TraceContext.clear();
+        }
+    }
+
+    private void handleEvent(PictureEditEvent event) throws Exception {
         PictureEditRequestMessage pictureEditRequestMessage = event.getPictureEditRequestMessage();
         WebSocketSession session = event.getSession();
         User user = event.getUser();

@@ -11,6 +11,7 @@ import com.lcl.yunpicturebackend.api.aliyunai.model.CreateOutPaintingTaskRespons
 import com.lcl.yunpicturebackend.api.aliyunai.model.GetOutPaintingTaskResponse;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
+import com.lcl.yunpicturebackend.manager.observability.TraceContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -44,6 +45,7 @@ public class AliYunAiApi {
                 // 必须开启异步处理，设置为enable。
                 .header("X-DashScope-Async", "enable")
                 .header(Header.CONTENT_TYPE, ContentType.JSON.getValue())
+                .header(TraceContext.TRACE_ID_HEADER, TraceContext.currentOrDefault())
                 .body(JSONUtil.toJsonStr(createOutPaintingTaskRequest));
         try (HttpResponse httpResponse = httpRequest.execute()) {
             if (!httpResponse.isOk()) {
@@ -73,6 +75,7 @@ public class AliYunAiApi {
         }
         try (HttpResponse httpResponse = HttpRequest.get(String.format(GET_OUT_PAINTING_TASK_URL, taskId))
                 .header(Header.AUTHORIZATION, "Bearer " + apiKey)
+                .header(TraceContext.TRACE_ID_HEADER, TraceContext.currentOrDefault())
                 .execute()) {
             if (!httpResponse.isOk()) {
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "获取任务失败");
