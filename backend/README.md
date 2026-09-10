@@ -81,7 +81,7 @@
 ## 📁 项目结构
 
 ```
-yun-picture-backend/
+huoshan-picture/backend/
 ├── src/main/java/com/lcl/yunpicturebackend/
 │   ├── annotation/          # 自定义注解（@AuthCheck）
 │   ├── aop/                 # AOP 切面（权限拦截器）
@@ -103,8 +103,9 @@ yun-picture-backend/
 │   └── utils/               # 工具类（颜色处理等）
 ├── src/main/resources/
 │   ├── application.yaml         # 主配置文件
-│   ├── application-local.yaml   # 本地开发配置
-│   ├── application-prod.yaml    # 生产环境配置
+│   ├── application-local.yaml.example  # 本地配置模板（复制为 application-local.yaml 后填值）
+│   ├── application-local.yaml   # 本地开发配置（已被 gitignore）
+│   ├── application-prod.yaml    # 生产环境配置（已被 gitignore）
 │   └── mapper/                  # MyBatis XML 映射文件
 ├── sql/
 │   └── create_table.sql     # 数据库建表脚本
@@ -125,23 +126,27 @@ yun-picture-backend/
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/LCL-001/yun-picture-base.git
-cd yun-picture-base
+git clone https://github.com/LCL-001/huoshan-picture.git
+cd huoshan-picture/backend
 
-# 2. 初始化数据库
+# 2. 生成本地配置：复制模板后把 replace-me 换成自己的值
+#    需要填：腾讯云 COS 密钥、阿里云百炼 API Key、MySQL 口令（邮件可选）
+#    注意：只有 aliYunAi.apiKey 没有默认值，不填应用会启动失败
+cp src/main/resources/application-local.yaml.example src/main/resources/application-local.yaml
+
+# 3. 初始化数据库（脚本自带 create database yu_picture）
+#    sql/add_user_email.sql 是给存量库补 email 列的增量脚本，全新初始化不用再执行
 mysql -u root -p < sql/create_table.sql
 
-# 3. 修改本地配置
-# 编辑 src/main/resources/application-local.yaml，填入你的：
-#    - 腾讯云 COS 密钥（secretId / secretKey）
-#    - 阿里云 AI API Key
-
-# 4. 启动项目
-mvn spring-boot:run
+# 4. 打包并启动（不要用 mvn spring-boot:run，Windows 下会因 classpath 过长失败）
+mvn -B package -DskipTests
+java -jar target/yun-picture-base-0.0.1-SNAPSHOT.jar
 
 # 5. 访问接口文档
 # http://localhost:8123/api/doc.html
 ```
+
+> Redis 需在本地 6379 运行（默认 database 1），MySQL 默认 `root@localhost:3306/yu_picture`。
 
 ### 生产部署
 

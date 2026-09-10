@@ -30,12 +30,23 @@ huoshan-picture/
 
 ```bash
 cd backend
-mvn spring-boot:run
+
+# 1. 生成本地配置：复制模板后把 replace-me 换成自己的值
+cp src/main/resources/application-local.yaml.example src/main/resources/application-local.yaml
+
+# 2. 打包并启动
+mvn -B package -DskipTests
+java -jar target/yun-picture-base-0.0.1-SNAPSHOT.jar
 ```
 
 默认地址：http://localhost:8123/api
 
-数据库口令、对象存储与 AI 密钥等本地配置放在 `backend/src/main/resources/application-local.yaml`，该文件已被 `.gitignore` 忽略，clone 后需自行创建。
+本地配置（MySQL 口令、腾讯云 COS 密钥、阿里云百炼 API Key）放在
+`backend/src/main/resources/application-local.yaml`，该文件被 `.gitignore` 忽略；
+模板见同目录下的 `application-local.yaml.example`，复制后填入自己的值即可。
+
+> Windows 下 `mvn spring-boot:run` 可能因命令行 classpath 过长报 `CreateProcess error=206`，
+> 用上面的打包后 `java -jar` 方式启动即可。
 
 ### 前端
 
