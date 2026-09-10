@@ -100,17 +100,17 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     /**
      * AI 扩图任务归属记录的 Redis key 前缀
      */
-    private static final String OUT_PAINTING_OWNER_KEY = "yupicture:outpainting:owner:";
+    static final String OUT_PAINTING_OWNER_KEY = "huoshantuku:outpainting:owner:";
 
     /**
      * AI 扩图任务幂等键前缀：用户 + 图片 + 参数指纹，保证同参数重复提交只产生一个付费任务
      */
-    private static final String OUT_PAINTING_IDEMPOTENT_KEY = "yupicture:outpainting:idempotent:";
+    static final String OUT_PAINTING_IDEMPOTENT_KEY = "huoshantuku:outpainting:idempotent:";
 
     /**
      * AI 扩图每日配额键前缀（按用户 + 自然日）
      */
-    private static final String OUT_PAINTING_QUOTA_KEY = "yupicture:outpainting:quota:";
+    static final String OUT_PAINTING_QUOTA_KEY = "huoshantuku:outpainting:quota:";
 
     /**
      * 幂等占位值：任务已提交但尚未拿到 taskId
@@ -120,7 +120,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     /**
      * 图片列表缓存版本号的 Redis key
      */
-    private static final String PICTURE_LIST_CACHE_VERSION_KEY = "yupicture:listPictureVOByPage:version";
+    private static final String PICTURE_LIST_CACHE_VERSION_KEY = "huoshantuku:listPictureVOByPage:version";
 
     /**
      * 释放分布式锁的 Lua 脚本：仅当锁的 value 与持有者标识一致时才删除，避免误删已超时后他人持有的锁

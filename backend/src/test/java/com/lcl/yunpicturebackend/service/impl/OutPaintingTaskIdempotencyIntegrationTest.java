@@ -46,8 +46,9 @@ class OutPaintingTaskIdempotencyIntegrationTest {
     private static final long PICTURE_ID = 900000002L;
     private static final String TASK_ID = "p1-4-test-task";
 
-    private static final String IDEMPOTENT_KEY_PREFIX = "yupicture:outpainting:idempotent:" + USER_ID + ":";
-    private static final String QUOTA_KEY_PREFIX = "yupicture:outpainting:quota:" + USER_ID + ":";
+    private static final String IDEMPOTENT_KEY_PREFIX =
+            PictureServiceImpl.OUT_PAINTING_IDEMPOTENT_KEY + USER_ID + ":";
+    private static final String QUOTA_KEY_PREFIX = PictureServiceImpl.OUT_PAINTING_QUOTA_KEY + USER_ID + ":";
 
     @SpyBean
     private PictureServiceImpl pictureService;
@@ -72,7 +73,7 @@ class OutPaintingTaskIdempotencyIntegrationTest {
     void cleanUpRedisKeys() {
         deleteByPattern(IDEMPOTENT_KEY_PREFIX + "*");
         deleteByPattern(QUOTA_KEY_PREFIX + "*");
-        stringRedisTemplate.delete("yupicture:outpainting:owner:" + TASK_ID);
+        stringRedisTemplate.delete(PictureServiceImpl.OUT_PAINTING_OWNER_KEY + TASK_ID);
     }
 
     /**

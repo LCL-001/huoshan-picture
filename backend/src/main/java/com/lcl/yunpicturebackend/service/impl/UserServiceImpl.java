@@ -64,25 +64,25 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     /**
      * 登录失败计数 Redis key 前缀（账号维度 / IP 维度）
      */
-    private static final String LOGIN_FAIL_ACCOUNT_KEY = "yupicture:auth:login:fail:account:";
-    private static final String LOGIN_FAIL_IP_KEY = "yupicture:auth:login:fail:ip:";
+    private static final String LOGIN_FAIL_ACCOUNT_KEY = "huoshantuku:auth:login:fail:account:";
+    private static final String LOGIN_FAIL_IP_KEY = "huoshantuku:auth:login:fail:ip:";
 
     /**
      * 图形验证码 Redis key 前缀，TTL 2 分钟
      */
-    private static final String IMG_CAPTCHA_KEY = "yupicture:auth:captcha:img:";
+    private static final String IMG_CAPTCHA_KEY = "huoshantuku:auth:captcha:img:";
 
     /**
      * 邮箱验证码 Redis key：验证码（TTL 5 分钟）/ 错误计数（TTL 5 分钟）
      */
-    private static final String EMAIL_CAPTCHA_KEY = "yupicture:auth:captcha:email:";
-    private static final String EMAIL_CAPTCHA_FAIL_KEY = "yupicture:auth:captcha:email:fail:";
+    private static final String EMAIL_CAPTCHA_KEY = "huoshantuku:auth:captcha:email:";
+    private static final String EMAIL_CAPTCHA_FAIL_KEY = "huoshantuku:auth:captcha:email:fail:";
     /**
      * 邮箱验证码频控：同邮箱间隔 60 秒 / 每日 10 条 / 同 IP 每日 20 条
      */
-    private static final String EMAIL_SEND_INTERVAL_KEY = "yupicture:auth:captcha:email:interval:";
-    private static final String EMAIL_SEND_DAILY_KEY = "yupicture:auth:captcha:email:daily:";
-    private static final String EMAIL_SEND_IP_DAILY_KEY = "yupicture:auth:captcha:email:ip:";
+    private static final String EMAIL_SEND_INTERVAL_KEY = "huoshantuku:auth:captcha:email:interval:";
+    private static final String EMAIL_SEND_DAILY_KEY = "huoshantuku:auth:captcha:email:daily:";
+    private static final String EMAIL_SEND_IP_DAILY_KEY = "huoshantuku:auth:captcha:email:ip:";
     private static final long EMAIL_SEND_INTERVAL_SECONDS = 60;
     private static final long EMAIL_SEND_DAILY_LIMIT = 10;
     private static final long EMAIL_SEND_IP_DAILY_LIMIT = 20;
