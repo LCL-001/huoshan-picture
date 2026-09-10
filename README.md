@@ -8,7 +8,7 @@
 
 ```
 huoshan-picture/
-├── backend/     Spring Boot 后端服务（端口 8124，context-path /api）
+├── backend/     Spring Boot 后端服务（端口 8123，context-path /api）
 └── frontend/    Vue 3 前端（开发端口 5173）
 ```
 
@@ -33,7 +33,7 @@ cd backend
 mvn spring-boot:run
 ```
 
-默认地址：http://localhost:8124/api
+默认地址：http://localhost:8123/api
 
 数据库口令、对象存储与 AI 密钥等本地配置放在 `backend/src/main/resources/application-local.yaml`，该文件已被 `.gitignore` 忽略，clone 后需自行创建。
 
@@ -50,7 +50,7 @@ npm run dev
 开发环境通过 `frontend/.env.development.local` 指定后端地址：
 
 ```
-VITE_API_BASE=http://localhost:8124
+VITE_API_BASE=http://localhost:8123
 ```
 
 ## 说明

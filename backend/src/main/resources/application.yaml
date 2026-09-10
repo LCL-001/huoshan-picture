@@ -1,5 +1,5 @@
 server:
-  port: 8124
+  port: 8123
   servlet:
     context-path: /api
     # cookie 7 天过期；SameSite=Lax 防 CSRF 场景下的跨站携带；HttpOnly 防脚本读取
