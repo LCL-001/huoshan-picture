@@ -108,6 +108,12 @@ app:
   outpainting:
     # 单用户每日可创建的 AI 扩图任务数上限（按量计费，防止狂点产生付费任务）
     daily-quota: 20
+  websocket:
+    # 编辑锁空闲多久后强制释放（毫秒，默认 5 分钟）：
+    # 客户端异常断开不会触发关闭回调，靠这个上界兜底，避免图片被永久锁定
+    edit-lock-idle-timeout-ms: 300000
+    # 空闲锁扫描间隔（毫秒）
+    edit-lock-sweep-interval-ms: 60000
 # Sa-Token 配置：satoken Cookie 默认可被 JS 读取，必须加 HttpOnly/SameSite；
 # secure 仅在 application-prod.yaml 开启（本地 http 调试需要非 secure Cookie）
 sa-token:

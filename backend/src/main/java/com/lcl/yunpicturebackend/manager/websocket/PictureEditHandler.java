@@ -10,7 +10,10 @@ import com.lcl.yunpicturebackend.manager.websocket.model.PictureEditMessageTypeE
 import com.lcl.yunpicturebackend.manager.websocket.model.PictureEditRequestMessage;
 import com.lcl.yunpicturebackend.manager.websocket.model.PictureEditResponseMessage;
 import com.lcl.yunpicturebackend.service.IUserService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.NonNull;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -18,6 +21,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.util.Map;
 import java.util.Set;
@@ -26,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 图片编辑处理
  */
+@Slf4j
 @Component
 public class PictureEditHandler extends TextWebSocketHandler {
 
@@ -35,11 +40,20 @@ public class PictureEditHandler extends TextWebSocketHandler {
     private static final int SEND_TIME_LIMIT_MS = 2000;
     private static final int SEND_BUFFER_SIZE_LIMIT = 512 * 1024;
 
-    // 每张图片的编辑状态，key: pictureId, value: 当前正在编辑的用户 ID
-    private final Map<Long, Long> pictureEditingUsers = new ConcurrentHashMap<>();
+    // 每张图片的编辑状态，key: pictureId, value: 当前编辑者与最近活跃时间
+    private final Map<Long, EditLock> pictureEditLocks = new ConcurrentHashMap<>();
 
     // 保存所有连接的会话，key: pictureId, value: 用户会话集合
     private final Map<Long, Set<WebSocketSession>> pictureSessions = new ConcurrentHashMap<>();
+
+    /**
+     * 编辑锁空闲多久后强制释放（毫秒）。默认 5 分钟。
+     * <p>
+     * 客户端异常断开（如直接杀进程）不会触发 afterConnectionClosed，锁会一直留着，
+     * 其他人再也进不了编辑态；用空闲超时给锁一个上界，代价是长时间挂机的编辑者会被回收后重进。
+     */
+    @Value("${app.websocket.edit-lock-idle-timeout-ms:300000}")
+    private long editLockIdleTimeoutMs;
 
     @Resource
     private IUserService userService;
@@ -49,6 +63,92 @@ public class PictureEditHandler extends TextWebSocketHandler {
 
     @Resource
     private ObjectMapper objectMapper;
+
+    /**
+     * 应用启动时清空编辑态。编辑锁是进程内存态，重启即空；
+     * 这里显式清一次，避免容器热重载或测试复用同一实例时残留上一轮的锁。
+     */
+    @PostConstruct
+    public void clearEditStateOnStartup() {
+        pictureEditLocks.clear();
+        pictureSessions.clear();
+    }
+
+    /**
+     * 编辑锁：记录持有者与最近活跃时间，供空闲超时回收判断
+     */
+    private static class EditLock {
+
+        private final Long userId;
+
+        /**
+         * 最近活跃时间（收到进入编辑/编辑动作消息时刷新），volatile 保证扫描线程能看到最新值
+         */
+        private volatile long lastActiveAt;
+
+        EditLock(Long userId, long lastActiveAt) {
+            this.userId = userId;
+            this.lastActiveAt = lastActiveAt;
+        }
+
+        Long getUserId() {
+            return userId;
+        }
+
+        long getLastActiveAt() {
+            return lastActiveAt;
+        }
+
+        void touch() {
+            this.lastActiveAt = System.currentTimeMillis();
+        }
+    }
+
+    /**
+     * 定时回收空闲超时的编辑锁：兜底"客户端异常断开且关闭回调未触发"导致的锁泄漏。
+     * <p>
+     * 移除用的是 ConcurrentHashMap 的条件删除：只有仍是同一把锁时才移除，
+     * 避免与同时刷新了活跃时间的请求竞态，把刚活跃的编辑者误踢出去。
+     */
+    @Scheduled(fixedDelayString = "${app.websocket.edit-lock-sweep-interval-ms:60000}")
+    public void releaseIdleEditLocks() {
+        long now = System.currentTimeMillis();
+        pictureEditLocks.forEach((pictureId, lock) -> {
+            long idleMs = now - lock.getLastActiveAt();
+            if (idleMs <= editLockIdleTimeoutMs) {
+                return;
+            }
+            if (pictureEditLocks.remove(pictureId, lock)) {
+                log.warn("[ws-edit-lock] 编辑锁空闲 {}ms 超过阈值 {}ms，强制释放, pictureId={}, userId={}",
+                        idleMs, editLockIdleTimeoutMs, pictureId, lock.getUserId());
+                broadcastEditLockReleased(pictureId);
+            }
+        });
+    }
+
+    /**
+     * 广播"编辑权已被自动释放"。取不到 User 对象就不带用户信息，
+     * 前端只依赖 type + message（见 ImageCropper.vue 的 EXIT_EDIT 处理）
+     */
+    private void broadcastEditLockReleased(Long pictureId) {
+        PictureEditResponseMessage pictureEditResponseMessage = new PictureEditResponseMessage();
+        pictureEditResponseMessage.setType(PictureEditMessageTypeEnum.EXIT_EDIT.getValue());
+        pictureEditResponseMessage.setMessage("编辑者长时间无操作，编辑权已自动释放，可重新进入编辑");
+        try {
+            broadcastToPicture(pictureId, pictureEditResponseMessage);
+        } catch (Exception e) {
+            // 定时任务里不能把异常抛出去，否则后续扫描会被调度器跳过
+            log.error("[ws-edit-lock] 广播编辑权释放失败, pictureId={}", pictureId, e);
+        }
+    }
+
+    /**
+     * 当前编辑者（无锁返回 null）。供测试观测锁状态。
+     */
+    Long getEditingUserId(Long pictureId) {
+        EditLock lock = pictureEditLocks.get(pictureId);
+        return lock == null ? null : lock.getUserId();
+    }
 
     /**
      * 接收客户端消息
@@ -102,8 +202,9 @@ public class PictureEditHandler extends TextWebSocketHandler {
      */
     public void handleEnterEditMessage(PictureEditRequestMessage pictureEditRequestMessage, WebSocketSession session, User user, Long pictureId) throws Exception {
         // putIfAbsent 基于 CAS 原子占位，避免 containsKey + put 的 check-then-act 竞态
-        Long previousEditorId = pictureEditingUsers.putIfAbsent(pictureId, user.getId());
-        if (previousEditorId == null) {
+        EditLock previousLock = pictureEditLocks.putIfAbsent(pictureId,
+                new EditLock(user.getId(), System.currentTimeMillis()));
+        if (previousLock == null) {
             // 抢占编辑权成功，广播开始编辑
             PictureEditResponseMessage pictureEditResponseMessage = new PictureEditResponseMessage();
             pictureEditResponseMessage.setType(PictureEditMessageTypeEnum.ENTER_EDIT.getValue());
@@ -111,14 +212,16 @@ public class PictureEditHandler extends TextWebSocketHandler {
             pictureEditResponseMessage.setMessage(message);
             pictureEditResponseMessage.setUser(userService.getUserVO(user));
             broadcastToPicture(pictureId, pictureEditResponseMessage);
-        } else if (!previousEditorId.equals(user.getId())) {
+        } else if (!previousLock.getUserId().equals(user.getId())) {
             // 已被其他用户占用：仅给当前请求者定向提示，不广播
             PictureEditResponseMessage busyMessage = new PictureEditResponseMessage();
             busyMessage.setType(PictureEditMessageTypeEnum.INFO.getValue());
             busyMessage.setMessage("该图片正在被其他用户编辑");
             sendToSession(pictureId, session, busyMessage);
+        } else {
+            // 同一用户重复进入编辑：忽略，但要刷新活跃时间，避免被判为空闲后误回收
+            previousLock.touch();
         }
-        // 同一用户重复进入编辑：忽略
     }
 
     /**
@@ -154,14 +257,16 @@ public class PictureEditHandler extends TextWebSocketHandler {
      * @throws Exception
      */
     public void handleEditActionMessage(PictureEditRequestMessage pictureEditRequestMessage, WebSocketSession session, User user, Long pictureId) throws Exception {
-        Long editingUserId = pictureEditingUsers.get(pictureId);
+        EditLock editLock = pictureEditLocks.get(pictureId);
         String editAction = pictureEditRequestMessage.getEditAction();
         PictureEditActionEnum actionEnum = PictureEditActionEnum.getEnumByValue(editAction);
         if (actionEnum == null) {
             return;
         }
         // 确认是当前编辑者
-        if (editingUserId != null && editingUserId.equals(user.getId())) {
+        if (editLock != null && editLock.getUserId().equals(user.getId())) {
+            // 有编辑动作说明用户还活跃，刷新时间戳，避免执行中的编辑被空闲回收
+            editLock.touch();
             PictureEditResponseMessage pictureEditResponseMessage = new PictureEditResponseMessage();
             pictureEditResponseMessage.setType(PictureEditMessageTypeEnum.EDIT_ACTION.getValue());
             String message = String.format("%s执行%s", user.getUserName(), actionEnum.getText());
@@ -182,10 +287,12 @@ public class PictureEditHandler extends TextWebSocketHandler {
      * @throws Exception
      */
     public void handleExitEditMessage(PictureEditRequestMessage pictureEditRequestMessage, WebSocketSession session, User user, Long pictureId) throws Exception {
-        Long editingUserId = pictureEditingUsers.get(pictureId);
-        if (editingUserId != null && editingUserId.equals(user.getId())) {
-            // 移除当前用户的编辑状态
-            pictureEditingUsers.remove(pictureId);
+        EditLock editLock = pictureEditLocks.get(pictureId);
+        if (editLock != null && editLock.getUserId().equals(user.getId())) {
+            // 条件删除：只有仍是同一把锁时才移除，避免把并发抢到锁的新编辑者误删
+            if (!pictureEditLocks.remove(pictureId, editLock)) {
+                return;
+            }
             // 构造响应，发送退出编辑的消息通知
             PictureEditResponseMessage pictureEditResponseMessage = new PictureEditResponseMessage();
             pictureEditResponseMessage.setType(PictureEditMessageTypeEnum.EXIT_EDIT.getValue());
