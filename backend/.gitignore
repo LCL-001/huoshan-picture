@@ -12,7 +12,13 @@ application-test.yaml
 
 ### 本地工具与压测产物 ###
 .zcode/
-jmeter/
+# 压测：保留可复现的最小证据集（测试计划 / 统计口径 / 脚本 / 说明文档），
+# 原始 .jtl 与 JMeter 生成的 HTML 报告体积大（单个 2.9~39MB），不入库
+jmeter/*.jtl
+jmeter/report*/
+jmeter/temp/
+jmeter/*.log
+jmeter/*.tmp
 # docs/ 整个目录不纳入版本控制
 docs/
 

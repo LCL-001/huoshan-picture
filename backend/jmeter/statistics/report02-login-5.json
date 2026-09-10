@@ -1,0 +1,34 @@
+{
+  "用户登录（BCrypt校验）" : {
+    "transaction" : "用户登录（BCrypt校验）",
+    "sampleCount" : 4427,
+    "errorCount" : 0,
+    "errorPct" : 0.0,
+    "meanResTime" : 334.2005873051733,
+    "medianResTime" : 334.0,
+    "minResTime" : 199.0,
+    "maxResTime" : 564.0,
+    "pct1ResTime" : 353.0,
+    "pct2ResTime" : 361.0,
+    "pct3ResTime" : 435.0,
+    "throughput" : 14.750078298360066,
+    "receivedKBytesPerSec" : 15.746713212889908,
+    "sentKBytesPerSec" : 4.751621098825858
+  },
+  "Total" : {
+    "transaction" : "Total",
+    "sampleCount" : 4427,
+    "errorCount" : 0,
+    "errorPct" : 0.0,
+    "meanResTime" : 334.2005873051733,
+    "medianResTime" : 334.0,
+    "minResTime" : 199.0,
+    "maxResTime" : 564.0,
+    "pct1ResTime" : 353.0,
+    "pct2ResTime" : 361.0,
+    "pct3ResTime" : 435.0,
+    "throughput" : 14.750078298360066,
+    "receivedKBytesPerSec" : 15.746713212889908,
+    "sentKBytesPerSec" : 4.751621098825858
+  }
+}
