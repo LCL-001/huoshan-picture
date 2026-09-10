@@ -12,8 +12,6 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.Expiry;
 import com.lcl.yunpicturebackend.api.aliyunai.AliYunAiApi;
 import com.lcl.yunpicturebackend.api.aliyunai.model.CreateOutPaintingTaskRequest;
 import com.lcl.yunpicturebackend.api.aliyunai.model.CreateOutPaintingTaskResponse;
@@ -35,6 +33,7 @@ import com.lcl.yunpicturebackend.manager.CosManager;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
+import com.lcl.yunpicturebackend.manager.observability.PictureListCacheMetrics;
 import com.lcl.yunpicturebackend.manager.observability.TraceContext;
 import com.lcl.yunpicturebackend.manager.upload.FilePictureUpload;
 import com.lcl.yunpicturebackend.manager.upload.PictureUploadTemplate;
@@ -77,7 +76,6 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -141,31 +139,17 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
 
     private final PictureFileCleanupService pictureFileCleanupService;
 
-    private final Cache<String, String> LOCAL_CACHE =
-            Caffeine.newBuilder().initialCapacity(1024)
-                    .maximumSize(10000L)
-                    // 每条缓存独立随机 TTL（5~10 分钟），打散过期时间降低雪崩风险
-                    .expireAfter(new Expiry<String, String>() {
-                        private long randomTtlNanos() {
-                            return TimeUnit.MINUTES.toNanos(5 + ThreadLocalRandom.current().nextInt(5));
-                        }
+    /**
+     * 图片列表本地缓存，Bean 定义见 CacheConfig（已开启 recordStats，用于统计命中率）
+     */
+    @Resource(name = "pictureListLocalCache")
+    private Cache<String, String> localCache;
 
-                        @Override
-                        public long expireAfterCreate(String key, String value, long currentTime) {
-                            return randomTtlNanos();
-                        }
-
-                        @Override
-                        public long expireAfterUpdate(String key, String value, long currentTime, long currentDuration) {
-                            return randomTtlNanos();
-                        }
-
-                        @Override
-                        public long expireAfterRead(String key, String value, long currentTime, long currentDuration) {
-                            return currentDuration;
-                        }
-                    })
-                    .build();
+    /**
+     * 缓存命中率埋点
+     */
+    @Resource
+    private PictureListCacheMetrics cacheMetrics;
     @Resource
     private ExecutorService pictureUploadExecutor;
 
@@ -556,7 +540,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 JSONUtil.toJsonStr(buildCacheKey(pictureQueryRequest)).getBytes()
         );
         // 先从本地缓存 Caffeine 中获取（本地缓存不携带版本号，依靠 clearPictureListCache 中的 invalidateAll 失效）
-        String cachedValue = LOCAL_CACHE.getIfPresent(hashKey);
+        String cachedValue = localCache.getIfPresent(hashKey);
         if (StringUtils.isNotBlank(cachedValue)) {
             // 如果命中缓存，返回结果
             Page<PictureVO> pictureVOPage = JSONUtil.toBean(cachedValue, new TypeReference<Page<PictureVO>>() {}, false);
@@ -566,10 +550,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         long cacheVersion = getListCacheVersion();
         String key = String.format("huoshantuku:listPictureVOByPage:%d:%s", cacheVersion, hashKey);
         // 本地缓存中没有，再从分布式缓存（Redis）中获取
-        cachedValue = stringRedisTemplate.opsForValue().get(key);
+        cachedValue = getFromRedisCache(key);
         if (StringUtils.isNotBlank(cachedValue)) {
             // 回写本地缓存
-            LOCAL_CACHE.put(hashKey, cachedValue);
+            localCache.put(hashKey, cachedValue);
             // 如果命中缓存，返回结果
             Page<PictureVO> pictureVOPage = JSONUtil.toBean(cachedValue, new TypeReference<Page<PictureVO>>() {}, false);
             return pictureVOPage;
@@ -583,10 +567,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             // 获取锁成功
             try {
                 // 双重检查：获取锁后再检查一次缓存
-                cachedValue = stringRedisTemplate.opsForValue().get(key);
+                cachedValue = getFromRedisCache(key);
                 if (StringUtils.isNotBlank(cachedValue)) {
                     // 回写本地缓存
-                    LOCAL_CACHE.put(hashKey, cachedValue);
+                    localCache.put(hashKey, cachedValue);
                     // 如果命中缓存，返回结果
                     Page<PictureVO> pictureVOPage = JSONUtil.toBean(cachedValue, new TypeReference<Page<PictureVO>>() {}, false);
                     return pictureVOPage;
@@ -598,7 +582,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 Page<PictureVO> pictureVOPage = getPictureVOPage(picturePage, request);
                 // 写入本地缓存
                 String cacheValue = JSONUtil.toJsonStr(pictureVOPage);
-                LOCAL_CACHE.put(hashKey, cacheValue);
+                localCache.put(hashKey, cacheValue);
                 // 写入分布式缓存
                 // 设置过期时间 5 ~ 10 分钟随机过期，防止缓存雪崩
                 int cacheExpireTime;
@@ -623,9 +607,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                     Thread.currentThread().interrupt();
                     break;
                 }
-                cachedValue = stringRedisTemplate.opsForValue().get(key);
+                cachedValue = getFromRedisCache(key);
                 if (StringUtils.isNotBlank(cachedValue)) {
-                    LOCAL_CACHE.put(hashKey, cachedValue);
+                    localCache.put(hashKey, cachedValue);
                     return JSONUtil.toBean(cachedValue, new TypeReference<Page<PictureVO>>() {}, false);
                 }
             }
@@ -635,8 +619,22 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     }
 
     /**
+     * 读取 Redis 缓存并记录命中率。
+     * 首次读取、抢锁后的双重检查、抢锁失败后的重试读取都走这里，避免漏埋点导致命中率失真。
+     */
+    private String getFromRedisCache(String key) {
+        String value = stringRedisTemplate.opsForValue().get(key);
+        if (StringUtils.isNotBlank(value)) {
+            cacheMetrics.recordRedisHit();
+        } else {
+            cacheMetrics.recordRedisMiss();
+        }
+        return value;
+    }
+
+    /**
      * 构建缓存Key
-     * @param request 查询条件
+     * @param request
      * @return
      */
     private PictureQueryRequest buildCacheKey(PictureQueryRequest request) {
@@ -705,7 +703,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         stringRedisTemplate.opsForValue().increment(PICTURE_LIST_CACHE_VERSION_KEY);
         // 本地缓存无法感知分布式版本变化，直接整体失效
         // 多节点部署时其它节点的本地缓存由 TTL（5~10 分钟）兜底
-        LOCAL_CACHE.invalidateAll();
+        localCache.invalidateAll();
     }
 
     /**

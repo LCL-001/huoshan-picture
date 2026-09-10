@@ -107,6 +107,18 @@ sa-token:
   cookie:
     http-only: true
     same-site: lax
+# 运行指标：单独端口且只绑本机，避免在公网 /api 路径下暴露 actuator 运行信息
+management:
+  server:
+    port: 8125
+    address: 127.0.0.1
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: yun-picture-backend
 knife4j:
   enable: true
   openapi:
