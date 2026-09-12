@@ -1,0 +1,44 @@
+#!/bin/sh
+# vibe workflow test gate (travels with the repo: git config core.hooksPath .githooks)
+# Rule: tests must pass before commit.
+# Escape hatch: git commit --no-verify for real emergencies only,
+#   and log the reason in NOTES.md / docs/decisions.md afterwards.
+
+fail() {
+  echo ""
+  echo "[vibe-gate] FAIL: tests did not pass - commit blocked. Fix tests first."
+  exit 1
+}
+
+# Docs-only commits (AGENTS.md / NOTES.md / docs/** / .gitattributes / .githooks/**)
+# skip the test gate: no code changed, nothing to verify.
+non_docs=$(git diff --cached --name-only | grep -Ev '^(docs/|AGENTS\.md$|NOTES\.md$|\.gitattributes$|\.githooks/)' || true)
+if [ -z "$non_docs" ]; then
+  echo "[vibe-gate] PASS: docs-only commit, tests skipped."
+  exit 0
+fi
+
+echo "[vibe-gate] running tests..."
+
+# Maven 单仓库（backend/）：跑与 CI 完全同口径的无 MySQL/Redis 单测
+if [ -f backend/pom.xml ]; then
+  (cd backend && mvn -B test -Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests' -DfailIfNoTests=false) || fail
+elif [ -f package.json ]; then
+  if grep -q '"test"[[:space:]]*:' package.json; then
+    npm test --silent || fail
+  else
+    echo "[vibe-gate] WARN: no test script in package.json, allowing this commit. Add tests soon."
+    exit 0
+  fi
+elif [ -f pyproject.toml ] || [ -f pytest.ini ] || [ -f setup.cfg ] || [ -f requirements.txt ]; then
+  python -m pytest -q || fail
+elif [ -f go.mod ]; then
+  go test ./... || fail
+elif [ -f Cargo.toml ]; then
+  cargo test --quiet || fail
+else
+  echo "[vibe-gate] WARN: no recognized test command (maven/node/python/go/rust), allowing this commit. Edit .githooks/pre-commit."
+  exit 0
+fi
+
+echo "[vibe-gate] PASS: tests green, commit allowed."
