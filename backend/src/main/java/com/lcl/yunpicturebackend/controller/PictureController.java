@@ -22,7 +22,6 @@ import com.lcl.yunpicturebackend.enums.SpaceLevelEnum;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
-import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.manager.auth.annotation.SaSpaceCheckPermission;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
 import com.lcl.yunpicturebackend.service.IPictureService;
@@ -171,19 +170,19 @@ public class PictureController {
         // 查询数据库
         Picture picture = pictureService.getById(id);
         ThrowUtils.throwIf(picture == null, ErrorCode.NOT_FOUND_ERROR);
-        // 空间权限校验
+        // 登录校验（公共图库与空间图均要求登录）
+        User loginUser = userService.getLoginUser(request);
+        // 空间权限校验：按目标图片的落库归属显式判定（私有仅属主/站点管理员，团队按库中成员角色）。
+        // 不能用 StpKit.SPACE.hasPermission——其权限上下文从请求参数嗅探，
+        // 请求里走私一个自己的 spaceUserId 即可冒充任意空间的查看权限
         Long spaceId = picture.getSpaceId();
         Space space = null;
         if (spaceId != null) {
-//            User loginUser = userService.getLoginUser(request);
-//            pictureService.checkPictureAuth(loginUser, picture);
-            boolean hasPermission = StpKit.SPACE.hasPermission(SpaceUserPermissionConstant.PICTURE_VIEW);
-            ThrowUtils.throwIf(!hasPermission, ErrorCode.NO_AUTH_ERROR);
+            pictureService.checkPictureAuth(loginUser, picture, SpaceUserPermissionConstant.PICTURE_VIEW);
             space = spaceService.getById(spaceId);
             ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR, "空间不存在");
         }
         // 获取权限列表
-        User loginUser = userService.getLoginUser(request);
         List<String> permissionList = spaceUserAuthManager.getPermissionList(space, loginUser);
         PictureVO pictureVO = pictureService.getPictureVO(picture, request);
         pictureVO.setPermissionList(permissionList);

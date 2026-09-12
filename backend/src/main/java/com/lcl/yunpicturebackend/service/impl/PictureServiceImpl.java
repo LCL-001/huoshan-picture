@@ -561,8 +561,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.PASS.getValue());
             pictureQueryRequest.setNullSpaceId(true);
         } else {
-            // 空间图库：仅空间内拥有查看权限的成员可访问（StpInterfaceImpl 按库构造权限）
-            checkSpaceViewPermission(request);
+            // 空间图库：按目标空间显式判定查看权限（目标绑定，不依赖请求嗅探）
+            checkSpaceViewPermission(spaceId, request);
         }
         // 构建缓存key
         // 将查询条件序列化后取 MD5，作为缓存 key 的筛选条件部分
@@ -711,8 +711,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     /**
      * 校验空间图库查看权限：区分"空间登录态失效"与"确实无权限"，便于前端提示重新登录。
      * 普通登录态（Spring Session）与空间登录态（Sa-Token space）必须指向同一账号。
+     * 权限判定按 spaceId 对应空间的落库归属/成员角色显式构造（目标绑定）；
+     * 不能用 StpKit.SPACE.hasPermission——其上下文从请求参数嗅探，攻击者伪造 spaceUserId、
+     * 或用带 charset 的 Content-Type 令上下文为空，都能拿到默认授予的 picture:view。
      */
-    private void checkSpaceViewPermission(HttpServletRequest request) {
+    private void checkSpaceViewPermission(Long spaceId, HttpServletRequest request) {
         HttpSession session = request.getSession(false);
         Object sessionUser = session == null ? null : session.getAttribute(USER_LOGIN_STATE);
         Long loginUserId = sessionUser instanceof User ? ((User) sessionUser).getId() : null;
@@ -723,7 +726,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         if (spaceLoginId == null || !loginUserId.toString().equals(spaceLoginId.toString())) {
             throw new BusinessException(ErrorCode.SPACE_NOT_LOGIN);
         }
-        ThrowUtils.throwIf(!StpKit.SPACE.hasPermission(SpaceUserPermissionConstant.PICTURE_VIEW),
+        Space space = spaceService.getById(spaceId);
+        ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR, "空间不存在");
+        User loginUser = userService.getById(loginUserId);
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR);
+        List<String> spacePermissions = spaceUserAuthManager.getPermissionList(space, loginUser);
+        ThrowUtils.throwIf(!spacePermissions.contains(SpaceUserPermissionConstant.PICTURE_VIEW),
                 ErrorCode.NO_AUTH_ERROR);
     }
 
@@ -999,8 +1007,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.PASS.getValue());
             pictureQueryRequest.setNullSpaceId(true);
         } else {
-            // 空间图库：仅空间内拥有查看权限的成员可访问（StpInterfaceImpl 按库构造权限）
-            checkSpaceViewPermission(request);
+            // 空间图库：按目标空间显式判定查看权限（目标绑定，不依赖请求嗅探）
+            checkSpaceViewPermission(spaceId, request);
         }
 
         // 查询数据库

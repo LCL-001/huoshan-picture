@@ -73,20 +73,17 @@ public class StpInterfaceImpl implements StpInterface {
         // 获取上下文对象（仅含 id 类标量字段，空间归属与角色一律查库构造）
         SpaceUserAuthContext authContext = getAuthContextByRequest();
         // 上下文为空：公共图库操作（如上传、搜索），登录用户仅授予查看与上传权限，
-        // 编辑/删除等写操作由服务层对目标资源的属主校验兜底
+        // 编辑/删除等写操作由服务层对目标资源的属主校验兜底。
+        // 注意：空间 scoped 的读接口（图片列表/详情）不得依赖该默认值——它们必须按目标资源
+        // 显式校验（见 PictureServiceImpl#checkSpaceViewPermission / PictureController#getPictureVOById），
+        // 否则带 charset 的 Content-Type 即可令上下文为空、冒领这里的 picture:view
         if (isAllFieldsNull(authContext)) {
             return Arrays.asList(SpaceUserPermissionConstant.PICTURE_VIEW, SpaceUserPermissionConstant.PICTURE_UPLOAD);
         }
-        // 有 spaceUserId：目标成员所属空间，按调用者自身在该空间的成员角色授权
-        Long spaceUserId = authContext.getSpaceUserId();
-        if (spaceUserId != null) {
-            SpaceUser targetSpaceUser = spaceUserService.getById(spaceUserId);
-            if (targetSpaceUser == null) {
-                throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "未找到空间用户信息");
-            }
-            return getPermissionsBySpace(targetSpaceUser.getSpaceId(), loginUser, ADMIN_PERMISSIONS);
-        }
-        // 有 pictureId：以图片落库的空间归属为准
+        // 有 pictureId：以图片落库的空间归属为准（目标绑定）。
+        // 必须先于 spaceUserId 判定：picture 接口的请求里若被塞入攻击者自己的 spaceUserId，
+        // 会把授权劫持到"攻击者所在空间"而非目标图片所在空间；
+        // /spaceUser 模块的上下文不含 pictureId，不受此排序影响
         Long pictureId = authContext.getPictureId();
         if (pictureId != null) {
             Picture picture = pictureService.lambdaQuery()
@@ -104,6 +101,16 @@ public class StpInterfaceImpl implements StpInterface {
                 return Collections.singletonList(SpaceUserPermissionConstant.PICTURE_VIEW);
             }
             return getPermissionsBySpace(picture.getSpaceId(), loginUser, ADMIN_PERMISSIONS);
+        }
+        // 有 spaceUserId：目标成员所属空间，按调用者自身在该空间的成员角色授权
+        //（仅 /spaceUser 模块使用该字段）
+        Long spaceUserId = authContext.getSpaceUserId();
+        if (spaceUserId != null) {
+            SpaceUser targetSpaceUser = spaceUserService.getById(spaceUserId);
+            if (targetSpaceUser == null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "未找到空间用户信息");
+            }
+            return getPermissionsBySpace(targetSpaceUser.getSpaceId(), loginUser, ADMIN_PERMISSIONS);
         }
         // 仅有 spaceId：按该空间授权
         Long spaceId = authContext.getSpaceId();
@@ -151,8 +158,11 @@ public class StpInterfaceImpl implements StpInterface {
         HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes()).getRequest();
         String contentType = request.getHeader(Header.CONTENT_TYPE.getValue());
         SpaceUserAuthContext authRequest;
-        // 兼容 get 和 post 操作
-        if (ContentType.JSON.getValue().equals(contentType)) {
+        // 兼容 get 和 post 操作。判断条件必须与 HttpRequestWrapperFilter 保持一致（否则未包装请求的
+        // body 流会被此处 getBody 消费掉，破坏后续 @RequestBody 解析）；用忽略大小写的 startsWith
+        // 兼容 "application/json;charset=UTF-8" 等带参数的写法——精确等于会让这类请求解析不到 body，
+        // 上下文为空而触发默认授权
+        if (contentType != null && contentType.toLowerCase().startsWith(ContentType.JSON.getValue())) {
             String body = ServletUtil.getBody(request);
             authRequest = JSONUtil.toBean(body, SpaceUserAuthContext.class);
         } else {
