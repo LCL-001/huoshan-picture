@@ -12,7 +12,8 @@ fail() {
 
 # Docs-only commits (AGENTS.md / NOTES.md / docs/** / .gitattributes / .githooks/**)
 # skip the test gate: no code changed, nothing to verify.
-non_docs=$(git diff --cached --name-only | grep -Ev '^(docs/|AGENTS\.md$|NOTES\.md$|\.gitattributes$|\.githooks/)' || true)
+# -c core.quotePath=false: 中文文件名默认被八进制转义并加引号，会让 docs/ 前缀匹配失效
+non_docs=$(git -c core.quotePath=false diff --cached --name-only | grep -Ev '^(docs/|AGENTS\.md$|NOTES\.md$|\.gitattributes$|\.githooks/)' || true)
 if [ -z "$non_docs" ]; then
   echo "[vibe-gate] PASS: docs-only commit, tests skipped."
   exit 0
