@@ -215,20 +215,14 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NO_AUTH_ERROR);
         // 空间权限校验
         Long spaceId = pictureUploadRequest.getSpaceId();
+        Space space = null;
         if (spaceId != null) {
-            Space space = spaceService.getById(spaceId);
+            space = spaceService.getById(spaceId);
             ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR, "空间不存在");
             // 判断用户是否拥有空间上传权限（私有空间仅属主/站点管理员，团队空间按数据库成员角色判断）
             List<String> spacePermissions = spaceUserAuthManager.getPermissionList(space, loginUser);
             ThrowUtils.throwIf(!spacePermissions.contains(SpaceUserPermissionConstant.PICTURE_UPLOAD),
                     ErrorCode.NO_AUTH_ERROR, "用户没有空间权限");
-            // 校验额度，判断空间是否达到上限
-            if (space.getTotalCount() >= space.getMaxCount()) {
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, "空间条数不足");
-            }
-            if (space.getTotalSize() >= space.getMaxSize()) {
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, "空间大小不足");
-            }
         }
         // 如果是更新图片，则需要判断图片是否存在
         Picture oldPicture = null;
@@ -252,6 +246,16 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 if (ObjUtil.notEqual(spaceId, oldPicture.getSpaceId())) {
                     throw new BusinessException(ErrorCode.PARAMS_ERROR, "空间 id 不一致");
                 }
+            }
+        }
+        // 校验额度，判断空间是否达到上限：仅新增图片需要预检；替换不增条数、大小按净差值在事务内原子校验，
+        // 按新增口径预检会把"空间已满但替换图片"的场景误拒
+        if (oldPicture == null && space != null) {
+            if (space.getTotalCount() >= space.getMaxCount()) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "空间条数不足");
+            }
+            if (space.getTotalSize() >= space.getMaxSize()) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "空间大小不足");
             }
         }
 
@@ -283,7 +287,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         }
         UploadPictureResult uploadPictureResult = pictureUploadTemplate.uploadPicture(inputSource, uploadPathPrefix);
         // 构造要上传的图片信息
-        Picture picture = getPicture(loginUser, uploadPictureResult, pictureUploadRequest, pictureId);
+        Picture picture = getPicture(loginUser, uploadPictureResult, pictureUploadRequest, oldPicture);
         // 填充 spaceId
         picture.setSpaceId(spaceId);
         // 填充图片颜色
@@ -434,10 +438,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
      * @param loginUser 登录用户
      * @param uploadPictureResult 上传图片结果
      * @param pictureUploadRequest 图片上传请求
-     * @param pictureId 图片ID
+     * @param oldPicture 更新前的图片记录，新增时为 null
      * @return 图片信息
      */
-    private static Picture getPicture(User loginUser, UploadPictureResult uploadPictureResult, PictureUploadRequest pictureUploadRequest, Long pictureId) {
+    private static Picture getPicture(User loginUser, UploadPictureResult uploadPictureResult, PictureUploadRequest pictureUploadRequest, Picture oldPicture) {
         Picture picture = new Picture();
         picture.setUrl(uploadPictureResult.getUrl());
         picture.setThumbnailUrl(uploadPictureResult.getThumbnailUrl());
@@ -452,11 +456,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         picture.setPicHeight(uploadPictureResult.getPicHeight());
         picture.setPicScale(uploadPictureResult.getPicScale());
         picture.setPicFormat(uploadPictureResult.getPicFormat());
-        picture.setUserId(loginUser.getId());
-        // 如果pictureId不为null，则是更新图片，否则是新增图片
-        if (pictureId != null) {
+        // 新增图片归属上传人；更新图片保留原归属（管理员替换他人图片不能改变归属）
+        picture.setUserId(oldPicture != null ? oldPicture.getUserId() : loginUser.getId());
+        // 如果oldPicture不为null，则是更新图片，否则是新增图片
+        if (oldPicture != null) {
             // 更新图片还要设置修改时间，补充id
-            picture.setId(pictureId);
+            picture.setId(oldPicture.getId());
             picture.setEditTime(new Date());
         }
         return picture;
