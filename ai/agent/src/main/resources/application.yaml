@@ -1,0 +1,127 @@
+﻿spring:
+  application:
+    name: my-ai-agent
+  profiles:
+    active: ollama #local
+  ai:
+    model:
+      chat: dashscope
+      embedding: dashscope
+    dashscope:
+      api-key: ${AI_DASHSCOPE_API_KEY:}
+      chat:
+        options:
+          model: qwen3.7-flash
+          timeout: 60s
+    # [LOCAL-ONLY-DISABLED] pgvector 向量库配置：全本地化改造（不使用向量数据库）暂时停用，恢复时取消注释
+    #vectorstore:
+    #  pgvector:
+    #    index-type: HNSW
+    #    dimensions: 1024
+    #    distance-type: COSINE_DISTANCE
+    #    max-document-batch-size: 10000 # Optional: Maximum number of documents per batch
+#    mcp:
+#      client:
+#        sse:
+#          connections:
+#            server1:
+#              url: http://localhost:8127
+        # stdio:
+        # servers-configuration: classpath:mcp-servers.json
+
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/yu-ai-agent}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:123456}
+#    # 向量库（pgvector）已随本地化改造停用。需要时通过环境变量注入连接串，
+#    # 不要在仓库里写具体的云实例地址。
+#    url: ${VECTOR_DB_URL:jdbc:postgresql://localhost:5432/yu_ai_agent_vector}
+#    username: your username
+#    password: your password
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+
+app:
+  legacy-love:
+    enabled: ${LEGACY_LOVE_ENABLED:false}
+  vector:
+    enabled: ${VECTOR_ENABLED:false}
+    # [LOCAL-ONLY-DISABLED] pgvector 专用数据源：全本地化改造暂时停用，恢复时取消注释
+    #datasource:
+    #  jdbc-url: ${VECTOR_DB_URL:jdbc:postgresql://localhost:5432/yu_ai_agent_vector}
+    #  username: ${VECTOR_DB_USERNAME:postgres}
+    #  password: ${VECTOR_DB_PASSWORD:postgres}
+    #  driver-class-name: org.postgresql.Driver
+
+search-api:
+  api-key: ${SEARCH_API_KEY:}
+
+# springdoc-openapi
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+  group-configs:
+    - group: 'default'
+      paths-to-match: '/**'
+      packages-to-scan: com.lcl.myaiagent.controller
+# knife4j
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+  openapi:
+    title: 接口文档
+    version: 1.0
+    group:
+      test1:
+        group-name: default
+        api-rule: package
+        api-rule-resources:
+          - com.lcl.myaiagent.controller
+server:
+  port: 8124
+  servlet:
+    context-path: /api
+    session:
+      cookie:
+        name: YUAI_SESSION
+        path: /
+      timeout: 7d
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: false
+    # 仅在开发环境开启日志
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
+      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
+      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
+    enable-sql-runner: true
+logging:
+  level:
+    org.springframework.ai: INFO
+#kind: Application

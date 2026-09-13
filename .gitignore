@@ -9,3 +9,10 @@ Thumbs.db
 # ===== 日志 =====
 *.log
 logs/
+
+# ===== AI 模块（ai/agent、ai/image-search-mcp-server）本地件 =====
+ai/**/target/
+ai/**/.env
+ai/**/application-local.yaml
+ai/**/application-prod.yaml
+ai/**/application-test.yaml

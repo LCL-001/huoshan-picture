@@ -1,0 +1,32 @@
+spring:
+  ai:
+    model:
+      chat: ollama
+      embedding: ollama
+    dashscope:
+      enabled: false
+      agent:
+        enabled: false
+      chat:
+        enabled: false
+      embedding:
+        enabled: false
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${OLLAMA_CHAT_MODEL:qwen3:4b}
+          temperature: ${OLLAMA_CHAT_TEMPERATURE:0.4}
+          num-ctx: ${OLLAMA_CHAT_CONTEXT:4096}
+          think: false
+      embedding:
+        options:
+          model: ${OLLAMA_EMBEDDING_MODEL:bge-m3}
+
+app:
+  vector:
+    enabled: ${VECTOR_ENABLED:false}
+search-api:
+  # 默认留空：不配环境变量时网页搜索工具不可用，而不是回退到某个固定密钥。
+  # 不要把真实 Key 写进默认值——这个文件是被版本库跟踪的。
+  api-key: ${SEARCH_API_KEY:}
