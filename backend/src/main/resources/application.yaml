@@ -47,33 +47,35 @@ spring:
       max-file-size: 10MB
   #  profiles:
   #    active: local
-  # 空间图片分表
-  shardingsphere:
-    datasource:
-      names: yu_picture
-      yu_picture:
-        type: com.zaxxer.hikari.HikariDataSource
-        driver-class-name: com.mysql.cj.jdbc.Driver
-        url: jdbc:mysql://localhost:3306/yu_picture
-        username: root
-        password: ${DB_PASSWORD:}
-    rules:
-      sharding:
-        tables:
-          picture:
-            actual-data-nodes: yu_picture.picture  # 动态分表
-            table-strategy:
-              standard:
-                sharding-column: spaceId
-                sharding-algorithm-name: picture_sharding_algorithm  # 使用自定义分片算法
-        sharding-algorithms:
-          picture_sharding_algorithm:
-            type: CLASS_BASED
-            props:
-              strategy: standard
-              algorithmClassName: com.lcl.yunpicturebackend.manager.sharding.PictureShardingAlgorithm
-    props:
-      sql-show: true
+  # 空间图片分表（T3.6 注释停用：主类已 exclude ShardingSphereAutoConfiguration，
+  # 本块配置无人读取、从未生效；恢复分表前需先解决库名不一致 / 空 range 静默丢数据 /
+  # 动态建表回退主表三个坑，见 docs/decisions.md）
+  # shardingsphere:
+  #   datasource:
+  #     names: yu_picture
+  #     yu_picture:
+  #       type: com.zaxxer.hikari.HikariDataSource
+  #       driver-class-name: com.mysql.cj.jdbc.Driver
+  #       url: jdbc:mysql://localhost:3306/yu_picture
+  #       username: root
+  #       password: ${DB_PASSWORD:}
+  #   rules:
+  #     sharding:
+  #       tables:
+  #         picture:
+  #           actual-data-nodes: yu_picture.picture  # 动态分表
+  #           table-strategy:
+  #             standard:
+  #               sharding-column: spaceId
+  #               sharding-algorithm-name: picture_sharding_algorithm  # 使用自定义分片算法
+  #     sharding-algorithms:
+  #       picture_sharding_algorithm:
+  #         type: CLASS_BASED
+  #         props:
+  #           strategy: standard
+  #           algorithmClassName: com.lcl.yunpicturebackend.manager.sharding.PictureShardingAlgorithm
+  #   props:
+  #     sql-show: true
 # 日志格式：在级别后追加 traceId，便于按一次请求串联全链路日志
 logging:
   pattern:
