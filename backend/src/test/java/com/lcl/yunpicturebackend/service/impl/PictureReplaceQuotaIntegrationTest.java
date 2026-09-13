@@ -55,6 +55,11 @@ import static org.mockito.Mockito.when;
  * header check demands a real JPEG header and picSize equals the temp file size,
  * so file content length controls the picture size. The async cleanup service is
  * mocked to avoid touching real COS. Quota/DB logic runs on real MySQL.
+ * <p>
+ * T3.11 pins the failure paths: when the transaction fails after the COS upload
+ * (over-quota replacement, or a new upload passing the precheck but failing the
+ * atomic check), the just-uploaded file is orphaned and must be compensated away,
+ * while the still-referenced old file is never touched.
  */
 @SpringBootTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -150,7 +155,7 @@ class PictureReplaceQuotaIntegrationTest {
         assertSpaceQuota(200L, 1L);
     }
 
-    // ===== Over-quota replacement: rollback everything, keep old file =====
+    // ===== Over-quota replacement: rollback everything, keep old file, compensate new file =====
 
     @Test
     void replaceOverQuotaShouldRollbackAndKeepOldFile() {
@@ -167,7 +172,33 @@ class PictureReplaceQuotaIntegrationTest {
         assertSpaceQuota(100L, 1L);
         Picture after = pictureService.getById(first.getId());
         assertEquals(first.getUrl(), after.getUrl(), "over-quota replacement must roll back entirely");
-        verify(pictureFileCleanupService, never()).clearPictureFile(any());
+        // Old file stays: cleanup must never target the still-referenced old URL (T3.11).
+        verify(pictureFileCleanupService, never())
+                .clearPictureFile(argThat(p -> first.getUrl().equals(p.getUrl())));
+        // The already-uploaded new file is orphaned by the rollback: compensated away.
+        verify(pictureFileCleanupService, timeout(3000))
+                .clearPictureFile(argThat(p -> !first.getUrl().equals(p.getUrl())));
+    }
+
+    // ===== New upload passing the precheck but failing the atomic check: compensate too =====
+
+    @Test
+    void failedNewUploadShouldCompensateDeleteUploadedFile() {
+        // Precheck passes (900 < maxSize 1000) but the atomic transaction check
+        // (totalSize + 200 <= 1000) fails: rollback leaves the uploaded file orphaned.
+        Space partial = new Space();
+        partial.setId(space.getId());
+        partial.setTotalSize(900L);
+        partial.setTotalCount(1L);
+        spaceService.updateById(partial);
+
+        PictureUploadRequest request = new PictureUploadRequest();
+        request.setSpaceId(space.getId());
+        assertThrows(BusinessException.class,
+                () -> pictureService.uploadPicture(jpegFile(200), request, owner));
+
+        assertSpaceQuota(900L, 1L);
+        verify(pictureFileCleanupService, timeout(3000)).clearPictureFile(any());
     }
 
     // ===== Shared URL refcount: never clean a URL still referenced elsewhere =====

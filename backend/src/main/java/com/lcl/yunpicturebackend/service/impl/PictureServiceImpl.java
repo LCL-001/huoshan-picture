@@ -301,34 +301,41 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         // 开启事务
         Long finalSpaceId = spaceId;
         Picture finalOldPicture = oldPicture;
-        transactionTemplate.execute(status -> {
-            boolean result = this.saveOrUpdate(picture);
-            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "图片上传失败");
-            if (finalSpaceId != null) {
-                if (finalOldPicture != null) {
-                    // 替换图片：额度只记净差值、条数不变；GREATEST 防止历史脏数据把 totalSize 减成负数
-                    boolean update = spaceService.lambdaUpdate()
-                            .eq(Space::getId, finalSpaceId)
-                            .apply("GREATEST(totalSize - {0}, 0) + {1} <= maxSize",
-                                    finalOldPicture.getPicSize(), picture.getPicSize())
-                            .setSql("totalSize = GREATEST(totalSize - " + finalOldPicture.getPicSize()
-                                    + ", 0) + " + picture.getPicSize())
-                            .update();
-                    ThrowUtils.throwIf(!update, ErrorCode.OPERATION_ERROR, "空间额度不足");
-                } else {
-                    // 条件原子更新：并发下也保证额度不超限，条件不满足时影响行数为 0，事务回滚
-                    boolean update = spaceService.lambdaUpdate()
-                            .eq(Space::getId, finalSpaceId)
-                            .apply("totalSize + {0} <= maxSize", picture.getPicSize())
-                            .apply("totalCount + 1 <= maxCount")
-                            .setSql("totalSize = totalSize + " + picture.getPicSize())
-                            .setSql("totalCount = totalCount + 1")
-                            .update();
-                    ThrowUtils.throwIf(!update, ErrorCode.OPERATION_ERROR, "空间额度不足");
+        try {
+            transactionTemplate.execute(status -> {
+                boolean result = this.saveOrUpdate(picture);
+                ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "图片上传失败");
+                if (finalSpaceId != null) {
+                    if (finalOldPicture != null) {
+                        // 替换图片：额度只记净差值、条数不变；GREATEST 防止历史脏数据把 totalSize 减成负数
+                        boolean update = spaceService.lambdaUpdate()
+                                .eq(Space::getId, finalSpaceId)
+                                .apply("GREATEST(totalSize - {0}, 0) + {1} <= maxSize",
+                                        finalOldPicture.getPicSize(), picture.getPicSize())
+                                .setSql("totalSize = GREATEST(totalSize - " + finalOldPicture.getPicSize()
+                                        + ", 0) + " + picture.getPicSize())
+                                .update();
+                        ThrowUtils.throwIf(!update, ErrorCode.OPERATION_ERROR, "空间额度不足");
+                    } else {
+                        // 条件原子更新：并发下也保证额度不超限，条件不满足时影响行数为 0，事务回滚
+                        boolean update = spaceService.lambdaUpdate()
+                                .eq(Space::getId, finalSpaceId)
+                                .apply("totalSize + {0} <= maxSize", picture.getPicSize())
+                                .apply("totalCount + 1 <= maxCount")
+                                .setSql("totalSize = totalSize + " + picture.getPicSize())
+                                .setSql("totalCount = totalCount + 1")
+                                .update();
+                        ThrowUtils.throwIf(!update, ErrorCode.OPERATION_ERROR, "空间额度不足");
+                    }
                 }
-            }
-            return picture;
-        });
+                return picture;
+            });
+        } catch (RuntimeException e) {
+            // 事务已回滚：COS 上传在事务之前完成，刚上传的新文件不再被任何记录引用，
+            // 补偿删除避免留孤儿对象；cleanupPictureFile 按引用计数兜底，不会误删仍被占用的文件
+            this.cleanupPictureFile(picture);
+            throw e;
+        }
 
         // 替换后旧 COS 对象随记录改指向而失去引用，事务提交成功才清理；URL 未变说明文件没换，不能误删
         if (finalOldPicture != null && ObjUtil.notEqual(finalOldPicture.getUrl(), picture.getUrl())) {
@@ -915,15 +922,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     }
 
     /**
-     * 判断该图片 URL 是否仍被其它记录引用，被引用时异步清理 COS 中的文件。
+     * 按引用计数异步清理 COS 中的图片文件，仅当该 URL 已无任何存活记录引用时才真正删除。
      * <p>
-     * 调用前提：记录本身已删除或已改指向新 URL，因此 count 只含其它存活引用——
-     * 只要 count > 0 就说明文件仍被占用，必须跳过清理。
+     * 三类调用前提：记录已删除、记录已改指向新 URL、事务回滚后清理刚上传的孤儿文件（T3.11）——
+     * 三种情形下 count 都只含其它存活引用，count > 0 即说明文件仍被占用，必须跳过清理。
      *
-     * @param oldPicture 待清理的图片记录
+     * @param picture 待清理的图片记录
      */
-    private void cleanupPictureFile(Picture oldPicture) {
-        String pictureUrl = oldPicture.getUrl();
+    private void cleanupPictureFile(Picture picture) {
+        String pictureUrl = picture.getUrl();
         long count = this.lambdaQuery()
                 .eq(Picture::getUrl, pictureUrl)
                 .count();
@@ -931,7 +938,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         if (count > 0) {
             return;
         }
-        pictureFileCleanupService.clearPictureFile(oldPicture);
+        pictureFileCleanupService.clearPictureFile(picture);
     }
 
     @Override
