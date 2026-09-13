@@ -43,3 +43,6 @@
 - [x] T3.10 替换图片 spaceId 反推路径缺空间上传权限校验（T3.8/T3.9 独立 review 发现的既有 P2，用户 2026-09-13 拍板收口）：uploadPicture 在 spaceId 由原图反推时补查目标空间并校验 PICTURE_UPLOAD（抽 checkSpaceUploadPermission 私有方法复用），与显式传 spaceId 路径、checkPictureAuth（deletePicture）判权同源
   - 口径后果（有意收紧）：站点管理员若非团队空间成员，替换/上传该空间图片将被拒（与显式传参路径及 deletePicture 现状一致）；私有空间属主/站点管理员不受影响，团队空间属主由 createSpace 自动建 admin 成员行、不受影响
   - 验收：PictureReplaceSpaceAuthIntegrationTest 4 用例全绿（被移出成员替换被拒、降权 viewer 替换被拒、非成员站点管理员替换被拒、editor 成员正常替换且归属不变）；全量 61 测试绿；已提交 8b29f46
+- [x] T3.11 上传事务失败后补偿删除刚上传的 COS 文件（P3 孤儿对象收口，用户 2026-09-13 点名选项①）：transactionTemplate.execute 包 try-catch，事务回滚后按引用计数（count == 0 才删）异步清理刚上传的新文件；原异常照常抛出。覆盖替换超额与"过预检但事务内原子校验失败"的新增两条失败路径
+  - 口径：COS 上传在事务前这一时序不变（picSize 只有上传后才知道）；cleanupPictureFile javadoc 补"事务回滚后清理孤儿文件"第三类调用前提
+  - 验收：PictureReplaceQuotaIntegrationTest 6 用例全绿（超额替换：旧文件绝不动 + 新文件被补偿清理；新增超额：补偿清理；另 4 用例回归不变）；全量 62 测试绿；已提交 5f44ecc
