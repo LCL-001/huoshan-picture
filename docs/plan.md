@@ -35,3 +35,7 @@
 - [x] T3.7 社交通知口径二选一 → 用户拍板：**保留通知接口，修正 spec/AGENTS 记录**
   - 实际改动：仅文档（docs/spec.md F7、AGENTS.md 技术栈与停用模块注记、decisions.md 两条口径）；前端核实 GlobalHeader.vue 正在调用 /notification/* 五接口，SocialController 未改动
   - 验收：spec F7 改为"部分停用：通知保留"；decisions.md 记入 T3.6/T3.7 两条口径
+- [x] T3.8 空间额度预检误拒替换图片（T3.4 顺手发现的存量问题，用户 2026-09-13 点名）：预检移到 oldPicture 解析之后，仅对新增图片按新增口径预检；替换不增条数、大小按净差值在事务内原子校验，满员空间替换（缩图/等量）不再被"空间条数不足/大小不足"误拒
+  - 验收：PictureReplacePrecheckOwnershipIntegrationTest——满员空间替换成功且额度记净差值（1000-500+200=700、条数不变）；满员空间新增仍被拒（守卫用例）；已提交 4d37b45
+- [x] T3.9 admin 替换他人图片归属被改（T3.5 顺手发现的存量问题，用户 2026-09-13 点名）：getPicture 更新分支保留原归属 userId，仅新增图片归属上传人；管理员替换不再把图片改成自己的
+  - 验收：admin 替换后 userId 不变、URL 更新；PictureReplacePrecheckOwnershipIntegrationTest 3 用例全绿；全量 57 测试绿；已提交 4d37b45
