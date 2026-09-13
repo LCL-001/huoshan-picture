@@ -42,4 +42,9 @@ else
   exit 0
 fi
 
+# AI 引擎（ai/agent）：沿用源仓 yu-ai-agent 的纯单测排除口径
+if [ -f ai/agent/pom.xml ]; then
+  (cd ai/agent && mvn -B test -Dtest='!MyManusTest,!MyAiAgentApplicationTests,!ProductScopeTest,!PgVectorVectorStoreConfigTest,!FileOperationToolTest,!PDFGenerationToolTest,!ResourceDownloadToolTest,!TerminalOperationToolTest,!WebScrapingToolTest,!WebSearchToolTest' -DfailIfNoTests=false) || fail
+fi
+
 echo "[vibe-gate] PASS: tests green, commit allowed."
