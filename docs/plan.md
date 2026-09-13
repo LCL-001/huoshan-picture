@@ -7,9 +7,10 @@
 ## 任务清单（AI 助手一期，2026-09-13 立项，R2 单仓化）
 
 - [x] T4 AI 引擎迁入（2026-09-13 完成）：ai/agent（端口 8124）与 ai/image-search-mcp-server（8127）原样迁入；顺带修复 ImageSearchTool.java UTF-8 BOM 编译错误（源仓遗留）；ai/agent 55 用例基线在新位置全绿；门禁已纳入 ai/agent 单测（负向探针验证会拦）；双服务冒烟通过（8124 /api/health → ok、8127 SSE 启动正常）；源仓库 yu-ai-agent 已归档（handoff 2026-09-13-引擎迁出归档.md + tag archive/engine-migrated-to-huoshan；用户 README 手改已代提交 8a5f450）。实施计划：docs/plans/2026-09-13-T4-AI引擎迁入实施计划.md（迁移提交 88b50bf / f1c4a1a / 4560fd2）
-- [ ] T5 标签词表：新表 `tag`（id/name/type(tag|category)/usage_count/is_delete/create_time/update_time，全局词表不按空间拆）+ Tag entity/mapper/service + /tag_category 查表动态化（返回结构逐字段不变，9 标签 + 5 分类种子迁移）+ 编辑接口（单编/批编）同事务 upsert 词表并累加 usage_count
+- [x] T5 标签词表（2026-09-14 完成）：新表 `tag`（id/name/type(tag|category)/usageCount/is_delete/create_time/update_time，全局词表不按空间拆）+ Tag entity/mapper/service + /tag_category 查表动态化（返回结构逐字段不变，9 标签 + 5 分类种子迁移）+ 编辑接口（单编/批编）同事务 upsert 词表并累加 usageCount
   - 文件范围：backend/sql 新建表脚本、domain（Tag）、mapper、service、PictureController.listPictureTagCategory、PictureServiceImpl 编辑两处
   - 验收：集成测试（动态词表返回/种子迁移/upsert 计数/返回结构兼容）+ 门禁绿 + 全量回归
+  - 实施记录：提交 be1c006（计划）/ a68d8cc（建表脚本+域模型）/ 647f77f（词表服务+集成测试）/ 4ed0025（动态化+编辑接线）；实施计划 docs/plans/2026-09-13-T5-标签词表实施计划.md；功能讲解 docs/features/F10-标签词表.md；全量回归 65 用例绿（62 存量 + 新增 TagVocabularyIntegrationTest 3 用例）；实现备注——upsert 采用"先原子自增、未命中插入、并发首插撞 uk_name_type 退化自增"（无自定义 SQL）；单编 editPicture 因"同事务"要求补加 @Transactional；列名 usageCount 与设计文档速写 usage_count 的微差随库内 camelCase 列约定（features 文档已记）；执行偏差——批编接线测试因先红后绿的正确顺序由 Task 2 调整至 Task 3（计划文档已补执行记录）
 - [ ] T6 OpenAI 协议模型接入（ai/agent）：新增 `spring-ai-starter-model-openai` 依赖；多 ChatModel 并存装配；base-url/api-key/model 配置化（主脑与 visionTagger 独立配置项）；普通会话 Ollama 默认不变
   - 文件范围：ai/agent 的 pom、application.yaml（+example）、模型装配 config
   - 验收：单测（装配/配置绑定）+ 本地冒烟

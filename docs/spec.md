@@ -23,7 +23,7 @@
 - [x] F7 帖子与社交（部分停用）：Post/PostInteraction/UserFollow 控制器类注解已注释、不被 Spring 加载；SocialController 在服务但仅保留 /notification/* 通知接口（前端 GlobalHeader 铃铛正在调用，用户 2026-09-13 拍板保留），/timeline 已注释停用
 - [x] F8 可观测性：traceId 全链路日志（异步透传）、Actuator/Prometheus 指标
 - [x] F9 工程化：GitHub Actions CI（编译 + 无 MySQL/Redis 单测）、JMeter 压测资产（本地，不入库）
-- [ ] F10 标签词表：新表 `tag`（id/name/type(tag|category)/usage_count/审计字段，全局词表）；/tag_category 查表动态化（返回结构 PictureTagCategory 逐字段不变，现有 9 标签 + 5 分类种子迁移）；编辑接口（单编/批编）同事务 upsert 词表并累加 usage_count；picture.tags JSON 列与 LIKE 查询逻辑不动
+- [x] F10 标签词表（2026-09-14 T5 完成）：新表 `tag`（id/name/type(tag|category)/usageCount/审计字段，全局词表；列名随库内 camelCase 约定，设计文档速写 usage_count）；/tag_category 查表动态化（返回结构 PictureTagCategory 逐字段不变，9 标签 + 5 分类种子迁移）；编辑接口（单编/批编）同事务 upsert 词表并累加 usageCount（一次编辑调用计 1，不随图片数放大）；picture.tags JSON 列与 LIKE 查询逻辑不动
 - [ ] F11 AI 助手一期：**ai/ 引擎模块（R2 自 yu-ai-agent 迁入）**——图库工具集（prototype 化携带透传 token）、OpenAI 协议多 ChatModel、会话类型 + headless SSE 端点（服务间 API key + `huoshan:<userId>` 身份映射）、MCP client 接入 ai/image-search-mcp-server；**本仓 backend** AI 代理模块（服务间 API key 认证、satoken 透传、SSE 转发，token 只在内存流转不落库）；**frontend** 助手界面（对话 + SSE 步骤折叠条）
 
 ## 技术方案
