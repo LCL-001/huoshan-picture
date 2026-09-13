@@ -9,6 +9,9 @@
 ```
 huoshan-picture/
 ├── backend/     Spring Boot 后端服务（端口 8123，context-path /api）
+├── ai/          AI 模块（独立 Maven 应用，各自独立进程，不并入 backend）
+│   ├── agent/                   MyManus 智能体引擎（SB 3.5/Java 21，端口 8124，context-path /api）
+│   └── image-search-mcp-server/ Pexels 搜图 MCP 服务（端口 8127，SSE）
 └── frontend/    Vue 3 前端（开发端口 5173）
 ```
 

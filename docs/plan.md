@@ -6,9 +6,7 @@
 
 ## 任务清单（AI 助手一期，2026-09-13 立项，R2 单仓化）
 
-- [ ] T4 AI 引擎迁入：yu-ai-agent 后端整体迁入 `ai/agent/`（保持原样迁移，端口改 8124 避开 backend 的 8123；数据库沿用其自有库，与图库库并存）；image-search-mcp-server 迁入 `ai/image-search-mcp-server/`；两者独立 Maven 构建（不并 reactor）；yu-ai-agent 仓库归档（迁入验证后打归档 tag；其工作区用户 README 未提交改动先与用户对齐处置）；AGENTS.md/README 项目速览补 ai/ 模块说明
-  - 文件范围：新增 ai/ 两个子应用（代码原样）、根 README/AGENTS.md、.gitignore 如需
-  - 验收：ai/agent 本地起服务冒烟（新端口）+ ai/image-search-mcp-server 起服务冒烟 + 门禁绿
+- [x] T4 AI 引擎迁入（2026-09-13 完成）：ai/agent（端口 8124）与 ai/image-search-mcp-server（8127）原样迁入；顺带修复 ImageSearchTool.java UTF-8 BOM 编译错误（源仓遗留）；ai/agent 55 用例基线在新位置全绿；门禁已纳入 ai/agent 单测（负向探针验证会拦）；双服务冒烟通过（8124 /api/health → ok、8127 SSE 启动正常）；源仓库 yu-ai-agent 已归档（handoff 2026-09-13-引擎迁出归档.md + tag archive/engine-migrated-to-huoshan；用户 README 手改已代提交 8a5f450）。实施计划：docs/plans/2026-09-13-T4-AI引擎迁入实施计划.md（迁移提交 88b50bf / f1c4a1a / 4560fd2）
 - [ ] T5 标签词表：新表 `tag`（id/name/type(tag|category)/usage_count/is_delete/create_time/update_time，全局词表不按空间拆）+ Tag entity/mapper/service + /tag_category 查表动态化（返回结构逐字段不变，9 标签 + 5 分类种子迁移）+ 编辑接口（单编/批编）同事务 upsert 词表并累加 usage_count
   - 文件范围：backend/sql 新建表脚本、domain（Tag）、mapper、service、PictureController.listPictureTagCategory、PictureServiceImpl 编辑两处
   - 验收：集成测试（动态词表返回/种子迁移/upsert 计数/返回结构兼容）+ 门禁绿 + 全量回归

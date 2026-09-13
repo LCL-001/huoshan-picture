@@ -11,7 +11,8 @@
 
 ## 项目速览
 
-- 一句话：图片与素材管理平台——按"空间"管理图片、空间级 RBAC 成员权限、图片列表多级缓存、批量抓取、AI 扩图与多人实时协同编辑；已上线 https://www.lincode.online
+- 一句话：图片与素材管理平台——按"空间"管理图片、空间级 RBAC 成员权限、图片列表多级缓存、批量抓取、AI 扩图与多人实时协同编辑；已上线 https://www.lincode.online；内嵌 AI 助手（一期建设：智能整理 + 选图入库），智能体引擎为 `ai/` 下的 MyManus
+- **`ai/` 模块（2026-09-13 自 yu-ai-agent 仓库迁入，独立 Maven 应用不并 reactor）**：`ai/agent/` = MyManus 智能体引擎（Spring Boot 3.5 / Java 21，独立进程，端口 **8124**，context-path /api；与 backend 的 SB 2.7 无法同进程，只能同仓不同应用）；`ai/image-search-mcp-server/` = Pexels 搜图 MCP 服务（端口 **8127**，SSE profile）。迁移记录与一期任务（T4-T12）见 docs/designs/2026-09-13-图库智能体一期设计.md 与 docs/plans/。密钥件（application-local.yaml / .env）不入库
 - 技术栈：
   - 后端（backend/）：Java 17、Spring Boot 2.7.6、MyBatis-Plus、MySQL 8、Redis、ShardingSphere（分库分表，已注释停用预留，用户 2026-09-13 拍板）、Sa-Token（认证，会话存 Redis）、Caffeine + Redis 两级缓存、WebSocket + Disruptor（协同编辑）、腾讯云 COS（对象存储）、阿里百炼（AI 扩图）、Actuator + Prometheus（可观测）
   - 前端（frontend/）：Vue 3、Vite、TypeScript、Pinia、Ant Design Vue、ECharts
