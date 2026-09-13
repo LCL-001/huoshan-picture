@@ -4,9 +4,9 @@
 
 ## ⚡ 关键三行（唯一必须用户亲自看的部分）
 
-- **目标（AI 依 README/提交记录起草，2026-09-12 用户确认）：** 图片与素材管理平台：个人/团队按"空间"管理图片，支持空间级 RBAC 成员权限、图片列表多级缓存加速、批量抓取入库、AI 扩图与多人实时协同编辑；已部署上线 https://www.lincode.online。**2026-09-13 增补（AI 助手一期立项）：** 内置 AI 助手——前端助手界面（对话 + SSE 步骤折叠条）+ 后端代理模块，智能体引擎为外部 MyManus（yu-ai-agent 仓库，headless）；一期场景 = 智能整理（视觉打标批量整理）+ 选图入库代理；配套标签词表建表（/tag_category 从硬编码改查表）。设计全文见 docs/designs/2026-09-13-图库智能体一期设计.md。
-- **不做的事（待确认）：** 待确认——存量项目接入，原始排界未记录。从提交记录看已明确排除的：多实例本地缓存脏读（已用跨实例广播解决，不回退）、明文凭据入库（jmx/配置已清理）。**一期 AI 助手不做：** 智能体引擎在本仓库实现（复用 MyManus）、删除类工具（整理只增改不删）、AI 审核助手（后续另行立项，与 MyManus 仓库冻结的 Listing 合规审查设计同源）、词表按空间隔离（全局词表起步）。
-- **边界（AI 依仓库结构起草，待确认）：** backend/（Spring Boot 单体，端口 8123，context-path /api）与 frontend/（Vue 3 SPA，开发端口 5173）；建表脚本 backend/sql；部署文档 backend/docs/deploy；密钥不入库（application-local/prod/test.yaml 被 .gitignore，模板 example 入库）。**AI 助手一期边界：** 智能体引擎（MyManus）代码与配置在 yu-ai-agent 仓库立据，本仓库只涉及标签词表（F10）、AI 代理模块与前端助手界面（F11）。
+- **目标（AI 依 README/提交记录起草，2026-09-12 用户确认）：** 图片与素材管理平台：个人/团队按"空间"管理图片，支持空间级 RBAC 成员权限、图片列表多级缓存加速、批量抓取入库、AI 扩图与多人实时协同编辑；已部署上线 https://www.lincode.online。**2026-09-13 增补（AI 助手一期立项）：** 内置 AI 助手——前端助手界面（对话 + SSE 步骤折叠条）+ 后端代理模块，智能体引擎为外部 MyManus；一期场景 = 智能整理（视觉打标批量整理）+ 选图入库代理；配套标签词表建表（/tag_category 从硬编码改查表）。**同日 R2 修订：MyManus 引擎与 image-search-mcp-server 整体迁入本仓库**（`ai/agent/` 与 `ai/image-search-mcp-server/`，独立 Maven 应用、独立进程，不并入 SB 2.7 backend），后续开发集中在本仓库、由本仓库 git 管理。设计全文见 docs/designs/2026-09-13-图库智能体一期设计.md。
+- **不做的事（待确认）：** 待确认——存量项目接入，原始排界未记录。从提交记录看已明确排除的：多实例本地缓存脏读（已用跨实例广播解决，不回退）、明文凭据入库（jmx/配置已清理）。**一期 AI 助手不做：** 引擎并进 SB 2.7 backend 进程（Spring AI 栈要求 SB 3.x，只能独立进程）、删除类工具（整理只增改不删）、AI 审核助手（后续另行立项，与 MyManus 仓库冻结的 Listing 合规审查设计同源）、词表按空间隔离（全局词表起步）。
+- **边界（AI 依仓库结构起草，待确认）：** backend/（Spring Boot 单体，端口 8123，context-path /api）与 frontend/（Vue 3 SPA，开发端口 5173）；**ai/（R2 迁入：ai/agent SB 3.5/Java 21 引擎 + ai/image-search-mcp-server，独立构建独立进程，端口与 8123 错开）**；建表脚本 backend/sql；部署文档 backend/docs/deploy；密钥不入库（application-local/prod/test.yaml 被 .gitignore，模板 example 入库）。源仓库 yu-ai-agent 随迁入完成冻结归档。
 
 ## 背景与原始想法
 
@@ -24,7 +24,7 @@
 - [x] F8 可观测性：traceId 全链路日志（异步透传）、Actuator/Prometheus 指标
 - [x] F9 工程化：GitHub Actions CI（编译 + 无 MySQL/Redis 单测）、JMeter 压测资产（本地，不入库）
 - [ ] F10 标签词表：新表 `tag`（id/name/type(tag|category)/usage_count/审计字段，全局词表）；/tag_category 查表动态化（返回结构 PictureTagCategory 逐字段不变，现有 9 标签 + 5 分类种子迁移）；编辑接口（单编/批编）同事务 upsert 词表并累加 usage_count；picture.tags JSON 列与 LIKE 查询逻辑不动
-- [ ] F11 AI 助手一期：前端助手界面（对话 + SSE 步骤折叠条，消费 MyManus 现有步骤事件协议语义）+ 后端 AI 代理模块（服务间 API key 认证、当前用户 satoken 透传、SSE 转发到 MyManus headless 端点）；token 只在内存流转不落库
+- [ ] F11 AI 助手一期：**ai/ 引擎模块（R2 自 yu-ai-agent 迁入）**——图库工具集（prototype 化携带透传 token）、OpenAI 协议多 ChatModel、会话类型 + headless SSE 端点（服务间 API key + `huoshan:<userId>` 身份映射）、MCP client 接入 ai/image-search-mcp-server；**本仓 backend** AI 代理模块（服务间 API key 认证、satoken 透传、SSE 转发，token 只在内存流转不落库）；**frontend** 助手界面（对话 + SSE 步骤折叠条）
 
 ## 技术方案
 
