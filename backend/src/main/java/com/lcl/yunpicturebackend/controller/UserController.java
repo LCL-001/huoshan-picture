@@ -16,6 +16,7 @@ import com.lcl.yunpicturebackend.domain.vo.UserVO;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
+import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.service.IUserService;
 import com.lcl.yunpicturebackend.utils.TextSanitizeUtils;
 import io.swagger.annotations.Api;
@@ -167,6 +168,10 @@ public class UserController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         boolean b = userService.removeById(deleteRequest.getId());
+        if (b) {
+            // 删号即踢会话：否则该用户的 Sa-Token 会话快照（含角色）仍会参与空间鉴权
+            StpKit.SPACE.logout(deleteRequest.getId());
+        }
         return ResultUtils.success(b);
     }
 
@@ -183,10 +188,18 @@ public class UserController {
         // UGC 文本清洗：剥离 HTML 标签防存储型 XSS
         userUpdateRequest.setUserName(TextSanitizeUtils.stripHtml(userUpdateRequest.getUserName()));
         userUpdateRequest.setUserProfile(TextSanitizeUtils.stripHtml(userUpdateRequest.getUserProfile()));
+        User oldUser = userService.getById(userUpdateRequest.getId());
+        ThrowUtils.throwIf(oldUser == null, ErrorCode.NOT_FOUND_ERROR);
         User user = new User();
         BeanUtils.copyProperties(userUpdateRequest, user);
         boolean result = userService.updateById(user);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        // 角色变更后踢会话：Sa-Token 会话里的旧角色快照（尤其降权后的 admin）最长 7 天内仍会参与空间鉴权
+        boolean roleChanged = userUpdateRequest.getUserRole() != null
+                && !userUpdateRequest.getUserRole().equals(oldUser.getUserRole());
+        if (roleChanged) {
+            StpKit.SPACE.logout(userUpdateRequest.getId());
+        }
         return ResultUtils.success(true);
     }
 

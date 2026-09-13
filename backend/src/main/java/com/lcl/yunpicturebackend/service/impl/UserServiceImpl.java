@@ -43,6 +43,7 @@ import org.springframework.util.DigestUtils;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -206,8 +207,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public User getLoginUser(HttpServletRequest request) {
-        // 1. 判断是否已登录
-        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
+        // 1. 判断是否已登录。getSession(false)：匿名请求不创建会话，
+        // 否则每个未登录访客都会在 Redis（spring-session）里留下一个 7 天过期的空会话
+        HttpSession session = request.getSession(false);
+        Object userObj = session == null ? null : session.getAttribute(USER_LOGIN_STATE);
         User currentUser = (User) userObj;
         ThrowUtils.throwIf(currentUser == null || currentUser.getId() == null, ErrorCode.NOT_LOGIN_ERROR);
         // 2. 获取当前登录的用户信息
@@ -238,6 +241,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .update();
         // 密码已更换，清空该账号的登录失败计数
         stringRedisTemplate.delete(LOGIN_FAIL_ACCOUNT_KEY + user.getUserAccount());
+        // 密码已更换，踢掉该用户全部 Sa-Token 会话：被盗用的旧 satoken 立即失效，空间权限即时报废
+        StpKit.SPACE.logout(user.getId());
         return ResultUtils.success(true);
     }
 
