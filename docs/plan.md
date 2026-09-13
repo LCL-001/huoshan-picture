@@ -39,4 +39,7 @@
   - 验收：PictureReplacePrecheckOwnershipIntegrationTest——满员空间替换成功且额度记净差值（1000-500+200=700、条数不变）；满员空间新增仍被拒（守卫用例）；已提交 4d37b45
 - [x] T3.9 admin 替换他人图片归属被改（T3.5 顺手发现的存量问题，用户 2026-09-13 点名）：getPicture 更新分支保留原归属 userId，仅新增图片归属上传人；管理员替换不再把图片改成自己的
   - 验收：admin 替换后 userId 不变、URL 更新；PictureReplacePrecheckOwnershipIntegrationTest 3 用例全绿；全量 57 测试绿；已提交 4d37b45
-  - 独立 review（规则 13，2026-09-13）：**通过**（8 用例实测绿，静态推演确认回退即红）。P2 既有问题（非本次引入，待用户决定是否立任务）：uploadPicture 替换路径"请求不传 spaceId（由原图反推）"分支不做空间级 PICTURE_UPLOAD 校验（仅"本人或 admin"把关，PictureServiceImpl.java:219-243），被移出空间/降权的原上传者仍可替换该图文件；与显式传 spaceId 路径及 deletePicture 的 checkPictureAuth 口径不一致。P3 已知限制：满员空间超额替换在 COS 上传后于事务内被拒、留孤儿对象（与新增路径既有失败面一致）；回归测试属 IntegrationTest 口径不入 CI/门禁（既有约定）
+  - 独立 review（规则 13，2026-09-13）：**通过**（8 用例实测绿，静态推演确认回退即红）。P2 既有问题（非本次引入）已立 T3.10 收口。P3 已知限制：满员空间超额替换在 COS 上传后于事务内被拒、留孤儿对象（与新增路径既有失败面一致）；回归测试属 IntegrationTest 口径不入 CI/门禁（既有约定）
+- [x] T3.10 替换图片 spaceId 反推路径缺空间上传权限校验（T3.8/T3.9 独立 review 发现的既有 P2，用户 2026-09-13 拍板收口）：uploadPicture 在 spaceId 由原图反推时补查目标空间并校验 PICTURE_UPLOAD（抽 checkSpaceUploadPermission 私有方法复用），与显式传 spaceId 路径、checkPictureAuth（deletePicture）判权同源
+  - 口径后果（有意收紧）：站点管理员若非团队空间成员，替换/上传该空间图片将被拒（与显式传参路径及 deletePicture 现状一致）；私有空间属主/站点管理员不受影响，团队空间属主由 createSpace 自动建 admin 成员行、不受影响
+  - 验收：PictureReplaceSpaceAuthIntegrationTest 4 用例全绿（被移出成员替换被拒、降权 viewer 替换被拒、非成员站点管理员替换被拒、editor 成员正常替换且归属不变）；全量 61 测试绿；已提交 8b29f46
