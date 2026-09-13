@@ -17,6 +17,7 @@ import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
+import com.lcl.yunpicturebackend.service.ISpaceService;
 import com.lcl.yunpicturebackend.service.IUserService;
 import com.lcl.yunpicturebackend.utils.TextSanitizeUtils;
 import io.swagger.annotations.Api;
@@ -43,6 +44,7 @@ import java.util.List;
 public class UserController {
 
     private final IUserService userService;
+    private final ISpaceService spaceService;
 
     /**
      * 获取图形验证码
@@ -167,10 +169,14 @@ public class UserController {
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        boolean b = userService.removeById(deleteRequest.getId());
+        long userId = deleteRequest.getId();
+        // 先级联清理名下空间（逻辑删图片 + 清理 COS 文件）与团队空间成员关系，再删号：
+        // 级联失败时用户行仍在、可重试；删号必须是最后一步
+        spaceService.deleteUserCascade(userId);
+        boolean b = userService.removeById(userId);
         if (b) {
             // 删号即踢会话：否则该用户的 Sa-Token 会话快照（含角色）仍会参与空间鉴权
-            StpKit.SPACE.logout(deleteRequest.getId());
+            StpKit.SPACE.logout(userId);
         }
         return ResultUtils.success(b);
     }

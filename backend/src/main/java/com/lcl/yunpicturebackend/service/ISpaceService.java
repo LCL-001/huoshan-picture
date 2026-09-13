@@ -83,6 +83,15 @@ public interface ISpaceService extends IService<Space> {
     void deleteSpace(DeleteRequest deleteRequest, HttpServletRequest request);
 
     /**
+     * 删除用户的级联清理：名下空间逐个走空间级联（逻辑删空间行、成员记录与图片，
+     * 事务提交后清理 COS 文件），并移除其在他人团队空间的成员关系。
+     * 供删号流程调用；账号行删除与会话踢除由调用方负责。
+     *
+     * @param userId 被删用户 id
+     */
+    void deleteUserCascade(long userId);
+
+    /**
      * 更新空间
      *
      * @param spaceUpdateRequest 更新请求

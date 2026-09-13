@@ -11,6 +11,7 @@ import com.lcl.yunpicturebackend.domain.dto.space.SpaceAddRequest;
 import com.lcl.yunpicturebackend.domain.dto.space.SpaceEditRequest;
 import com.lcl.yunpicturebackend.domain.dto.space.SpaceQueryRequest;
 import com.lcl.yunpicturebackend.domain.dto.space.SpaceUpdateRequest;
+import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.lcl.yunpicturebackend.domain.po.Space;
 import com.lcl.yunpicturebackend.domain.po.SpaceUser;
 import com.lcl.yunpicturebackend.domain.po.User;
@@ -23,17 +24,22 @@ import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import com.lcl.yunpicturebackend.mapper.SpaceMapper;
+import com.lcl.yunpicturebackend.service.IPictureService;
 import com.lcl.yunpicturebackend.service.ISpaceService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lcl.yunpicturebackend.service.ISpaceUserService;
 import com.lcl.yunpicturebackend.service.IUserService;
+import com.lcl.yunpicturebackend.service.PictureFileCleanupService;
 import com.lcl.yunpicturebackend.utils.SqlSortUtils;
 import com.lcl.yunpicturebackend.utils.TextSanitizeUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,6 +60,15 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space> implements
     private final IUserService userService;
     private final TransactionTemplate transactionTemplate;
     private final ISpaceUserService spaceUserService;
+    private final PictureFileCleanupService pictureFileCleanupService;
+
+    /**
+     * 图片服务：空间级联删除时逻辑删图片。PictureServiceImpl 构造期依赖 ISpaceService，
+     * 这里必须 @Lazy 延迟解析打破循环依赖。
+     */
+    @Autowired
+    @Lazy
+    private IPictureService pictureService;
 //    @Resource
 //    @Lazy
 //    private DynamicShardingManager dynamicShardingManager;
@@ -250,11 +265,73 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space> implements
         ThrowUtils.throwIf(oldSpace == null, ErrorCode.NOT_FOUND_ERROR);
         // 仅本人或管理员可删除
         this.checkSpaceAuth(oldSpace, loginUser);
-        // 操作数据库：删除空间
-        boolean result = removeById(id);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
-        // 清理该空间的所有成员记录
-        spaceUserService.remove(new QueryWrapper<SpaceUser>().eq("spaceId", id));
+        this.deleteSpaceCascade(oldSpace);
+    }
+
+    /**
+     * 删除用户的级联清理：名下空间逐个走空间级联，再移除其在他人团队空间的成员关系。
+     * 账号行删除与会话踢除由调用方（UserController）负责，故本方法在删号前调用，
+     * 失败时用户行仍在、可重试收敛。
+     * 注意：用户上传到他人团队空间的图片保留（团队内容不随个人账号删除）。
+     */
+    @Override
+    public void deleteUserCascade(long userId) {
+        // 名下空间逐个级联删除：每空间独立事务，单个失败即抛出，已删部分不受影响
+        List<Space> ownedSpaces = this.lambdaQuery()
+                .eq(Space::getUserId, userId)
+                .list();
+        for (Space space : ownedSpaces) {
+            this.deleteSpaceCascade(space);
+        }
+        // 移除在他人团队空间的成员关系
+        spaceUserService.remove(new QueryWrapper<SpaceUser>().eq("userId", userId));
+    }
+
+    /**
+     * 空间级联删除核心：单事务内逻辑删空间行、成员记录与空间下全部图片，
+     * 事务提交后对无存活 URL 引用的图片异步清理 COS 文件。
+     * <p>
+     * 图片列表缓存不在此处失效：空间删除后其缓存条目已不可达
+     * （空间态接口全部要求空间存活），残余由 TTL 兜底。
+     *
+     * @param oldSpace 待删除的空间（须为存活记录）
+     */
+    private void deleteSpaceCascade(Space oldSpace) {
+        long id = oldSpace.getId();
+        List<Picture> removedPictures = transactionTemplate.execute(status -> {
+            // 事务内先捕获待删图片，提交后据此清理 COS 文件
+            List<Picture> spacePictures = pictureService.lambdaQuery()
+                    .eq(Picture::getSpaceId, id)
+                    .list();
+            ThrowUtils.throwIf(!this.removeById(id), ErrorCode.OPERATION_ERROR, "删除空间失败");
+            // 清理该空间的所有成员记录
+            spaceUserService.remove(new QueryWrapper<SpaceUser>().eq("spaceId", id));
+            // 逻辑删空间下全部图片
+            pictureService.remove(new QueryWrapper<Picture>().eq("spaceId", id));
+            return spacePictures;
+        });
+        this.cleanupRemovedPictures(removedPictures);
+    }
+
+    /**
+     * 事务提交后清理被删图片的 COS 文件：URL 仍被其它存活记录引用时跳过
+     * （查询自动排除已逻辑删的行，与 PictureServiceImpl#cleanupPictureFile 同口径）
+     */
+    private void cleanupRemovedPictures(List<Picture> removedPictures) {
+        if (CollUtil.isEmpty(removedPictures)) {
+            return;
+        }
+        for (Picture picture : removedPictures) {
+            if (StrUtil.isBlank(picture.getUrl())) {
+                continue;
+            }
+            long refCount = pictureService.lambdaQuery()
+                    .eq(Picture::getUrl, picture.getUrl())
+                    .count();
+            if (refCount == 0) {
+                pictureFileCleanupService.clearPictureFile(picture);
+            }
+        }
     }
 
     @Override
