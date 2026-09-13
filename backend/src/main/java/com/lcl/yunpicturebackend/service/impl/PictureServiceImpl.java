@@ -219,10 +219,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         if (spaceId != null) {
             space = spaceService.getById(spaceId);
             ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR, "空间不存在");
-            // 判断用户是否拥有空间上传权限（私有空间仅属主/站点管理员，团队空间按数据库成员角色判断）
-            List<String> spacePermissions = spaceUserAuthManager.getPermissionList(space, loginUser);
-            ThrowUtils.throwIf(!spacePermissions.contains(SpaceUserPermissionConstant.PICTURE_UPLOAD),
-                    ErrorCode.NO_AUTH_ERROR, "用户没有空间权限");
+            checkSpaceUploadPermission(space, loginUser);
         }
         // 如果是更新图片，则需要判断图片是否存在
         Picture oldPicture = null;
@@ -247,6 +244,13 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                     throw new BusinessException(ErrorCode.PARAMS_ERROR, "空间 id 不一致");
                 }
             }
+        }
+        // 空间上传权限收口（T3.10）：spaceId 由原图反推的替换路径与显式传 spaceId 同口径，
+        // 防止被移出空间/降权的原上传者绕过空间权限替换图片文件
+        if (spaceId != null && space == null) {
+            space = spaceService.getById(spaceId);
+            ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR, "空间不存在");
+            checkSpaceUploadPermission(space, loginUser);
         }
         // 校验额度，判断空间是否达到上限：仅新增图片需要预检；替换不增条数、大小按净差值在事务内原子校验，
         // 按新增口径预检会把"空间已满但替换图片"的场景误拒
@@ -465,6 +469,19 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             picture.setEditTime(new Date());
         }
         return picture;
+    }
+
+    /**
+     * 校验用户对目标空间的上传权限（私有空间仅属主/站点管理员，团队空间按数据库成员角色判断），
+     * 与 checkPictureAuth 的空间判权同源
+     *
+     * @param space 目标空间
+     * @param loginUser 登录用户
+     */
+    private void checkSpaceUploadPermission(Space space, User loginUser) {
+        List<String> spacePermissions = spaceUserAuthManager.getPermissionList(space, loginUser);
+        ThrowUtils.throwIf(!spacePermissions.contains(SpaceUserPermissionConstant.PICTURE_UPLOAD),
+                ErrorCode.NO_AUTH_ERROR, "用户没有空间权限");
     }
 
     /**
