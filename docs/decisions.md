@@ -22,3 +22,4 @@
 | 2026-09-13 | 接受残余：Spring Session 在改密后不失效——空间接口全部依赖 Sa-Token 登录态，残余影响限于个人资料编辑等自持操作；如需彻底收敛再做会话版本号机制 | T3.3 收权后评估，量级低 | 生效 |
 | 2026-09-13 | T3.6 口径：ShardingSphere 不删除也不启用，注释停用预留——yaml 分表死配置块已注释（主类本就 exclude ShardingSphereAutoConfiguration，配置无人读取），pom 依赖与主类 exclude 保留作为停用护栏与恢复基础，manager/sharding 两类保持休眠；恢复分表前须先解决库名不一致 / 空 range 静默丢数据 / 动态建表回退主表三个坑 | 用户拍板"不删除也不启用，注释起来就行" | 生效 |
 | 2026-09-13 | T3.7 口径修订：社交模块通知接口保留——SocialController 的 /notification/* 在服务（前端 GlobalHeader 铃铛正在调用），仅 /timeline 停用；修订 2026-09-12"Social 不被 Spring 加载"的不实记录 | 用户拍板"保留通知并改 spec" | 生效 |
+| 2026-09-13 | 维持"CI/门禁排除集成测试"现状：集成测试不入 CI，靠本地全量手动回归（大改动后/发版前必跑）；不采纳"CI 加 MySQL/Redis service 容器跑全量"与"nightly 定时全量" | T3.8-T3.11 独立 review 提出 P3（本批修复的回归锁全在集成测试），用户在三个收口选项中拍板"不动" | 生效 |
