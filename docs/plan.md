@@ -25,9 +25,10 @@
   - 文件范围：service/impl/PictureServiceImpl.java（uploadPicture 事务段）+ backend/src/test/（新增 PictureReplaceQuotaIntegrationTest）
   - 验收：PictureReplaceQuotaIntegrationTest 5 用例全绿（替换后额度净增量 = 新旧差值、缩图替换回落、超限替换整笔回滚且不清理旧文件、旧 URL 仍被其它记录引用时跳过清理、个人图库无空间也清理旧文件）；已提交 ad4dada
   - 实现备注：扣减用 `GREATEST(totalSize - oldSize, 0) + newSize`（与 deletePicture 同款防负数）；`cleanupPictureFile` 引用计数阈值由 `count > 1` 改为 `count > 0`（调用点查询时记录本身已删/已改指向，剩 1 条引用也不能删共享文件，原阈值会在恰好剩一条引用时误删）
-- [ ] T3.5 删空间级联（事务内逻辑删图片 + 异步清 COS + 包事务）、删用户级联
-  - 文件范围：service/impl/SpaceServiceImpl.java、controller/UserController.java
-  - 验收：集成测试断言删空间后图片与文件被清理
+- [x] T3.5 删空间级联（事务内逻辑删图片 + 异步清 COS + 包事务）、删用户级联
+  - 文件范围：service/impl/SpaceServiceImpl.java、controller/UserController.java、service/ISpaceService.java（新增 deleteUserCascade 声明，接口变更超出原定范围已在此说明）+ backend/src/test/（新增 SpaceDeleteCascadeIntegrationTest）
+  - 验收：SpaceDeleteCascadeIntegrationTest 2 用例全绿（删空间后图片逻辑删除、URL 仍被他人空间引用的图跳过清理、成员记录清理、他人空间不受影响；删号后名下空间级联、他人空间成员关系移除、其上传到他人空间的图保留）；全量 54 测试绿；已提交 8c702c1
+  - 口径备注：删空间为单事务（空间行 + 成员 + 图片），COS 清理在事务提交后按 URL 引用计数异步执行；图片列表缓存不在级联中失效（空间删除后其缓存条目已不可达，TTL 兜底）；删号保留其上传到他人团队空间的图片（团队内容不随账号消失），如需一并删除另行立任务
 - [ ] T3.6 ShardingSphere 二选一：修复启用（库名不一致/空 range 静默丢数据/动态建表回退主表）或删除死代码死配置并改 README
   - 文件范围：YunPictureBaseApplication.java、manager/sharding/**、application.yaml、README.md
   - 验收：启用则集成测试过；删除则仓库无 shardingsphere 残留
