@@ -18,9 +18,9 @@
 - [ ] T7 图库工具集（ai/agent）：`tools/huoshan/` 新增——listSpaces / listPictures / getTagCategory / batchEditPictures / batchUploadByUrl（RestClient 封装图库 API，prototype 化 per-request 注入透传 token 与图库地址）+ visionTagger（OpenAI 协议多模态批量看图，提示词注入词表）；粗粒度原则，一期不注册删除类工具
   - 文件范围：ai/agent 的 tools 新增包、必要 config/DTO
   - 验收：单测（Mock 图库 HTTP + visionTagger 打标解析）进门禁绿
-- [ ] T8 会话类型机制 + headless 端点（ai/agent）：会话类型（普通/图库助手）决定工具注册表与系统提示词；图库助手 SSE 端点——服务间 API key 鉴权、`huoshan:<userId>` 外部身份映射、satoken 上下文传递给工具集
-  - 文件范围：ai/agent 的 agent 装配类、controller 新增端点、config
-  - 验收：单测（鉴权/身份映射/工具装配）+ SSE 端点冒烟
+- [ ] T8 会话类型机制 + headless 端点（ai/agent）：会话类型（普通/图库助手）决定工具注册表与系统提示词；图库助手 SSE 端点——服务间 API key 鉴权、`huoshan:<userId>` 外部身份映射、satoken 上下文传递给工具集。**随任务执行对话循环收敛（用户 2026-09-13 拍板"对话保留 SSE 模式即可"）：抽事件消费者接口统一 run/runStream 双循环，同步 run() 退役（存量调用方迁移到事件流收集口径），lastStepKind 等受保护字段通道收编进事件载荷，SSE 事件协议（step/answer/metrics/[DONE]）固化为显式契约**
+  - 文件范围：ai/agent 的 BaseAgent/ReActAgent/ToolCallAgent 循环重构、agent 装配类、controller 新增端点、config、受影响测试迁移
+  - 验收：单测（鉴权/身份映射/工具装配/事件协议契约）+ SSE 端点冒烟；门禁绿
 - [ ] T9 MCP client 接入（ai/agent）：spring-ai-starter-mcp-client（已在 pom）连接 ai/image-search-mcp-server（传输方式实施时定）；Pexels 搜图工具进图库助手工具集；MCP 服务本体零改动
   - 文件范围：ai/agent 的 application.yaml、MCP client 配置/装配
   - 验收：单测 + 本地双进程冒烟（搜图返回 URL 列表）
