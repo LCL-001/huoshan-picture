@@ -1,8 +1,25 @@
 # Plan — 火山图库（huoshan-picture）
 
 > 任务粒度：一个任务 = 一次可测试的改动 = 一个 commit。每个任务必须标注允许触碰的文件范围。
+>
+> 2026-09-13 **AI 助手一期立项**（设计文档 docs/designs/2026-09-13-图库智能体一期设计.md）：新增 T4-T7；智能体引擎（MyManus）侧任务在其仓库 docs/plan.md 立据。
 
-## 任务清单
+## 任务清单（AI 助手一期，2026-09-13 立项）
+
+- [ ] T4 标签词表：新表 `tag`（id/name/type(tag|category)/usage_count/is_delete/create_time/update_time，全局词表不按空间拆）+ Tag entity/mapper/service + /tag_category 查表动态化（返回结构逐字段不变，9 标签 + 5 分类种子迁移）+ 编辑接口（单编/批编）同事务 upsert 词表并累加 usage_count
+  - 文件范围：backend/sql 新建表脚本、domain（Tag）、mapper、service、PictureController.listPictureTagCategory、PictureServiceImpl 编辑两处
+  - 验收：集成测试（动态词表返回/种子迁移/upsert 计数/返回结构兼容）+ 门禁绿 + 全量回归
+- [ ] T5 AI 代理模块：新增代理端点（转发对话请求到 MyManus headless SSE 端点）——服务间 API key 认证（配置化，密钥不入库）、当前用户 satoken 透传、用户标识（huoshan:<userId>）传递、SSE 流转发（SB 2.7 实现选型实施时定：SseEmitter/OkHttp EventSource）
+  - 文件范围：controller 新增代理端点、service/manager 新增代理与转发组件、config、application-local.yaml.example
+  - 验收：集成测试（API key 校验/satoken 透传）+ 与 MyManus 冒烟联调
+- [ ] T6 前端助手界面：AI 助手入口 + 对话面板 + SSE 步骤折叠条（消费 MyManus 步骤事件协议语义，AntD 组件渲染）；复用现有登录态
+  - 文件范围：frontend/src 新增助手页面/组件、路由入口、openapi 生成代码如需
+  - 验收：npm run type-check + lint 过；对话与折叠条人工验收
+- [ ] T7 一期联调验收：与 MyManus 侧对齐跑通两条场景（智能整理/选图入库）；按规则 9 写功能讲解文档 docs/features/
+  - 文件范围：联调发现的必要小修 + docs/features/
+  - 验收：设计文档"验收标准"4 条全过；双仓门禁绿
+
+## 任务清单（存量修复，已完成）
 
 以下为 2026-09-12 功能审查（三个只读子代理 + 逐条人工核验，详见 handoff/0002）产出的修复批次，按优先级排列：
 
