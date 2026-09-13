@@ -20,7 +20,7 @@
 - [x] F4 图片列表多级缓存：Caffeine + Redis、跨实例失效广播、命中率埋点、缓存重建锁预算化
 - [x] F5 AI 扩图（阿里百炼）：任务幂等 + 每日配额
 - [x] F6 多人协同编辑：WebSocket + Disruptor，编辑锁 + 空闲超时兜底
-- [ ] F7 帖子与社交（当前停用）：Post/PostInteraction/Social/UserFollow 控制器代码在库，但注解已注释、不被 Spring 加载（用户 2026-09-12 确认）
+- [x] F7 帖子与社交（部分停用）：Post/PostInteraction/UserFollow 控制器类注解已注释、不被 Spring 加载；SocialController 在服务但仅保留 /notification/* 通知接口（前端 GlobalHeader 铃铛正在调用，用户 2026-09-13 拍板保留），/timeline 已注释停用
 - [x] F8 可观测性：traceId 全链路日志（异步透传）、Actuator/Prometheus 指标
 - [x] F9 工程化：GitHub Actions CI（编译 + 无 MySQL/Redis 单测）、JMeter 压测资产（本地，不入库）
 

@@ -20,3 +20,5 @@
 | 2026-09-13 | 对象级鉴权口径：读接口必须绑定目标资源（服务端查出归属再判权，如 checkPictureAuth / spaceUserAuthManager.getPermissionList），禁止依赖 StpInterfaceImpl 从请求嗅探的上下文做空间 scoped 读授权；嗅探层仅作登录/公共图库兜底 | T3.1 修复落定的原则：请求参数可定位资源但不可定权 | 生效 |
 | 2026-09-13 | 会话生命周期口径：改密/删号/角色变更必须 StpKit.SPACE.logout(userId) 踢会话；getLoginUser 用 getSession(false)，匿名请求不创建会话 | T3.3：旧会话快照（含 admin 角色）最长 7 天内仍参与空间鉴权 | 生效 |
 | 2026-09-13 | 接受残余：Spring Session 在改密后不失效——空间接口全部依赖 Sa-Token 登录态，残余影响限于个人资料编辑等自持操作；如需彻底收敛再做会话版本号机制 | T3.3 收权后评估，量级低 | 生效 |
+| 2026-09-13 | T3.6 口径：ShardingSphere 不删除也不启用，注释停用预留——yaml 分表死配置块已注释（主类本就 exclude ShardingSphereAutoConfiguration，配置无人读取），pom 依赖与主类 exclude 保留作为停用护栏与恢复基础，manager/sharding 两类保持休眠；恢复分表前须先解决库名不一致 / 空 range 静默丢数据 / 动态建表回退主表三个坑 | 用户拍板"不删除也不启用，注释起来就行" | 生效 |
+| 2026-09-13 | T3.7 口径修订：社交模块通知接口保留——SocialController 的 /notification/* 在服务（前端 GlobalHeader 铃铛正在调用），仅 /timeline 停用；修订 2026-09-12"Social 不被 Spring 加载"的不实记录 | 用户拍板"保留通知并改 spec" | 生效 |

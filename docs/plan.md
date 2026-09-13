@@ -29,8 +29,9 @@
   - 文件范围：service/impl/SpaceServiceImpl.java、controller/UserController.java、service/ISpaceService.java（新增 deleteUserCascade 声明，接口变更超出原定范围已在此说明）+ backend/src/test/（新增 SpaceDeleteCascadeIntegrationTest）
   - 验收：SpaceDeleteCascadeIntegrationTest 2 用例全绿（删空间后图片逻辑删除、URL 仍被他人空间引用的图跳过清理、成员记录清理、他人空间不受影响；删号后名下空间级联、他人空间成员关系移除、其上传到他人空间的图保留）；全量 54 测试绿；已提交 8c702c1
   - 口径备注：删空间为单事务（空间行 + 成员 + 图片），COS 清理在事务提交后按 URL 引用计数异步执行；图片列表缓存不在级联中失效（空间删除后其缓存条目已不可达，TTL 兜底）；删号保留其上传到他人团队空间的图片（团队内容不随账号消失），如需一并删除另行立任务
-- [ ] T3.6 ShardingSphere 二选一：修复启用（库名不一致/空 range 静默丢数据/动态建表回退主表）或删除死代码死配置并改 README
-  - 文件范围：YunPictureBaseApplication.java、manager/sharding/**、application.yaml、README.md
-  - 验收：启用则集成测试过；删除则仓库无 shardingsphere 残留
-- [ ] T3.7 社交通知口径二选一：SocialController 一并停用，或修正 spec/AGENTS 记录为"通知功能保留"
-  - 文件范围：controller/SocialController.java 或 docs/spec.md
+- [x] T3.6 ShardingSphere 二选一 → 用户拍板第三选项：**注释停用（不删不启）**
+  - 实际改动：application.yaml 分表死配置块注释停用（application-local/prod.yaml 属 gitignore 本地同步同步注释）；主类 exclude、pom 依赖、manager/sharding 两类保持原状作为停用护栏与恢复基础；README 本无分表表述，不改
+  - 验收：全量 54 测试绿（上下文启动正常）；口径记入 decisions.md；已提交 d000360
+- [x] T3.7 社交通知口径二选一 → 用户拍板：**保留通知接口，修正 spec/AGENTS 记录**
+  - 实际改动：仅文档（docs/spec.md F7、AGENTS.md 技术栈与停用模块注记、decisions.md 两条口径）；前端核实 GlobalHeader.vue 正在调用 /notification/* 五接口，SocialController 未改动
+  - 验收：spec F7 改为"部分停用：通知保留"；decisions.md 记入 T3.6/T3.7 两条口径

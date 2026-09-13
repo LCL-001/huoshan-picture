@@ -13,9 +13,9 @@
 
 - 一句话：图片与素材管理平台——按"空间"管理图片、空间级 RBAC 成员权限、图片列表多级缓存、批量抓取、AI 扩图与多人实时协同编辑；已上线 https://www.lincode.online
 - 技术栈：
-  - 后端（backend/）：Java 17、Spring Boot 2.7.6、MyBatis-Plus、MySQL 8、Redis、ShardingSphere（分库分表）、Sa-Token（认证，会话存 Redis）、Caffeine + Redis 两级缓存、WebSocket + Disruptor（协同编辑）、腾讯云 COS（对象存储）、阿里百炼（AI 扩图）、Actuator + Prometheus（可观测）
+  - 后端（backend/）：Java 17、Spring Boot 2.7.6、MyBatis-Plus、MySQL 8、Redis、ShardingSphere（分库分表，已注释停用预留，用户 2026-09-13 拍板）、Sa-Token（认证，会话存 Redis）、Caffeine + Redis 两级缓存、WebSocket + Disruptor（协同编辑）、腾讯云 COS（对象存储）、阿里百炼（AI 扩图）、Actuator + Prometheus（可观测）
   - 前端（frontend/）：Vue 3、Vite、TypeScript、Pinia、Ant Design Vue、ECharts
-- 架构要点：前后端单仓库。后端经典分层 `controller → service → manager → mapper`：manager 收敛第三方与复杂组件（auth、cache、crawler、observability、sharding、upload、websocket、CosManager）；公共返回/异常在 common、exception、annotation/aop。注意：controller 中 Post/PostInteraction/Social/UserFollow 属于**停用模块**（类注解已注释，不被 Spring 加载，用户 2026-09-12 确认）。建表脚本在 backend/sql；部署文档与 nginx 配置在 backend/docs/deploy；接口文档走 Knife4j。CI 在 .github/workflows/ci.yml。
+- 架构要点：前后端单仓库。后端经典分层 `controller → service → manager → mapper`：manager 收敛第三方与复杂组件（auth、cache、crawler、observability、sharding、upload、websocket、CosManager）；公共返回/异常在 common、exception、annotation/aop。注意：controller 中 Post/PostInteraction/UserFollow 属于**停用模块**（类注解已注释，不被 Spring 加载，用户 2026-09-12 确认）；SocialController 本体在服务，仅保留 /notification/* 通知接口（前端 GlobalHeader 铃铛在用，/timeline 已注释停用，用户 2026-09-13 确认）。分库分表 ShardingSphere 已注释停用（主类 exclude 自动配置，yaml 分表块已注释，见 docs/decisions.md）。建表脚本在 backend/sql；部署文档与 nginx 配置在 backend/docs/deploy；接口文档走 Knife4j。CI 在 .github/workflows/ci.yml。
 
 ## 命令
 
