@@ -19,6 +19,7 @@ import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.domain.vo.SpaceLevel;
 import com.lcl.yunpicturebackend.enums.SpaceLevelEnum;
+import com.lcl.yunpicturebackend.enums.TagTypeEnum;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
@@ -26,6 +27,7 @@ import com.lcl.yunpicturebackend.manager.auth.annotation.SaSpaceCheckPermission;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
 import com.lcl.yunpicturebackend.service.IPictureService;
 import com.lcl.yunpicturebackend.service.ISpaceService;
+import com.lcl.yunpicturebackend.service.ITagService;
 import com.lcl.yunpicturebackend.service.IUserService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -56,6 +58,7 @@ public class PictureController {
     private final IPictureService pictureService;
     private final IUserService userService;
     private final ISpaceService spaceService;
+    private final ITagService tagService;
     private final SpaceUserAuthManager spaceUserAuthManager;
 
     @ApiOperation("审核图片")
@@ -243,16 +246,14 @@ public class PictureController {
     }
 
     /**
-     * 获取图片标签和分类
+     * 获取图片标签和分类（T5 起查词表动态返回，PictureTagCategory 结构逐字段不变）
      */
     @ApiOperation("获取图片标签和分类")
     @GetMapping("/tag_category")
     public BaseResponse<PictureTagCategory> listPictureTagCategory() {
         PictureTagCategory pictureTagCategory = new PictureTagCategory();
-        List<String> tagList = Arrays.asList("热门", "搞笑", "生活", "高清", "艺术", "校园", "背景", "简历", "创意");
-        List<String> categoryList = Arrays.asList("模板", "电商", "表情包", "素材", "海报");
-        pictureTagCategory.setTagList(tagList);
-        pictureTagCategory.setCategoryList(categoryList);
+        pictureTagCategory.setTagList(tagService.listNamesByType(TagTypeEnum.TAG));
+        pictureTagCategory.setCategoryList(tagService.listNamesByType(TagTypeEnum.CATEGORY));
         return ResultUtils.success(pictureTagCategory);
     }
 

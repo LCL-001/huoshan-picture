@@ -2,6 +2,7 @@ package com.lcl.yunpicturebackend.service.impl;
 
 import com.lcl.yunpicturebackend.common.BaseResponse;
 import com.lcl.yunpicturebackend.controller.PictureController;
+import com.lcl.yunpicturebackend.domain.dto.picture.PictureEditByBatchRequest;
 import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.lcl.yunpicturebackend.domain.po.Space;
 import com.lcl.yunpicturebackend.domain.po.Tag;
@@ -93,10 +94,36 @@ class TagVocabularyIntegrationTest {
     }
 
     @Test
+    void batchEditUpsertsVocabularyAndCounts() {
+        long beforeHot = usageCountOf("热门", TagTypeEnum.TAG);
+        long beforePoster = usageCountOf("海报", TagTypeEnum.CATEGORY);
+        String newTag = "T5新词" + uniqueSuffix;
+
+        PictureEditByBatchRequest request = new PictureEditByBatchRequest();
+        request.setPictureIdList(Collections.singletonList(pictureId));
+        request.setSpaceId(space.getId());
+        request.setTags(Arrays.asList("热门", newTag));
+        request.setCategory("海报");
+        pictureService.editPictureByBatch(request, owner);
+
+        // 已有词 +1，新词注册且起始 1，一次编辑调用只计 1（不随图片数放大）
+        assertEquals(beforeHot + 1, usageCountOf("热门", TagTypeEnum.TAG));
+        assertEquals(beforePoster + 1, usageCountOf("海报", TagTypeEnum.CATEGORY));
+        Tag created = tagService.lambdaQuery()
+                .eq(Tag::getName, newTag)
+                .eq(Tag::getType, TagTypeEnum.TAG.getValue())
+                .one();
+        assertNotNull(created, "编辑写入的新词必须自动注册进词表");
+        assertEquals(1L, created.getUsageCount());
+        // 新词对 /tag_category 立即可见（词表生长闭环）
+        assertTrue(pictureController.listPictureTagCategory().getData().getTagList().contains(newTag));
+    }
+
+    @Test
     void upsertSkipsBlankAndDeduplicates() {
-        long before = usageCountOf("热门");
+        long before = usageCountOf("热门", TagTypeEnum.TAG);
         tagService.upsertVocabulary(Arrays.asList("  ", "", "  热门  ", "热门"), TagTypeEnum.TAG);
-        assertEquals(before + 1, usageCountOf("热门"), "空白词跳过、同词去重后只计 1 次");
+        assertEquals(before + 1, usageCountOf("热门", TagTypeEnum.TAG), "空白词跳过、同词去重后只计 1 次");
         long blankRows = tagService.lambdaQuery()
                 .eq(Tag::getType, TagTypeEnum.TAG.getValue())
                 .and(q -> q.eq(Tag::getName, "").or().eq(Tag::getName, "  "))
@@ -104,10 +131,10 @@ class TagVocabularyIntegrationTest {
         assertEquals(0L, blankRows, "不得写入空白词条");
     }
 
-    private long usageCountOf(String name) {
+    private long usageCountOf(String name, TagTypeEnum type) {
         Tag tag = tagService.lambdaQuery()
                 .eq(Tag::getName, name)
-                .eq(Tag::getType, TagTypeEnum.TAG.getValue())
+                .eq(Tag::getType, type.getValue())
                 .one();
         return tag == null ? 0L : tag.getUsageCount();
     }

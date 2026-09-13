@@ -24,6 +24,7 @@ import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.domain.vo.UserVO;
 import com.lcl.yunpicturebackend.enums.PictureReviewStatusEnum;
+import com.lcl.yunpicturebackend.enums.TagTypeEnum;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
@@ -44,6 +45,7 @@ import com.lcl.yunpicturebackend.service.IPictureService;
 import com.lcl.yunpicturebackend.service.PictureFileCleanupService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lcl.yunpicturebackend.service.ISpaceService;
+import com.lcl.yunpicturebackend.service.ITagService;
 import com.lcl.yunpicturebackend.service.IUserService;
 import com.lcl.yunpicturebackend.utils.ColorSimilarUtils;
 import com.lcl.yunpicturebackend.utils.SqlSortUtils;
@@ -172,6 +174,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private final IUserService userService;
 
     private final ISpaceService spaceService;
+
+    private final ITagService tagService;
 
     private final SpaceUserAuthManager spaceUserAuthManager;
 
@@ -887,6 +891,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void editPicture(PictureEditRequest pictureEditRequest, HttpServletRequest request) {
         if (pictureEditRequest == null || pictureEditRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -917,6 +922,14 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         // 操作数据库
         boolean result = this.updateById(picture);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        // 词表同事务 upsert：编辑写入的 tags/category 各计一次（先复用已有词 +1，新词注册）
+        if (CollUtil.isNotEmpty(pictureEditRequest.getTags())) {
+            tagService.upsertVocabulary(pictureEditRequest.getTags(), TagTypeEnum.TAG);
+        }
+        if (StrUtil.isNotBlank(pictureEditRequest.getCategory())) {
+            tagService.upsertVocabulary(
+                    Collections.singletonList(pictureEditRequest.getCategory()), TagTypeEnum.CATEGORY);
+        }
         // 清除缓存
         this.clearPictureListCache();
     }
@@ -1152,6 +1165,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 picture.setTags(JSONUtil.toJsonStr(tags));
             }
         });
+
+        // 4.5 词表同事务 upsert：本批实际写入的 tags/category 各计一次（不随图片数放大）
+        if (CollUtil.isNotEmpty(tags)) {
+            tagService.upsertVocabulary(tags, TagTypeEnum.TAG);
+        }
+        if (StrUtil.isNotBlank(category)) {
+            tagService.upsertVocabulary(
+                    Collections.singletonList(category), TagTypeEnum.CATEGORY);
+        }
 
         // 5. 批量重命名
         fillPictureByNameRule(pictureList, nameRule);
