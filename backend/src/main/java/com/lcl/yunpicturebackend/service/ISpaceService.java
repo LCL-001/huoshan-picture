@@ -105,4 +105,17 @@ public interface ISpaceService extends IService<Space> {
      * @param loginUser 登录用户
      */
     void checkSpaceAuth(Space oldSpace, User loginUser);
+
+    /**
+     * 分页查询与用户相关的空间（本人空间 + 已加入的团队空间），
+     * 请求中的筛选条件在此可见范围内继续生效。供非管理员的空间列表使用。
+     *
+     * @param loginUser         登录用户
+     * @param spaceQueryRequest 查询条件
+     * @param current           页码
+     * @param size              页大小
+     * @return 空间分页
+     */
+    Page<Space> listMyRelatedSpaceByPage(User loginUser, SpaceQueryRequest spaceQueryRequest,
+                                         long current, long size);
 }

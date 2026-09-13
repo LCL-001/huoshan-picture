@@ -11,6 +11,7 @@ import com.lcl.yunpicturebackend.domain.dto.space.*;
 import com.lcl.yunpicturebackend.domain.po.Space;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.SpaceVO;
+import cn.hutool.core.collection.CollUtil;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
@@ -95,13 +96,16 @@ public class SpaceController {
     @GetMapping("/get/vo")
     public BaseResponse<SpaceVO> getSpaceVOById(long id, HttpServletRequest request) {
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
+        // 登录后才能查空间详情
+        User loginUser = userService.getLoginUser(request);
         // 查询数据库
         Space space = spaceService.getById(id);
         ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR);
-
-        SpaceVO spaceVO = spaceService.getSpaceVO(space, request);
-        User loginUser = userService.getLoginUser(request);
+        // 仅本人/站点管理员/团队成员可查看空间详情：权限列表为空即说明当前用户与该空间无关，
+        // 私有空间的名称、用量、属主信息不外泄
         List<String> permissionList = spaceUserAuthManager.getPermissionList(space, loginUser);
+        ThrowUtils.throwIf(CollUtil.isEmpty(permissionList), ErrorCode.NO_AUTH_ERROR);
+        SpaceVO spaceVO = spaceService.getSpaceVO(space, request);
         spaceVO.setPermissionList(permissionList);
         // 获取封装类
         return ResultUtils.success(spaceVO);
@@ -128,14 +132,21 @@ public class SpaceController {
     @ApiOperation("分页获取空间列表（封装类）")
     @PostMapping("/list/page/vo")
     public BaseResponse<Page<SpaceVO>> listSpaceVOByPage(@RequestBody SpaceQueryRequest spaceQueryRequest,
-                                                             HttpServletRequest request) {
+                                                         HttpServletRequest request) {
         long current = spaceQueryRequest.getCurrent();
         long size = spaceQueryRequest.getPageSize();
         // 限制爬虫
         ThrowUtils.throwIf(size > 100, ErrorCode.PARAMS_ERROR);
-        // 查询数据库
-        Page<Space> spacePage = spaceService.page(new Page<>(current, size),
-                spaceService.getQueryWrapper(spaceQueryRequest));
+        // 空间列表只返回与当前用户相关的空间（本人空间 + 已加入的团队空间），站点管理员不受限。
+        // 匿名/无关用户此前可分页枚举他人私有空间的名称、配额、用量与属主，是越权入口
+        User loginUser = userService.getLoginUser(request);
+        Page<Space> spacePage;
+        if (userService.isAdmin(loginUser)) {
+            spacePage = spaceService.page(new Page<>(current, size),
+                    spaceService.getQueryWrapper(spaceQueryRequest));
+        } else {
+            spacePage = spaceService.listMyRelatedSpaceByPage(loginUser, spaceQueryRequest, current, size);
+        }
         // 获取封装类
         return ResultUtils.success(spaceService.getSpaceVOPage(spacePage, request));
     }

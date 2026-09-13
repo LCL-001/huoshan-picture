@@ -276,6 +276,27 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space> implements
     }
 
     @Override
+    public Page<Space> listMyRelatedSpaceByPage(User loginUser, SpaceQueryRequest spaceQueryRequest,
+                                                long current, long size) {
+        QueryWrapper<Space> queryWrapper = getQueryWrapper(spaceQueryRequest);
+        // 可见范围 = 本人拥有的空间 + 已加入的团队空间；请求里的筛选条件在此范围内继续生效
+        List<Long> joinedSpaceIds = spaceUserService.lambdaQuery()
+                .select(SpaceUser::getSpaceId)
+                .eq(SpaceUser::getUserId, loginUser.getId())
+                .list()
+                .stream()
+                .map(SpaceUser::getSpaceId)
+                .collect(Collectors.toList());
+        queryWrapper.and(qw -> {
+            qw.eq("userId", loginUser.getId());
+            if (CollUtil.isNotEmpty(joinedSpaceIds)) {
+                qw.or().in("id", joinedSpaceIds);
+            }
+        });
+        return this.page(new Page<>(current, size), queryWrapper);
+    }
+
+    @Override
     public void updateSpace(SpaceUpdateRequest spaceUpdateRequest, HttpServletRequest request) {
         if (spaceUpdateRequest == null || spaceUpdateRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
