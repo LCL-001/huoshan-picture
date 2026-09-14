@@ -24,7 +24,7 @@
 - [x] F8 可观测性：traceId 全链路日志（异步透传）、Actuator/Prometheus 指标
 - [x] F9 工程化：GitHub Actions CI（编译 + 无 MySQL/Redis 单测）、JMeter 压测资产（本地，不入库）
 - [x] F10 标签词表（2026-09-14 T5 完成）：新表 `tag`（id/name/type(tag|category)/usageCount/审计字段，全局词表；列名随库内 camelCase 约定，设计文档速写 usage_count）；/tag_category 查表动态化（返回结构 PictureTagCategory 逐字段不变，9 标签 + 5 分类种子迁移）；编辑接口（单编/批编）同事务 upsert 词表并累加 usageCount（一次编辑调用计 1，不随图片数放大）；picture.tags JSON 列与 LIKE 查询逻辑不动
-- [ ] F11 AI 助手一期：**ai/ 引擎模块（R2 自 yu-ai-agent 迁入）**——图库工具集（prototype 化携带透传 token）、OpenAI 协议多 ChatModel、会话类型 + headless SSE 端点（服务间 API key + `huoshan:<userId>` 身份映射）、MCP client 接入 ai/image-search-mcp-server；**本仓 backend** AI 代理模块（服务间 API key 认证、satoken 透传、SSE 转发，token 只在内存流转不落库）；**frontend** 助手界面（对话 + SSE 步骤折叠条）
+- [ ] F11 AI 助手一期：**ai/ 引擎模块（R2 自 yu-ai-agent 迁入）**——图库工具集（prototype 化携带透传 token）、OpenAI 协议多 ChatModel、会话类型 + headless SSE 端点（服务间 API key + `huoshan:<userId>` 身份映射）、MCP client 接入 ai/image-search-mcp-server；**本仓 backend** AI 代理模块（服务间 API key 认证、satoken 透传、SSE 转发，token 只在内存流转不落库）；**frontend** 助手界面（对话 + SSE 步骤折叠条）。**2026-09-14 T6 完成：** OpenAI 协议双模型（主脑 + visionTagger）接入与配置化落地（starter 依赖、`OpenAiChatModels` 装配、自动装配守卫、base-url 语义实测入注释），见 docs/plan.md T6 实施记录
 
 ## 技术方案
 

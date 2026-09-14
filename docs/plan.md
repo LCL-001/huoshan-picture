@@ -11,9 +11,10 @@
   - 文件范围：backend/sql 新建表脚本、domain（Tag）、mapper、service、PictureController.listPictureTagCategory、PictureServiceImpl 编辑两处
   - 验收：集成测试（动态词表返回/种子迁移/upsert 计数/返回结构兼容）+ 门禁绿 + 全量回归
   - 实施记录：提交 be1c006（计划）/ a68d8cc（建表脚本+域模型）/ 647f77f（词表服务+集成测试）/ 4ed0025（动态化+编辑接线）；实施计划 docs/plans/2026-09-13-T5-标签词表实施计划.md；功能讲解 docs/features/F10-标签词表.md；全量回归 65 用例绿（62 存量 + 新增 TagVocabularyIntegrationTest 3 用例）；实现备注——upsert 采用"先原子自增、未命中插入、并发首插撞 uk_name_type 退化自增"（无自定义 SQL）；单编 editPicture 因"同事务"要求补加 @Transactional；列名 usageCount 与设计文档速写 usage_count 的微差随库内 camelCase 列约定（features 文档已记）；执行偏差——批编接线测试因先红后绿的正确顺序由 Task 2 调整至 Task 3（计划文档已补执行记录）
-- [ ] T6 OpenAI 协议模型接入（ai/agent）：新增 `spring-ai-starter-model-openai` 依赖；多 ChatModel 并存装配；base-url/api-key/model 配置化（主脑与 visionTagger 独立配置项）；普通会话 Ollama 默认不变
+- [x] T6 OpenAI 协议模型接入（2026-09-14 完成）：新增 `spring-ai-starter-model-openai:1.1.2` 依赖；两套独立配置 `app.ai.openai.assistant`（主脑）/ `.vision`（visionTagger），装配为 `OpenAiChatModels` 持有器（**刻意不注册 ChatModel Bean**，避免与 profile 默认模型及 ChatClient.Builder 自动装配按类型冲突）；`application.yaml` 显式关掉 OpenAI 其余模型类型自动装配（六条自动装配均 matchIfMissing=true）；普通会话 Ollama 默认链路零改动
   - 文件范围：ai/agent 的 pom、application.yaml（+example）、模型装配 config
   - 验收：单测（装配/配置绑定）+ 本地冒烟
+  - 实施记录：提交 4b0d527（计划）/ b946a42（依赖 + 守卫 + 配置骨架）/ 5730e7d（装配三件套 + 7 单测）/ b5edf74（base-url 示例修正 + 装配日志）；实施计划 docs/plans/2026-09-14-T6-OpenAI协议模型接入实施计划.md；门禁口径 62 用例绿（55 存量 + 7 新增），守卫测试做过负向探针（删属性 / 置 openai 均红）；冒烟实测——只加依赖不加守卫时启动即崩（`openAiAudioSpeechModel` 创建失败：OpenAI API key must be set），加守卫后六条 OpenAI 自动装配全落 Negative matches 且 /api/health=ok；用本机 Ollama 的 OpenAI 兼容端点（base-url `http://localhost:11434` + `qwen3:4b`）真实调用返回「收到」，默认会话 `/api/ai/manus/chat` SSE 正常（answer + [DONE]）；关键坑——base-url **不能带尾部 /v1**（Spring AI 请求路径自带 `/v1/chat/completions`，实测带 /v1 会 404），已写进配置注释与 .env.example
 - [ ] T7 图库工具集（ai/agent）：`tools/huoshan/` 新增——listSpaces / listPictures / getTagCategory / batchEditPictures / batchUploadByUrl（RestClient 封装图库 API，prototype 化 per-request 注入透传 token 与图库地址）+ visionTagger（OpenAI 协议多模态批量看图，提示词注入词表）；粗粒度原则，一期不注册删除类工具
   - 文件范围：ai/agent 的 tools 新增包、必要 config/DTO
   - 验收：单测（Mock 图库 HTTP + visionTagger 打标解析）进门禁绿
