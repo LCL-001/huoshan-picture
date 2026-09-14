@@ -4,6 +4,8 @@
 > 引擎侧（会话类型 / headless 端点 / 三个只读工具）见档 1 计划文档；本文件只讲**用户能看见的这条链**。
 > 2026-09-14 追加：档 2 独立 review 的 **R4（代理侧身份一致性校验）** 与 **R6（Sa-Token 注解作用域守护测试）**
 > 已按用户拍板收口，见「关键设计与理由」3/7 与「已知限制」8。
+> 2026-09-14 再追加：**R5（跨站 CSRF）** 按用户拍板"采用一次性 ticket"收口——对话端点新增必需参数 `ticket`，
+> 见「关键设计与理由」10 与「已知限制」7。
 
 ## 一句话
 
@@ -15,7 +17,8 @@
 2. 空状态给了三个示例问题，点一下即填入输入框；`Enter` 发送、`Shift+Enter` 换行。
 3. 发送后：你自己的消息靠右、下方出现**默认展开的步骤折叠条**。折叠条里两类行：`思考`（模型的自然语言推理）与 `工具 · <中文别名>`——工具行默认只给一句话摘要（如「共 3 个空间」「标签 13 个 · 分类 5 个」「失败：未登录」），原始返回点该行的「详情」才展开。助手回答靠左，按 Markdown 子集渲染（粗体、列表、行内代码、链接、引用）。输入框在回答期间禁用，按钮变成红色「停止」。
 4. 「停止」= 关闭这条 SSE 流（不是暂停）；「新对话」= 换一条对话串（旧会话记忆仍留在引擎，但不再续聊）。
-5. 未登录点进来会被重定向到登录页（`EventSource` 读不到 HTTP 状态码，登录态必须前置判）。
+5. 未登录点进来会被重定向到登录页（`EventSource` 读不到 HTTP 状态码，登录态必须前置判）。若**登录态在页面里失效**（发送时才发现），会先收到提示并被带去登录页——因为建流前的那次取票走的是 axios，能读到 40100；而流本身是 `EventSource`，读不到错误响应体。
+6. 每次发送前前端会先取一张**一次性凭据**（POST `/api/ai/assistant/ticket`，60 秒有效、用一次即作废），这一步用户无感。取票失败时回答气泡会直接显示「助手暂时不可用（未能取得本次对话凭据），请稍后重试」。
 
 ## 怎么实现
 
@@ -29,8 +32,9 @@
 | 前端组件 | `frontend/src/components/assistant/AssistantText.vue` + `AssistantInline.vue` | 回答/思考文本的 Markdown 子集渲染（块 + 行内两段） |
 | 前端文本 | `frontend/src/utils/assistantFormat.ts` | 纯函数：Markdown 子集解析、工具返回摘要与中文别名 |
 | 前端 SSE | `frontend/src/utils/assistantSse.ts` | `EventSource` 封装，解析 `step`/`answer`/`[DONE]` |
-| 前端地址 | `frontend/src/api/assistantController.ts` | 拼 GET 流地址（复用 `request.ts` 导出的 `BASE_URL`） |
-| 后端端点 | `backend/.../controller/AiAssistantController.java` | 登录门槛、凭据组取值、`GET /api/ai/assistant/chat` |
+| 前端地址 | `frontend/src/api/assistantController.ts` | 取一次性凭据（`fetchAssistantTicket`，POST）+ 拼 GET 流地址（复用 `request.ts` 导出的 `BASE_URL`） |
+| 后端端点 | `backend/.../controller/AiAssistantController.java` | 四道门槛、凭据组取值、`GET /api/ai/assistant/chat` 与签发端点 `POST /api/ai/assistant/ticket` |
+| 后端凭据 | `backend/.../manager/ai/AiAssistantTicketManager.java` | 一次性凭据的签发与"取用即删"（Redis + Lua，单次使用、60 秒过期） |
 | 后端转发 | `backend/.../manager/ai/AiAssistantProxyManager.java` | 打引擎、逐帧中继 SSE、失败合成 answer、断流关上游 |
 | 后端配置 | `backend/.../config/AiAssistantProperties.java` + `application.yaml` 的 `app.ai.assistant.*` | 引擎地址、服务间密钥、两个超时 |
 | 后端线程池 | `backend/.../config/ThreadPoolConfig.java` 的 `aiAssistantExecutor` | SSE 转发专用有界守护线程池（上界 64，不排队） |
@@ -38,11 +42,13 @@
 ### 核心流程
 
 ```
-浏览器 EventSource(credentials)  →  GET /api/ai/assistant/chat?message=&chatId=
-   ↓ AiAssistantController 三道门槛：① getLoginUser（Spring Session 登录态）
+浏览器 axios(POST)  →  /api/ai/assistant/ticket  →  取一张一次性凭据（60s、取用即删）
+浏览器 EventSource(credentials)  →  GET /api/ai/assistant/chat?message=&chatId=&ticket=
+   ↓ AiAssistantController 四道门槛：① getLoginUser（Spring Session 登录态）
         ② 一组凭据齐备：satoken（头→Cookie→query）+ SESSION 会话 Cookie（原样值）
         ③ 两把同属一人：StpKit.SPACE.getLoginIdByToken(satoken) == 会话用户 id
           （不满足即拒：无效/过期 40100、不属于同一人 40102；零上游请求）
+        ④ 一次性凭据有效且属于会话用户（R5；缺失/已用过/属别人一律 40300；零上游请求）
    ↓ AiAssistantProxyManager（专用线程）：HttpURLConnection GET 引擎
         {engine}/api/ai/huoshan/chat?message=&userId=&chatId=
         头：X-Internal-Api-Key（配置）、satoken（原样）、Accept: text/event-stream
@@ -64,10 +70,15 @@
 8. **凭据不落库、不进日志**：`log.info` 只记 `userId` 与 `chatId`；密钥走环境变量 / `application-local.yaml`，不入库。
 9. **呈现层两条口径（T11.1，用户实机反馈后定）**：① 回答渲染 **Markdown 子集**——自写解析（`**粗体**`／`` `代码` ``／http(s) 链接／`- `·`1. ` 列表／`> ` 引用）+ Vue 模板插值，**不引 markdown 库、绝不用 `v-html`**：回答内容会被工具数据与用户提问影响，只有"永不产出 HTML 字符串"才能从根上不留 XSS 面（引库则必须再引 sanitizer）。② 工具步骤**默认只给一句话摘要**（中文别名 + 「共 N 个空间 / 共 N 张图片 / 标签 N 个·分类 M 个 / 失败：原因」，由工具返回的 JSON 载荷算出），原始 JSON（图片 URL、雪花 id）收进「详情」、默认收起——那是开发排查用的，对普通用户是噪音。摘要解析失败一律退化为"已完成"，永不抛错或空屏。
 
+10. **对话端点必须带一次性凭据（R5，2026-09-14 用户拍板"采用一次性 ticket"）**：`POST /api/ai/assistant/ticket` 签发一张票（值为签发用户 id，Redis 键 `huoshantuku:ai:assistant:ticket:<value>`，TTL 60 秒，**取用即删 = 单次使用**），`chat` 新增门槛四校验"票存在、未被用过、且属于会话用户"。理由：本端点为迁就 `EventSource`（只能 GET、不能设 header）成了全站唯一"GET 有副作用"的接口，而全站 CSRF 防线本是隐含约定"`SameSite=Lax` + 有副作用的接口都是 POST"（Lax 挡子资源请求与跨站 POST、只放行顶层导航的 GET），于是攻击者能借受害者的 Cookie 盲打——读不到响应体，但服务端副作用已经发生。票把这层关系反过来用：**能读到响应体的页面才拿得到票**，攻击者因此凑不出这个参数。票放 query 会进访问日志，但"60 秒 + 单次使用"让泄漏无害，这正是它优于长效共享密钥之处（sa-token 自带的 `SaSameUtil` 是全站共享单值、默认 24h、`checkCurrentRequestToken()` 只从 header 取，故未采用；也没选"改 POST + fetch 流式"——那要在前端手写 SSE 解析，而前端无测试脚本）。实现细节：取用即删用 Lua 脚本（GET+DEL）而非 `ValueOperations.getAndDelete`，因为后者下发 Redis 6.2 才有的 `GETDEL`，本机 Redis 实测 **5.0.14.1** 会直接报错（集成测试抓到）；门槛四排在三个登录门槛**之后**，这样登录过期仍回原来的 40100，且一次身份不一致不会白烧一张票。
+
 ## 怎么验证
 
-- **门禁（不依赖 MySQL/Redis）**：`backend` 37 例全绿，其中本档 24 例——`AiAssistantControllerTest` 12 例（登录门槛、satoken 三处取值与优先级、会话 Cookie 缺失拒绝、**会话 Cookie 原样值 vs `session.getId()` 回归**、**R4 两条：假 token 40100 / 别人的真 token 40102 且零上游**）、`AiAssistantProxyManagerTest` 9 例（转发形状与凭据头、SSE 逐帧中继与格式容错、引擎 401/JSON 错误与不可达转可见文案、密钥/地址缺失 fail-closed 且零上游请求、线程池满响亮失败）、`AiPathSaTokenGuardTest` 3 例（R6 守护，见设计理由 7）。R4 的单测用 Sa-Token 内存 DAO 播种真 token（无 Spring 时 `SaManager` 缺省即 `SaTokenDaoDefaultImpl`），验的是真实的 `getLoginIdByToken` 语义而非替身。
-- **集成测试（本地，需 MySQL/Redis）**：`AiAssistantProxyIntegrationTest` 5 例——真实登录产出 `satoken` Cookie 后原样转发、会话 Cookie 原样值转发（不等于 `session.getId()`）、只带 satoken 不带会话 Cookie 在入口即拒且零上游请求、**R4 两条：假 token 在入口即拒（真会话也救不了）、第二个真实账号的 satoken 配本账号会话回 40102 且零上游**。本地全量集成套件（14 个类 55 例）实跑绿。
+- **门禁（不依赖 MySQL/Redis）**：`backend` 45 例全绿，其中本档 32 例——`AiAssistantControllerTest` 20 例（登录门槛、satoken 三处取值与优先级、会话 Cookie 缺失拒绝、**会话 Cookie 原样值 vs `session.getId()` 回归**、**R4 两条：假 token 40100 / 别人的真 token 40102 且零上游**、**R5 六条：无票 / 编造的票 / 别人的票 / 用过的票一律 40300 且零上游，有效票正常转发，签发端点同门槛+绑定调用者**）、`AiAssistantProxyManagerTest` 9 例（转发形状与凭据头、SSE 逐帧中继与格式容错、引擎 401/JSON 错误与不可达转可见文案、密钥/地址缺失 fail-closed 且零上游请求、线程池满响亮失败）、`AiPathSaTokenGuardTest` 3 例（R6 守护，见设计理由 7）。R4 的单测用 Sa-Token 内存 DAO 播种真 token（无 Spring 时 `SaManager` 缺省即 `SaTokenDaoDefaultImpl`），验的是真实的 `getLoginIdByToken` 语义而非替身；R5 的门槛用 Mockito 替身（票的 Redis 语义留给集成测试）。
+- **R5 先红后绿（规则 12）**：门槛未加时 `AiAssistantControllerTest` 20 跑 **4 失败**，失败原因一律是 `Expecting code to raise a throwable`——即"无票/编造票/别人的票/用过的票"这四种请求都被**照常转发**给了引擎（这就是洞本身）；补上门槛四后 20/20 绿。
+- **集成测试（本地，需 MySQL/Redis）**：`AiAssistantProxyIntegrationTest` 8 例——真实登录产出 `satoken` Cookie 后原样转发（**含真 Redis 上"取票 → 建流"整条路**）、会话 Cookie 原样值转发（不等于 `session.getId()`）、只带 satoken 不带会话 Cookie 在入口即拒且零上游请求、**R4 两条：假 token 在入口即拒（真会话也救不了）、第二个真实账号的 satoken 配本账号会话回 40102 且零上游**、**R5 三条：真凭据但无票 40300 且零上游、真票用第二次被拒（`getAndDelete` 的 Redis 侧单次使用）、别人的真票被拒**。本地全量集成套件（14 个类 58 例）实跑绿。
+- **over-the-wire 复验（R5 accept，2026-09-14；真 HTTP + 桩引擎计数）**：起 backend(`local,test`, 8131) + 桩引擎(8130)，探针账号真登录后：① 带真 Cookie、**无票** → `{"code":40300,...}`，桩引擎**零请求**；② `POST /api/ai/assistant/ticket` → `code=0` 发票；③ 带票对话 → HTTP 200 + `text/event-stream` 事件流（桩引擎记录到 1 次请求，路径 `/api/ai/huoshan/chat`、密钥、satoken、`SESSION` Cookie 全部正确）；④ **同一张票再用** → `40300`，桩引擎仍只有 1 次请求。探针脚本 `%TEMP%\r5-probe.js`（含凭据的日志与 cookie 罐已按惯例删除）。
+- **浏览器端到端（R5 后复跑）**：前端 dev 指向 8131，登录后进 `/assistant` 发送「看看我的空间都有什么图」——界面正常呈现用户气泡 → 回答气泡，桩引擎记录到该请求（`userId`、`chatId` 来自 `sessionStorage`、密钥与两把凭据都在），证明"取票 → 建流"在真实浏览器里跑通（截图 `%TEMP%\r5-ui-answer.png`）。回答里的「图库助手响应意外中断，请重试」是桩引擎故意不发 `[DONE]` 所致，见已知限制 9②。
 - **curl 冒烟（真引擎 + 真图库）**：探针账号登录 → 走代理 → `listSpaces` 读到真实空间 `tier1-probe-space`、回答正确、`[DONE]` 收尾；停掉引擎再打一次 → 收到合成的"引擎暂时不可用"+`[DONE]`（不挂死）。原始片段见 handoff 0013。
 - **浏览器端到端**：本地起 backend(`local,test`)+引擎+前端 dev，登录后进 `/assistant`，发送后界面依次呈现：用户气泡 → 折叠条「正在执行（0 步）」+ 转圈 + 输入禁用 + 停止按钮 → 「执行步骤（1 步）」含 `工具 · listSpaces` 与真实返回 → 回答气泡 → 输入恢复。该会话用户真实空间数为 0，工具仍回 `code=0`，说明凭据确实透传成功（未透传会是 `40100`）。
 - **呈现层纯函数断言（19 条，仓库外脚本）**：项目无前端测试框架，用 esbuild 把真实 `utils/assistantFormat.ts` 转成 mjs 后在 node 里断言——载荷直接取自真机 SSE 原文与回答原文（含 13 个标签的 `<code>` 列表、URL 尾随中文句号、`3 > 2` 不被误判成引用）。脚本 `%TEMP%\t11-smoke\format-check.mjs`，19/19 通过；改动的前端文件 eslint 干净、`vue-tsc --build --force` 计数仍 138（净增 0）。
@@ -81,8 +92,8 @@
 4. **同一页面只允许一条流**（发送中禁输入）；"停止"只关流，不承诺让引擎侧停止（R1）。
 5. **前端门禁存量红**：`npm run type-check` 138 例、`eslint .` 73 例既有错误（分布在本次未触碰的文件里，多为 `LocationQueryValue`/`any`/未用变量一类），AGENTS/handoff 0001 里"前端以 type-check + lint 为准"这条目前**不成立**；本次改动净增 0，清理需单独立任务。
 6. 单机部署口径：引擎与图库同机/内网（`app.ai.assistant.engine-base-url` 默认 `http://localhost:8124/api`），引擎未上公网；`/ai/manus/chat` 旧端点仍未鉴权（部署前必办，档 1 挂账）。
-7. **无 CSRF 令牌（2026-09-14 独立 review 实测）**：`GET /api/ai/assistant/chat` 只认 Cookie、又有 LLM 副作用，没有 nonce/一次性令牌。跨站顶层导航（恶意页 / 诱导点击 / 302 跳转）会带上 `SESSION`+`satoken` 两把 Cookie 并**真的跑一次 agent**（实测：从 `127.0.0.1:8135` 导航到 `localhost:8131` 的代理端点，桩引擎收到带 Cookie 的完整请求）；同页 `fetch(mode:'no-cors', credentials:'include')` 子资源请求则被 SameSite=Lax 拦下（代理回 40100、零上游请求）。**当前危害有限**（三个工具全只读：替受害者烧 token + 往其会话记忆里塞一条提问，且无外泄通道——CORS 只放行白名单源、Lax 挡住子资源读），**档 3 上 `batchEditPictures` / `batchUploadByUrl` 即升级为跨站写操作（P1）**，届时必须先加防护（session 内一次性 nonce 走 URL、或 POST + fetch 流式）。
-8. **凭据组一致性（review R4）已于 2026-09-14 收口**：代理现在校验 `satoken` 与 Spring Session 用户同属一人（无效/过期 40100、不同人 40102，与 `checkSpaceViewPermission` 同口径，零上游请求），"真会话 + 随手编的 token 仍读到真实空间"这个洞不再成立。**残留边界（仍未做，按需另立任务）**：① 代理只判身份一致性、**不判权限**，能不能看某个空间仍只由图库服务端判；② 该失败发生在返回 `SseEmitter` 之前，走 `GlobalExceptionHandler` 回 HTTP 200 + JSON，而前端 `EventSource` 读不到响应体 → 用户只会看到"助手连接中断，请重试"，实际得重新登录（与限制 2 同源，前端若要做"登录态失效→跳登录页"需另开任务）；③ satoken 走 HttpOnly + SameSite=Lax Cookie，本档未改其存储形态。
+7. **跨站 CSRF（review R5）已于 2026-09-14 收口**：对话端点现在必须带一次性凭据（见「关键设计与理由」10），"跨站顶层导航带齐两把 Cookie 就能跑完一次 agent"这个洞不再成立——跨站页面构造得出请求、却读不到响应体，因此凑不出票（over-the-wire 复验：无票 `40300` 且桩引擎零请求）。**残留边界（仍未做）**：① 票在 query 里会进 nginx access log——靠"60 秒 + 单次使用"让泄漏无害，而不是靠"不进日志"；② 前端 `EventSource` 的自动重连必须继续在 `onerror` 与 `[DONE]` 时显式 `close()`（`assistantSse.ts` 已加注释钉住）：票是一次性的，自动重连带着用过的票必然被服务端拒；③ 流中断后不能用同一张票续传（也不该续——会重跑一次 agent）；④ **通用方案本轮未做**（用户拍板只做单点收口）：全站拦 cross-site 的过滤器 + "GET 无副作用"守护测试 + CORS 白名单按环境核实，已记入 plan.md 作为后续候选，价值是覆盖将来新增的端点、不必每加一个流式接口重设计一次 nonce；⑤ 环境约束（同批发现）：新增 Redis 用法不得假定 6.2+ 命令（本机 Redis 实测 5.0.14.1，`GETDEL` 直接报错）。
+8. **凭据组一致性（review R4）已于 2026-09-14 收口**：代理现在校验 `satoken` 与 Spring Session 用户同属一人（无效/过期 40100、不同人 40102，与 `checkSpaceViewPermission` 同口径，零上游请求），"真会话 + 随手编的 token 仍读到真实空间"这个洞不再成立。**残留边界（仍未做，按需另立任务）**：① 代理只判身份一致性、**不判权限**，能不能看某个空间仍只由图库服务端判；② 该失败发生在返回 `SseEmitter` 之前，走 `GlobalExceptionHandler` 回 HTTP 200 + JSON，而前端 `EventSource` 读不到响应体 → 用户只会看到"助手连接中断，请重试"，实际得重新登录（与限制 2 同源，前端若要做"登录态失效→跳登录页"需另开任务）；**R5 之后这条已被收敛大半**：建流前的取票走 axios，能读到 40100 并交给 `request.ts` 的响应拦截器提示 + 跳登录页，剩下读不到的只是"取票与建流之间恰好失效"这种窄缝；③ satoken 走 HttpOnly + SameSite=Lax Cookie，本档未改其存储形态。
 9. **SSE 中继的四个边界（review 用自建桩引擎实测）**：① 上游多行 `data:` 被中继用 `\n` 拼成**单帧**发出，线路上是半个 JSON 帧（`data:{"event":"answer",` + 裸换行 + `"content":"multi-line"}`），浏览器 `JSON.parse` 失败、前端**静默丢弃**（现引擎不会发多行 data，属潜伏缺陷）；② 上游未发 `[DONE]` 就 EOF 时，已发出的完整答案后面会**再跟一条"图库助手响应意外中断，请重试"**（答案 + 假错误同屏）；③ 上游非 JSON 错误体（部署形态里若有网关，如 nginx 502 的 HTML）被原文塞进回答气泡（实测 `<html>...502 Bad Gateway...`）；④ 线程池拒绝给浏览器的是**空体 HTTP 500**（`completeWithError` 未走 `GlobalExceptionHandler`），前端只能显示"助手连接中断，请重试"。
 10. **`chatId` 未做净化，可换行注入后端日志**（review 实测：`chatId=inj%0AFORGED-LINE-MARKER` 在日志里伪造出独立一行）。`message` 不进日志、凭据不进日志（三个探针实例日志对真 token/会话值 0 命中，含异常与拒绝路径）。
 11. **`ai/agent` 的门禁口径是 `.githooks` 的排除名单，不是 AGENTS 那条通用过滤命令**：AGENTS/handoff 记的 `-Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests'` 直接套到 `ai/agent` 会红（97 例 1 错误：`MyManusTest` 注入不存在的 `MyManus` bean，遗留教学测试）；`.githooks/pre-commit:54` 那条排除 10 个类之后才是 87 例绿。两者差异未记录在 AGENTS 的测试命令节，容易让下一个人把红当回归。
