@@ -157,6 +157,7 @@ import {
   PlusCircleOutlined,
   PlusOutlined,
   ReadOutlined,
+  RobotOutlined,
   TeamOutlined,
   UpOutlined,
   UserOutlined,
@@ -216,6 +217,7 @@ const fixedMenuItems = computed(() => {
     // { key: '/square', icon: () => h(ReadOutlined), label: '论坛' },
     // ...(uid ? [{ key: '/user/' + uid, icon: () => h(UserOutlined), label: '我的主页' }] : []),
     { key: '/add_picture', icon: () => h(PlusCircleOutlined), label: '上传图片' },
+    { key: '/assistant', icon: () => h(RobotOutlined), label: 'AI 助手' },
     { key: '/my_space', icon: () => h(AppstoreOutlined), label: '我的空间' },
     { key: '/add_space?type=' + SPACE_TYPE_ENUM.TEAM, icon: () => h(TeamOutlined), label: '创建团队' },
   ]

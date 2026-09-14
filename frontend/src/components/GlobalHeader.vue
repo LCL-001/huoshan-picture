@@ -264,6 +264,11 @@ const originItems = [
     title: '上传图片',
   },
   {
+    key: '/assistant',
+    label: 'AI 助手',
+    title: 'AI 助手',
+  },
+  {
     key: '/admin/userManage',
     label: '用户管理',
     title: '用户管理',

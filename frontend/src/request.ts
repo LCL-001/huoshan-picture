@@ -2,7 +2,7 @@ import axios from "axios";
 import {message} from "ant-design-vue";
 
 // 开发直连后端（默认 8123，可用 .env.development.local 的 VITE_API_BASE 覆盖），生产由 Nginx 代理 /api，用相对路径
-const BASE_URL = import.meta.env.DEV
+export const BASE_URL = import.meta.env.DEV
   ? (import.meta.env.VITE_API_BASE ?? 'http://localhost:8123')
   : ''
 const myAxios = axios.create({
