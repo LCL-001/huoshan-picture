@@ -110,6 +110,16 @@ app:
   outpainting:
     # 单用户每日可创建的 AI 扩图任务数上限（按量计费，防止狂点产生付费任务）
     daily-quota: 20
+  ai:
+    assistant:
+      # AI 助手引擎（ai/agent，独立进程，端口 8124，context-path /api）
+      engine-base-url: ${AI_ENGINE_BASE_URL:http://localhost:8124/api}
+      # 服务间 API key：必须与引擎 app.huoshan.headless-api-key 一致；密钥不入库，走环境变量
+      # 为空时代理端点一律拒绝（fail-closed，避免"忘记配置 = 内网引擎裸奔"）
+      internal-api-key: ${AI_ENGINE_INTERNAL_API_KEY:}
+      connect-timeout: 5s
+      # 读取超时（含流空闲）：引擎 SseEmitter 超时 300s，故留出余量
+      read-timeout: 6m
   websocket:
     # 编辑锁空闲多久后强制释放（毫秒，默认 5 分钟）：
     # 客户端异常断开不会触发关闭回调，靠这个上界兜底，避免图片被永久锁定

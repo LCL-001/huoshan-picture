@@ -29,6 +29,14 @@ cos:
 aliYunAi:
   apiKey: ${ALIYUN_AI_API_KEY:replace-me-dashscope-api-key}
 
+# AI 助手引擎（ai/agent，独立进程，默认 http://localhost:8124/api）的服务间密钥
+# 必须与引擎侧 HUOSHAN_HEADLESS_API_KEY（app.huoshan.headless-api-key）填同一个值；
+# 不填只影响 AI 助手功能（代理端点一律拒绝），不影响应用启动
+app:
+  ai:
+    assistant:
+      internal-api-key: ${AI_ENGINE_INTERNAL_API_KEY:replace-me-internal-only-key}
+
 spring:
   # MySQL 连接地址/用户名/库名见 application.yaml（默认 root@localhost:3306/yu_picture）
   datasource:
