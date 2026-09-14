@@ -15,6 +15,7 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -46,12 +47,15 @@ public class HuoshanAssistantController {
     /**
      * 图库助手对话（SSE）。
      *
-     * @param message 用户消息
-     * @param userId  图库用户 id（由代理透传，仅用于会话归属；权限由图库按 satoken 判定）
-     * @param chatId  图库侧的会话标识，为空表示新会话
+     * @param message   用户消息
+     * @param userId    图库用户 id（由代理透传，仅用于会话归属；权限由图库按凭据判定）
+     * @param chatId    图库侧的会话标识，为空表示新会话
+     * @param sessionId 用户 Spring Session 会话标识（由代理透传；空间类接口的加强校验同时认它和 satoken）
      */
     @GetMapping("/chat")
-    public SseEmitter chat(String message, String userId, String chatId, HttpServletRequest request) {
+    public SseEmitter chat(String message, String userId, String chatId,
+                           @CookieValue(value = HuoshanApiClient.SESSION_COOKIE_NAME, required = false) String sessionId,
+                           HttpServletRequest request) {
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "message 不能为空");
         ThrowUtils.throwIf(!openAiChatModels.hasAssistant(), ErrorCode.SYSTEM_ERROR,
                 "图库助手模型未配置：请设置 app.ai.openai.assistant.api-key 与 model");
@@ -66,11 +70,15 @@ public class HuoshanAssistantController {
         String satoken = request.getHeader(HuoshanApiClient.SATOKEN_HEADER);
         ThrowUtils.throwIf(StrUtil.isBlank(satoken), ErrorCode.PARAMS_ERROR,
                 "缺少 " + HuoshanApiClient.SATOKEN_HEADER + "：工具调用必须以用户真实登录态发出");
+        // 两把凭据一起要：空间列表/详情读 Spring Session，空间维度读图还要求它与 satoken 一致，
+        // 只给 satoken 会在工具调用阶段才炸出 40100/40102，不如在这里就说清楚缺什么
+        ThrowUtils.throwIf(StrUtil.isBlank(sessionId), ErrorCode.PARAMS_ERROR,
+                "缺少 " + HuoshanApiClient.SESSION_COOKIE_NAME + " 会话 Cookie：图库空间接口需要 Spring Session 与 satoken 同时在场");
 
         String conversationId = HuoshanAssistantSession.conversationId(owner, chatId);
         log.info("图库助手会话开始, owner={}, conversationId={}", owner, conversationId);
 
-        ToolCallback[] tools = HuoshanToolFactory.readOnlyTools(huoshanProperties.apiClient(satoken));
+        ToolCallback[] tools = HuoshanToolFactory.readOnlyTools(huoshanProperties.apiClient(satoken, sessionId));
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),
                 conversationId, flowWindowBasedChatMemory);
         return agent.runStream(message);

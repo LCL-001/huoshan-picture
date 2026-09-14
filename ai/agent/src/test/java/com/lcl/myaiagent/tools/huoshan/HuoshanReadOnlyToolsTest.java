@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class HuoshanReadOnlyToolsTest {
 
-    /** 最近一次请求的快照：路径 → [method, body, satoken] */
+    /** 最近一次请求的快照：路径 → [method, body, satoken, cookie] */
     private static final Map<String, String[]> LAST_REQUEST = new ConcurrentHashMap<>();
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -64,7 +64,9 @@ class HuoshanReadOnlyToolsTest {
     private static void handle(HttpExchange exchange) throws IOException {
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         LAST_REQUEST.put(exchange.getRequestURI().getPath(), new String[]{
-                exchange.getRequestMethod(), body, String.valueOf(exchange.getRequestHeaders().getFirst("satoken"))});
+                exchange.getRequestMethod(), body,
+                exchange.getRequestHeaders().getFirst(HuoshanApiClient.SATOKEN_HEADER),
+                exchange.getRequestHeaders().getFirst("Cookie")});
         byte[] payload = nextResponseBody.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json;charset=UTF-8");
         exchange.sendResponseHeaders(nextStatusCode, payload.length);
@@ -74,7 +76,8 @@ class HuoshanReadOnlyToolsTest {
     }
 
     private static HuoshanApiClient client() {
-        return new HuoshanApiClient(baseUrl, "test-satoken", Duration.ofSeconds(3), Duration.ofSeconds(3));
+        return new HuoshanApiClient(baseUrl, "test-satoken", "test-session",
+                Duration.ofSeconds(3), Duration.ofSeconds(3));
     }
 
     @Test
@@ -92,6 +95,9 @@ class HuoshanReadOnlyToolsTest {
         assertThat(captured).as("工具必须打图库的 /space/list/page/vo").isNotNull();
         assertThat(captured[0]).isEqualTo("POST");
         assertThat(captured[2]).isEqualTo("test-satoken");
+        assertThat(captured[3])
+                .as("B 口径：空间接口同时要 Spring Session，cookie 必须带上")
+                .isEqualTo("SESSION=test-session");
         JsonNode sent = MAPPER.readTree(captured[1]);
         assertThat(sent.get("current").asInt()).isEqualTo(1);
         assertThat(sent.get("pageSize").asInt()).isEqualTo(10);
@@ -146,6 +152,7 @@ class HuoshanReadOnlyToolsTest {
         assertThat(captured).isNotNull();
         assertThat(captured[0]).isEqualTo("GET");
         assertThat(captured[2]).isEqualTo("test-satoken");
+        assertThat(captured[3]).isEqualTo("SESSION=test-session");
 
         JsonNode result = MAPPER.readTree(json);
         assertThat(result.get("tagList")).hasSize(2);
@@ -167,8 +174,22 @@ class HuoshanReadOnlyToolsTest {
     }
 
     @Test
-    void notLoggedInErrorIsAlsoStructured() throws Exception {
+    void blankSessionIdSendsNoCookieHeader() throws Exception {
         nextStatusCode = 200;
+        nextResponseBody = """
+                {"code":0,"data":{"records":[],"total":0,"size":10,"current":1,"pages":0},"message":"ok"}""";
+
+        HuoshanApiClient withoutSession = new HuoshanApiClient(baseUrl, "test-satoken", "  ",
+                Duration.ofSeconds(3), Duration.ofSeconds(3));
+        new ListSpacesTool(withoutSession).listSpaces(1, 10, null, null);
+
+        assertThat(LAST_REQUEST.get("/space/list/page/vo")[3])
+                .as("没有会话标识时不应发出空的 SESSION cookie")
+                .isNull();
+    }
+
+    @Test
+    void notLoggedInErrorIsAlsoStructured() throws Exception {        nextStatusCode = 200;
         nextResponseBody = """
                 {"code":40100,"data":null,"message":"未登录"}""";
 

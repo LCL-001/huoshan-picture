@@ -18,7 +18,7 @@ class HuoshanToolFactoryTest {
 
     @Test
     void readOnlyToolSetIsExactlyTheThreeBusinessTools() {
-        HuoshanApiClient client = new HuoshanApiClient("http://127.0.0.1:1", "satoken",
+        HuoshanApiClient client = new HuoshanApiClient("http://127.0.0.1:1", "satoken", "session",
                 Duration.ofSeconds(1), Duration.ofSeconds(1));
 
         ToolCallback[] tools = HuoshanToolFactory.readOnlyTools(client);

@@ -82,7 +82,15 @@ class HuoshanAssistantToolOptionsTest {
                 .isTrue();
     }
 
-    /** 只用于负向控制：把"内部执行工具"打开，检查标志确实被带过去 */
+    /**
+     * 只用于负向控制：把"内部执行工具"打开，检查标志确实被带过去。
+     * <p>
+     * 刻意复刻基类 {@code ToolCallAgent.createChatOptions()} 的构造方式（含其调用的
+     * `DashScopeChatOptions.Builder#withInternalToolExecutionEnabled` / `#withToolCallbacks`，
+     * 这两个方法在 DashScope 1.1.2.0 已标注过时）——控制组的价值就在于走与生产完全同一条链路。
+     * </p>
+     */
+    @SuppressWarnings("deprecation")
     private static final class InternalExecutionProbeAgent extends ToolCallAgent {
 
         InternalExecutionProbeAgent(ToolCallback[] tools) {

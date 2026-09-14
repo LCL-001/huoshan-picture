@@ -7,6 +7,7 @@ import com.lcl.myaiagent.tools.huoshan.dto.PageResult;
 import com.lcl.myaiagent.tools.huoshan.dto.PictureItem;
 import com.lcl.myaiagent.tools.huoshan.dto.SpaceItem;
 import com.lcl.myaiagent.tools.huoshan.dto.TagCategoryResult;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
@@ -17,9 +18,15 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
- * 图库后端 API 客户端（T7 档 1）：per-request 实例，构造期注入图库地址与**调用者真实 satoken**。
+ * 图库后端 API 客户端（T7 档 1，B 口径补齐凭据组）：per-request 实例，构造期注入图库地址与**调用者的一组用户名凭据**。
  * <p>
- * token 只活在这个对象里（请求生命周期），不落库、不做缓存；所有图库操作都以用户自己的身份发出，
+ * 为什么要两把凭据（用户 2026-09-14 拍板方案 B）：
+ * 图库的接口在登录态上分两类——空间列表/详情与批量编辑读的是 Spring Session（{@code USER_LOGIN_STATE}），
+ * 而空间维度的图片读有加强校验 {@code checkSpaceViewPermission}，要求 Spring Session 用户与 sa-token 的 loginId
+ * **完全一致**。只带 satoken 时空间列表直接 40100、空间维度读图 40102；两把都带才能覆盖全部只读工具。
+ * </p>
+ * <p>
+ * 凭据只活在这个对象里（请求生命周期），不落库、不缓存、不进日志；所有图库操作都以用户自己的身份发出，
  * RBAC 由图库服务端判定，引擎没有越权能力（设计文档 L95）。
  * </p>
  */
@@ -27,6 +34,9 @@ public class HuoshanApiClient {
 
     /** 与图库 backend 的 sa-token token-name 保持一致，同一个值可原样转发 */
     public static final String SATOKEN_HEADER = "satoken";
+
+    /** Spring Session 的会话 Cookie 名（图库 backend 未自定义 server.servlet.session.cookie.name，用默认值） */
+    public static final String SESSION_COOKIE_NAME = "SESSION";
 
     /** 图库业务 code：0 = 成功 */
     private static final int SUCCESS_CODE = 0;
@@ -37,7 +47,11 @@ public class HuoshanApiClient {
 
     private final String satoken;
 
-    public HuoshanApiClient(String baseUrl, String satoken, Duration connectTimeout, Duration readTimeout) {
+    /** 用户会话标识：可为空（词表等公开接口不需要），空间类接口必须带 */
+    private final String sessionId;
+
+    public HuoshanApiClient(String baseUrl, String satoken, String sessionId,
+                            Duration connectTimeout, Duration readTimeout) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(connectTimeout);
         requestFactory.setReadTimeout(readTimeout);
@@ -46,6 +60,7 @@ public class HuoshanApiClient {
                 .requestFactory(requestFactory)
                 .build();
         this.satoken = satoken;
+        this.sessionId = sessionId;
     }
 
     /**
@@ -100,6 +115,7 @@ public class HuoshanApiClient {
                 .uri(path)
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(SATOKEN_HEADER, satoken)
+                .headers(this::addSessionCookie)
                 .body(body.toString())
                 .retrieve()
                 .body(String.class);
@@ -110,9 +126,19 @@ public class HuoshanApiClient {
         String raw = restClient.get()
                 .uri(path)
                 .header(SATOKEN_HEADER, satoken)
+                .headers(this::addSessionCookie)
                 .retrieve()
                 .body(String.class);
         return unwrap(raw, path);
+    }
+
+    /**
+     * 无会话标识时不发 Cookie 头（词表等公开接口用不到），避免发出无意义的空 cookie。
+     */
+    private void addSessionCookie(HttpHeaders headers) {
+        if (sessionId != null && !sessionId.isBlank()) {
+            headers.add(HttpHeaders.COOKIE, SESSION_COOKIE_NAME + "=" + sessionId);
+        }
     }
 
     /** 解包图库统一返回信封 {code,data,message} */

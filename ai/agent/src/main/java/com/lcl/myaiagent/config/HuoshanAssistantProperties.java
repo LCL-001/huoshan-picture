@@ -26,13 +26,16 @@ public class HuoshanAssistantProperties {
     private Duration readTimeout = Duration.ofSeconds(30);
 
     /**
-     * 按调用者 satoken 新建图库 API 客户端（per-request，token 只在请求生命周期）。
+     * 按调用者的一组用户名凭据新建图库 API 客户端（per-request，凭据只在请求生命周期）。
+     *
+     * @param satoken   sa-token 登录态（空间 RBAC 判定用）
+     * @param sessionId Spring Session 会话标识（空间列表/详情与空间维度读图的加强校验用）
      */
-    public HuoshanApiClient apiClient(String satoken) {
+    public HuoshanApiClient apiClient(String satoken, String sessionId) {
         if (StrUtil.isBlank(baseUrl)) {
             throw new IllegalStateException("图库地址未配置：请设置 app.huoshan.base-url");
         }
-        return new HuoshanApiClient(baseUrl, satoken, connectTimeout, readTimeout);
+        return new HuoshanApiClient(baseUrl, satoken, sessionId, connectTimeout, readTimeout);
     }
 
     public String getBaseUrl() {
