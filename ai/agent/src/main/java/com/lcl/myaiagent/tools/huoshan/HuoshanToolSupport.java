@@ -43,8 +43,12 @@ final class HuoshanToolSupport {
     }
 
     /**
-     * 清洗字符串列表（档 3 写类工具的 id / 标签 / URL 共用）：去空白、丢空项、按首次出现去重。
-     * 模型偶尔会把同一个 id 报两遍，或把标签写成带空格的样式；在这里收口，后端与图库接口都拿干净输入。
+     * 清洗字符串列表（档 3 写类工具的 id / 标签 / URL 共用）：去空白、剥掉包裹引号、丢空项、按首次出现去重。
+     * <p>
+     * 模型偶尔会把同一个 id 报两遍、把值写成带空格的样式，或者**带着引号**送过来——
+     * 后者是上游的既有形态：MCP 工具（searchImage）返回的是一整个字符串，Spring AI 按 JSON 序列化后
+     * 外层就带一对引号（实测 `"https://...jpeg,https://...jpeg"`）。在工具侧剥掉引号，比指望模型每次都剥更稳。
+     * </p>
      */
     static List<String> cleanList(List<String> values) {
         if (values == null) {
@@ -52,10 +56,31 @@ final class HuoshanToolSupport {
         }
         LinkedHashSet<String> cleaned = new LinkedHashSet<>();
         for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                cleaned.add(value.trim());
+            if (value == null) {
+                continue;
+            }
+            String stripped = stripWrappingQuotes(value.trim());
+            if (!stripped.isEmpty()) {
+                cleaned.add(stripped);
             }
         }
         return new ArrayList<>(cleaned);
+    }
+
+    /** 去掉成对的包裹引号（" / ' / `），可能套多层 */
+    private static String stripWrappingQuotes(String value) {
+        String result = value;
+        while (result.length() >= 2) {
+            char first = result.charAt(0);
+            char last = result.charAt(result.length() - 1);
+            boolean paired = (first == '"' && last == '"')
+                    || (first == '\'' && last == '\'')
+                    || (first == '`' && last == '`');
+            if (!paired) {
+                break;
+            }
+            result = result.substring(1, result.length() - 1).trim();
+        }
+        return result;
     }
 }

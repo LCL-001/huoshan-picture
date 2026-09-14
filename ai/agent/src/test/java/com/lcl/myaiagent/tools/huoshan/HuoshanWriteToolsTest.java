@@ -268,6 +268,21 @@ class HuoshanWriteToolsTest {
     }
 
     @Test
+    void batchUploadStripsTheWrappingQuotesThatMcpResultsCarry() throws Exception {
+        // T12 实测：MCP 工具（searchImage）的返回是一整个字符串，Spring AI 序列化后外层带引号，
+        // 模型有时会把带引号的整串原样递进来——工具侧必须自己剥掉，否则图库会去下载 "https://... 这种地址
+        RESPONSES.add("""
+                {"code":0,"data":{"id":"1","name":"a.jpg","url":"https://cos/a.jpg"},"message":"ok"}""");
+
+        new BatchUploadByUrlTool(client()).batchUploadByUrl("100", List.of("  \"https://img/a.jpg\"  "));
+
+        JsonNode sent = lastRequestJson();
+        assertThat(sent.get("fileUrl").asText())
+                .as("包裹引号必须在工具侧剥掉")
+                .isEqualTo("https://img/a.jpg");
+    }
+
+    @Test
     void batchUploadRejectsBlankSpaceIdOrEmptyUrls() throws Exception {
         BatchUploadByUrlTool tool = new BatchUploadByUrlTool(client());
 
