@@ -7,8 +7,13 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.reactive.ClientHttpConnector;
+import org.springframework.http.client.reactive.JdkClientHttpConnector;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.WebClient;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 
 /**
@@ -82,7 +87,8 @@ public final class OpenAiChatModels {
         }
         OpenAiApi.Builder apiBuilder = OpenAiApi.builder()
                 .apiKey(entry.getApiKey())
-                .restClientBuilder(restClientBuilder(entry.getTimeout()));
+                .restClientBuilder(restClientBuilder(entry.getTimeout()))
+                .webClientBuilder(webClientBuilder(entry.getTimeout()));
         if (StrUtil.isNotBlank(entry.getBaseUrl())) {
             apiBuilder.baseUrl(entry.getBaseUrl());
         }
@@ -111,5 +117,51 @@ public final class OpenAiChatModels {
         requestFactory.setConnectTimeout(timeout);
         requestFactory.setReadTimeout(timeout);
         return RestClient.builder().requestFactory(requestFactory);
+    }
+
+    /**
+     * 流式调用同样必须有超时：{@code OpenAiApi.Builder} 的流式请求走 WebClient，
+     * 而它的无参构造兜底是 {@code WebClient.builder()}（没接超时），只配 restClient 只保护了阻塞路径——
+     * 上游一次卡死就会永久挂住 SSE 连接。这里补两件事：connector 的连接/响应头超时
+     * （见 {@link #streamingConnector}）与响应体流的空闲超时（见 {@link #streamIdleTimeout}）。
+     * 0 与负数视作"不限制"，与阻塞路径 SimpleClientHttpRequestFactory 的 0=无限一致。
+     */
+    private static WebClient.Builder webClientBuilder(Duration timeout) {
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+            return WebClient.builder();
+        }
+        return WebClient.builder()
+                .clientConnector(streamingConnector(timeout))
+                .filter(streamIdleTimeout(timeout));
+    }
+
+    /**
+     * 响应体流的空闲超时：{@code timeout} 内收不到任何信号（字节或结束）就中断这次流式请求。
+     * <p>
+     * 只给 connector 接超时不够——它的读超时等价于 JDK 的请求超时，只覆盖到响应头到达，
+     * 服务端吐了几段之后静默不会触发（review 实测 20s 仍挂）。这里按时长逐请求计时，
+     * 所以工具调用轮次之间等待下一轮响应的间隔不会被误伤。
+     * </p>
+     */
+    private static ExchangeFilterFunction streamIdleTimeout(Duration timeout) {
+        return (request, next) -> next.exchange(request)
+                .map(response -> response.mutate()
+                        .body(body -> body.timeout(timeout))
+                        .build());
+    }
+
+    /**
+     * 流式路径的 HTTP connector：显式用 JDK 客户端（本项目 classpath 无 reactor-netty/jetty/HC5，
+     * WebClient 的自动探测本来就落到它），以便同时设上连接超时与响应头超时——
+     * JDK 客户端这两项默认都是不限制。
+     * <p>
+     * 包级可见以便单测断言两个超时确实接到了客户端上。
+     * </p>
+     */
+    static ClientHttpConnector streamingConnector(Duration timeout) {
+        HttpClient httpClient = HttpClient.newBuilder().connectTimeout(timeout).build();
+        JdkClientHttpConnector connector = new JdkClientHttpConnector(httpClient);
+        connector.setReadTimeout(timeout);
+        return connector;
     }
 }
