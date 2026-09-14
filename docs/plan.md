@@ -79,10 +79,14 @@
   - 文件范围：frontend/src 新增助手页面/组件、路由入口、openapi 生成代码如需
   - 验收：npm run type-check + lint 过；对话与折叠条人工验收
   - 实施记录：提交 6d6e4f2。新增 `pages/AssistantPage.vue` + `components/assistant/StepTimeline.vue` + `utils/assistantSse.ts` + `api/assistantController.ts`，改 `router/index.ts`（`/assistant`）、`GlobalHeader.vue` 与 `BasicLayout.vue`（两处菜单入口）、`request.ts`（导出 `BASE_URL`）。客户端用原生 `EventSource`（GET + `withCredentials`；不能用 axios——无流式形态且 10s 超时会掐断），**收到 `[DONE]` 与出错都必须显式 `close()`**（`EventSource` 会自动重连，不关就重发同一条 message = 重跑一次 agent）。未登录前置判后重定向登录页（`EventSource` 读不到 40100）。人工验收：真浏览器端到端跑通（截图 `%TEMP%\t11-smoke\ui-answer.png`）；**npm run type-check 与 eslint 均有既有存量错误（138 / 73 例，全在本次未触碰文件里，本次净增 0）**——"type-check + lint 过"这条验收按现状无法达成，已挂账见"档 2 实施记录"
-- [ ] T12 一期联调验收：跑通两条场景（智能整理/选图入库）；按规则 9 写功能讲解文档 docs/features/
+- [x] T12 一期联调验收（2026-09-14 完成）：跑通两条场景（智能整理/选图入库）；按规则 9 写功能讲解文档 docs/features/
   - 文件范围：联调发现的必要小修 + docs/features/
   - 验收：设计文档"验收标准"4 条全过；门禁绿 + 全量回归
-  - **前置（2026-09-14）**：图库助手模型已按用户指定接入 **DeepSeek 官方（`deepseek-flash`，主脑与 visionTagger 共用）**——口径见 docs/decisions.md 同日行；**密钥已提供，真机冒烟三项全通**：`/v1/chat/completions` 路径可用、带工具的多轮调用通过（模型确实调用了工具）、图像输入对**图库 COS 图**可用（Pexels CDN 地址被 DeepSeek 拒，但不影响本链路——它只是入库的输入，入库后 url 即 COS）。**T12 因此可以开跑**：只差起齐服务（backend 8123 + engine 8124 + MCP 8127）与准备一个含图片的空间
+  - **实施记录（2026-09-14）**：真机链 = 浏览器/脚本 → backend 8123（`local,test`）→ **引擎 8124（profile local，DeepSeek `deepseek-flash`）** → 图库 API + 搜图 MCP 8127，探针账号真登录（避免用真实账号）。
+    **① 智能整理（场景一）实测通过**（12.6s，一次对话内完成）：`listSpaces`+`getTagCategory` → `listPictures`（3 张无标图）→ **`visionTagger`**（3 张全部给出建议，且**全部复用词表已有标签**）→ `batchEditPictures` ×3（逐张不同值）→ **模型自己回读 `listPictures` 复核** → 汇总回答（带表格）。落库核对：3 张 image 的 `tags` 已写入（`生活/高清/艺术`、`高清/艺术/背景`、`生活/高清/背景`）、2 张 `category=素材`；`tag.usageCount` 增量符合 T5 口径（`高清`=3、其余=2，即"一次调用计 1 不随图片数放大"）。
+    **② 选图入库（场景二）实测通过**（9.3s）：`listSpaces`+**`searchImage`**（MCP 返回 15 条 mountain 图地址）→ **`batchUploadByUrl`**（提交 3 条、成功 3、失败 0、跳过 0）→ 回读 `listPictures` 确认 → 汇总回答。落库核对：空间图片 3→**6** 张、`space.totalCount=6` / `totalSize=87108`（额度记账正确）。
+    **③ 联调抓到 1 个真 bug 并修复**（详见 decisions 同日两条）：**记忆回放里"未配对的工具调用痕迹"让 DeepSeek 直接 400**——第一次工具调用成功后，第二次模型调用就炸（`assistant message with 'tool_calls' must be followed by tool messages`），根因是本引擎记忆只存 assistant 的 toolCall 决策行、不存工具响应行；修复 = 回放路径剥掉工具痕迹（`MessageConverter.toReplayMessages` + 门禁守护测试）。同批还做了"工具入参剥包裹引号"的加固（MCP 返回是带引号的字符串字面量）。**两条场景的复跑是在修复后引擎上完成的**。讲解文档：`docs/features/F12-图库助手档3工具与联调.md`
+  - **前置（2026-09-14）**：图库助手模型已按用户指定接入 **DeepSeek 官方（`deepseek-flash`，主脑与 visionTagger 共用）**——口径见 docs/decisions.md 同日行；**密钥已提供，真机冒烟三项全通**：`/v1/chat/completions` 路径可用、带工具的多轮调用通过（模型确实调用了工具）、图像输入对**图库 COS 图**可用（Pexels CDN 地址被 DeepSeek 拒，但不影响本链路——它只是入库的输入，入库后 url 即 COS）
 - [x] T13 引擎教学遗留清理（承接原 yu-ai-agent T1）（2026-09-14 完成）：AuthAdvisor 假实现、demo 包、空壳控制器（ChatMessage/ChatSummary）、FileBasedChatMemory 死代码、空目录
   - 文件范围：ai/agent 内上述文件与目录
   - 验收：编译 + 门禁绿
