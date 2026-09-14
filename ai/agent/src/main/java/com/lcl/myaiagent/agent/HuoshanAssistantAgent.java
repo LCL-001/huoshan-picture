@@ -43,6 +43,9 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
               tags, then summarise the suggestions to the user in Chinese. Its output is only a suggestion - nothing is
               written until you call batchEditPictures (after the user confirmed, or when the user already told you
               exactly what to apply).
+            - An external image-search tool may also be available (its name contains "searchImage"): it searches the web
+              and returns comma-separated image URLs. To put found images into a space, pass those URLs to
+              batchUploadByUrl; do not invent URLs yourself.
             - Deletion is not supported in this version: never claim that you deleted anything.
             - Always answer the user in Chinese unless the user explicitly requests another language.
             """;

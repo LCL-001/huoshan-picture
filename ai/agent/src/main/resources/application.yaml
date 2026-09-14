@@ -27,14 +27,18 @@
     #    dimensions: 1024
     #    distance-type: COSINE_DISTANCE
     #    max-document-batch-size: 10000 # Optional: Maximum number of documents per batch
-#    mcp:
-#      client:
-#        sse:
-#          connections:
-#            server1:
-#              url: http://localhost:8127
-        # stdio:
-        # servers-configuration: classpath:mcp-servers.json
+    # 搜图 MCP 服务（ai/image-search-mcp-server，默认 sse profile，端口 8127）——T9。
+    # 只有图库助手会挂它的工具，MyManus 不受影响（见 HuoshanAssistantController 的装配）。
+    mcp:
+      client:
+        # 服务没部署时可整体关掉，引擎照常起（图库助手少了搜图工具而已）
+        enabled: ${AI_MCP_CLIENT_ENABLED:true}
+        # 不在启动时初始化：MCP 服务没起也不该拖垮引擎启动，改成首次调用时再连
+        initialized: false
+        sse:
+          connections:
+            image-search:
+              url: ${AI_MCP_IMAGE_SEARCH_URL:http://localhost:8127}
 
 
   datasource:

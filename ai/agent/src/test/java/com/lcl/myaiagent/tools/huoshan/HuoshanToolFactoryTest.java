@@ -6,7 +6,10 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 
 import java.time.Duration;
 import java.util.Arrays;
@@ -56,6 +59,28 @@ class HuoshanToolFactoryTest {
         assertThat(names).containsExactlyInAnyOrder(
                 "listSpaces", "listPictures", "getTagCategory",
                 "batchEditPictures", "batchUploadByUrl", "visionTagger");
+    }
+
+    @Test
+    void extraToolsSuchAsTheMcpSearchToolAreAppended() {
+        ToolCallback[] mcpTools = ToolCallbacks.from(new StubMcpSearchTool());
+
+        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), visionStub(), mcpTools));
+
+        assertThat(names)
+                .as("T9：搜图 MCP 服务的工具必须并进图库助手工具集")
+                .contains("searchImage")
+                .contains("batchUploadByUrl")
+                .contains("visionTagger");
+    }
+
+    /** 假的 MCP 搜图工具（形状照 ai/image-search-mcp-server 的 searchImage） */
+    static class StubMcpSearchTool {
+
+        @Tool(description = "search image from web")
+        public String searchImage(@ToolParam(description = "Search query keyword") String query) {
+            return "https://img.example/a.jpg";
+        }
     }
 
     @Test

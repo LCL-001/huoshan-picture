@@ -16,6 +16,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -44,6 +46,14 @@ public class HuoshanAssistantController {
 
     @Resource
     private FlowWindowBasedChatMemory flowWindowBasedChatMemory;
+
+    /**
+     * 搜图 MCP 服务（T9）的工具回调。用 ObjectProvider 而不是直接注入：MCP client 被关掉
+     * （{@code AI_MCP_CLIENT_ENABLED=false}）或没配连接时这个 Bean 可能不存在，
+     * 图库助手少了搜图工具仍应能开对话。
+     */
+    @Resource
+    private ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider;
 
     /**
      * 图库助手对话（SSE）。
@@ -84,8 +94,11 @@ public class HuoshanAssistantController {
         if (visionModel == null) {
             log.warn("视觉模型未配置（app.ai.openai.vision.*），本次会话不挂 visionTagger：看图打标不可用");
         }
+        // 搜图 MCP 工具（T9）：只挂给图库助手，MyManus 的工具表（ToolRegistration）不动
+        ToolCallbackProvider mcpProvider = mcpToolCallbackProvider.getIfAvailable();
+        ToolCallback[] mcpTools = mcpProvider == null ? new ToolCallback[0] : mcpProvider.getToolCallbacks();
         ToolCallback[] tools = HuoshanToolFactory.assistantTools(
-                huoshanProperties.apiClient(satoken, sessionId), visionModel);
+                huoshanProperties.apiClient(satoken, sessionId), visionModel, mcpTools);
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),
                 conversationId, flowWindowBasedChatMemory);
         return agent.runStream(message);

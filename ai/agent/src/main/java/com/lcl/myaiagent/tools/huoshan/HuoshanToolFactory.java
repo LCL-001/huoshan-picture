@@ -24,8 +24,10 @@ public final class HuoshanToolFactory {
     /**
      * @param visionModel 多模态模型（见 OpenAiChatModels.vision()）；**为 null 时不挂 visionTagger**——
      *                    没配视觉模型就该让模型看到"手上没有这个工具"，而不是给它一个每次都报错的工具
+     * @param extraTools  额外工具（T9：搜图 MCP 服务的工具回调）；MCP 没配就是空数组
      */
-    public static ToolCallback[] assistantTools(HuoshanApiClient client, ChatModel visionModel) {
+    public static ToolCallback[] assistantTools(HuoshanApiClient client, ChatModel visionModel,
+                                                ToolCallback... extraTools) {
         List<Object> tools = new ArrayList<>(List.of(
                 new ListSpacesTool(client),
                 new ListPicturesTool(client),
@@ -36,6 +38,10 @@ public final class HuoshanToolFactory {
         if (visionModel != null) {
             tools.add(new VisionTaggerTool(client, visionModel));
         }
-        return ToolCallbacks.from(tools.toArray());
+        List<ToolCallback> callbacks = new ArrayList<>(List.of(ToolCallbacks.from(tools.toArray())));
+        if (extraTools != null && extraTools.length > 0) {
+            callbacks.addAll(List.of(extraTools));
+        }
+        return callbacks.toArray(new ToolCallback[0]);
     }
 }
