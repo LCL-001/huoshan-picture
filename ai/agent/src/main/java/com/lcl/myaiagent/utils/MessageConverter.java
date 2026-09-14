@@ -108,6 +108,54 @@ public class MessageConverter {
     }
 
     /**
+     * 历史回放（**给模型的那条路**，见 {@code FlowWindowBasedChatMemory}）：把库里的行转成一条合法的消息序列。
+     * <p>
+     * 为什么要在这里"丢工具痕迹"（2026-09-14 T12 联调实测）：本引擎的记忆**从不持久化工具响应行**
+     * （Memory Advisor 只写模型的 toolCall 决策行，见 {@code ChatHistoryAssembler} 的口径注释），
+     * 所以回放出来的 assistant 消息必然是"带 tool_calls 却没有配对 tool 响应"的非法序列——
+     * OpenAI 协议明确要求 assistant(tool_calls) 后面必须紧跟对应的 tool 消息，严格校验的服务端会直接回
+     * 400 {@code "An assistant message with 'tool_calls' must be followed by tool messages"}。
+     * DeepSeek 就是这么校验的（DashScope 兼容模式宽松，所以这个洞以前没暴露）。
+     * </p>
+     * <p>
+     * 因此回放时：工具响应行整条丢弃；assistant 行只保留文本、去掉 toolCalls；
+     * 纯决策行（文本为空）整条丢弃（对模型没有信息量，留着只会发出一串空 assistant 消息）。
+     * **折叠条要的 toolCalls / toolResponses 元数据仍原样留在库里**——前端走的是
+     * {@code ChatHistoryAssembler} 那条路，与这里无关。
+     * </p>
+     *
+     * @param rows 库里的消息行（按 id 正序）
+     * @return 可安全发给模型的消息列表
+     */
+    public static List<Message> toReplayMessages(List<ChatMessage> rows) {
+        List<Message> messages = new ArrayList<>();
+        for (ChatMessage row : rows) {
+            Message message = toReplayMessage(row);
+            if (message != null) {
+                messages.add(message);
+            }
+        }
+        return messages;
+    }
+
+    /** 单行回放转换；返回 null 表示"这行不给模型看" */
+    private static Message toReplayMessage(ChatMessage row) {
+        MessageType messageType = row.getMessageType();
+        String text = row.getContent();
+        if (messageType == MessageType.TOOL) {
+            // 工具响应：它的前导 tool_calls 已经被丢掉，单独留着同样是非法的孤立 tool 消息
+            return null;
+        }
+        if (messageType == MessageType.ASSISTANT) {
+            if (text == null || text.isBlank()) {
+                return null;
+            }
+            return new AssistantMessage(text);
+        }
+        return toMessage(row);
+    }
+
+    /**
      * 从 metadata 中反序列化 ToolCall 列表
      */
     @SuppressWarnings("unchecked")

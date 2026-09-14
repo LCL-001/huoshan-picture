@@ -99,7 +99,7 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
         // 触发判断：全量（含 system）估算 token，没超预算直接原样返回
         int totalTokens = history.stream().mapToInt(this::estimateTokenCount).sum();
         if (totalTokens <= budget) {
-            return history.stream().map(MessageConverter::toMessage).toList();
+            return MessageConverter.toReplayMessages(history);
         }
 
         // 拆分在 ChatMessage 层做而不是 Message 层：
@@ -148,12 +148,12 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
                 }
                 // 新消息不足 N 条却已超预算（单条巨大）→ 交给硬裁剪兜底
                 log.info("水位线后消息不足 N 条但超预算，走硬裁剪, conversationId={}", conversationId);
-                return trimByTokens(history.stream().map(MessageConverter::toMessage).toList(), budget);
+                return trimByTokens(MessageConverter.toReplayMessages(history), budget);
             }
 
             // ---------- 首次压缩路径：还没有有效摘要 ----------
             if (normalMsgs.size() <= RECENT_KEEP) {
-                return trimByTokens(history.stream().map(MessageConverter::toMessage).toList(), budget);
+                return trimByTokens(MessageConverter.toReplayMessages(history), budget);
             }
             List<ChatMessage> older = normalMsgs.subList(0, normalMsgs.size() - RECENT_KEEP);
             List<ChatMessage> recent = normalMsgs.subList(normalMsgs.size() - RECENT_KEEP, normalMsgs.size());
@@ -164,17 +164,17 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
         } catch (Exception e) {
             // 降级：压缩失败不影响可用性，用硬裁剪兜底（预算必须用同一个 budget）
             log.warn("会话摘要压缩失败，降级为硬裁剪, conversationId={}", conversationId, e);
-            return trimByTokens(history.stream().map(MessageConverter::toMessage).toList(), budget);
+            return trimByTokens(MessageConverter.toReplayMessages(history), budget);
         }
     }
 
     /** 组装返回：SystemMessage（人设，必须在前）+ 摘要 + 水位线之后的原文 */
     private List<Message> buildResult(List<ChatMessage> systemMsgs, String summary, List<ChatMessage> recent) {
         List<Message> result = new ArrayList<>();
-        systemMsgs.stream().map(MessageConverter::toMessage).forEach(result::add);
+        result.addAll(MessageConverter.toReplayMessages(systemMsgs));
         // 摘要用 AssistantMessage 承载——对模型来说它是"更早的对话内容"，而不是用户说的话
         result.add(new AssistantMessage("以下是更早对话的摘要：" + summary));
-        recent.stream().map(MessageConverter::toMessage).forEach(result::add);
+        result.addAll(MessageConverter.toReplayMessages(recent));
         return result;
     }
 
