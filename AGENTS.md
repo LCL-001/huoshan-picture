@@ -30,14 +30,16 @@
   - 后端单测（不依赖 MySQL/Redis，与 CI 同口径）：`cd backend && mvn -B test -Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests' -DfailIfNoTests=false`
   - 约定：需要 MySQL/Redis 的测试类以 `IntegrationTest` 结尾；新增纯单测会被 CI 自动纳入，无需改 workflow
   - 前端：无测试脚本；以 `npm run type-check`（vue-tsc）和 `npm run lint`（eslint）作为检查手段
+- 部署：部署文档与 nginx 配置在 backend/docs/deploy；CI（.github/workflows/ci.yml）跑编译与无 MySQL/Redis 单测
+- 线上验证：https://www.lincode.online
 - 前端 OpenAPI 代码生成：`cd frontend && npm run openapi`
-- 门禁启用：新克隆仓库后执行一次 `git config core.hooksPath .githooks`，pre-commit 测试门禁才生效
+- 门禁启用：新克隆仓库后执行一次 `git config core.hooksPath .githooks`，pre-commit 质量门禁（密钥扫描 + 分层测试）才生效
 
 ## 工作规则（认真轨：硬）
 
 1. **改动范围**：只允许修改当前任务（docs/plan.md 对应条目）明确涉及的文件。禁止顺手重构、禁止"顺便优化"无关代码。发现必须改的问题 → 停下报告，等用户决定。
 2. **决定不翻案**：动手前先读 docs/decisions.md。已确认的决定不得推翻；确有必要推翻时停下询问用户，同意后把变更记入 decisions.md。
-3. **大需求先立字据**：用户新提的需求超出当前 spec 时，先更新 docs/spec.md 与 docs/plan.md，等用户确认"关键三行"后再动代码。
+3. **大需求先立字据**：用户新提的需求超出当前 spec 时，先更新 docs/spec.md 与 docs/plan.md，等用户确认"关键三行"后再动代码。需求涉及自研较大模块（引擎 / 解析器 / 同步 / 编辑器之类）时，动手前先过一轮 vibe-scout 轮子调研，结论记入 spec 的"现有方案调研"节，避免重复造轮子。
 4. **红绿灯**：每完成一个任务：补/改测试 → 跑绿 → 单独 commit（conventional 一行式）。git 门禁会拦截红测试的提交，不要尝试绕过。
 5. **逃生舱**：测试连续 2 轮修不红 → 立即停止，汇报现象、已尝试的方案、当前猜测，等用户指令。
 6. **交接**：会话结束、用户要求交接、或即将换工具时 → 按 vibe-handoff 流程写 docs/handoff/ 快照。
@@ -51,3 +53,5 @@
 11. **命令行纪律**：执行命令前先确认目标 shell（cmd / PowerShell / bash），按其语法来——cmd 不支持 `;` 链接（用 `&`）也不支持多行输入，命令一律写成单行；含空格或中文的路径必须加引号；命令失败先排查 shell 语法和编码，再怀疑程序本身。
 12. **回归测试**：修任何 bug 的顺序固定为——先写复现测试（必须先看到红）→ 修复到绿 → 该测试永久保留。禁止靠删除或跳过既有测试让门禁变绿；测试套件变大变慢后，门禁可指向快速子集，全量回归交给 CI 或定期手动执行。
 13. **独立 review**：完成大功能或大重构后，**建议用户新开一个会话（或换一个工具）只做 review**：只读 AGENTS.md、spec 关键三行和该功能的讲解文档，专挑"做得对不对"（设计、边界、安全、与 spec 的一致性），不复述实现过程。review 结论记入 docs/decisions.md 或该功能文档的"已知限制"。红绿灯只能证明"跑得对"，review 才管"做得对"。
+14. **安全与依赖**：密钥/凭证一律走 `.env`（`.env` 必须进 .gitignore，提交 `.env.example` 作模板），门禁会扫描提交内容中的常见密钥模式；用户输入永不拼进 SQL、命令、HTML/模板；新增依赖前确认包真实存在于官方 registry（防幻觉包/抢注包），写明用途并记入 docs/plan.md；含依赖文件的 commit 会被门禁自动跑依赖审计。（本仓 Maven 栈口径：门禁密钥扫描已生效；依赖审计暂仅覆盖 npm 栈，Maven 侧未纳入。）
+15. **编码规范**：新代码贴着既有代码的风格写；命名达意、函数短小、避免三层以上嵌套；不吞错误（catch 后必须处理或上抛，禁止空 catch）；不留死代码和注释掉的代码块。格式以 formatter/lint 工具输出为准，与工具规则冲突时改代码；确需调整工具规则（如 .editorconfig、eslint 配置）须记入 docs/decisions.md。
