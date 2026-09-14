@@ -68,8 +68,11 @@ app:
     #  username: ${VECTOR_DB_USERNAME:postgres}
     #  password: ${VECTOR_DB_PASSWORD:postgres}
     #  driver-class-name: org.postgresql.Driver
-  # 图库助手用的 OpenAI 协议模型（T6）：主脑与 visionTagger 各一套配置，厂商不绑死
-  # （DashScope 兼容模式 / DeepSeek / Moonshot / GLM / SiliconFlow / vLLM / 本地 Ollama 的 /v1 均可）。
+  # 图库助手用的 OpenAI 协议模型（T6）：主脑与 visionTagger 各一套配置，厂商不绑死。
+  # base-url 填"协议根"，不要带尾部 /v1 —— Spring AI 的请求路径自带 /v1/chat/completions
+  # （T6 实测：Ollama 填 http://localhost:11434 通；填 .../v1 会拼成双 /v1 报 404）。
+  # 例：DashScope 兼容模式 https://dashscope.aliyuncs.com/compatible-mode、官方 OpenAI https://api.openai.com、
+  #     本地 Ollama http://localhost:11434；其他厂商用其官方 base 去掉尾部 /v1 即可。
   # api-key 与 model 同时给全才算配置完成；未配置＝该用途不可用，普通会话不受影响。
   # 密钥走环境变量或 application-local.yaml（两者都不入版本库）。
   ai:

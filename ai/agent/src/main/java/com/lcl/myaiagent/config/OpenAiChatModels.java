@@ -1,6 +1,7 @@
 package com.lcl.myaiagent.config;
 
 import cn.hutool.core.util.StrUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -18,6 +19,7 @@ import java.time.Duration;
  * 会让该自动装配与既有按类型注入同时变成不唯一。需要哪个模型，由调用方按会话类型显式取（T7/T8）。
  * </p>
  */
+@Slf4j
 public final class OpenAiChatModels {
 
     private final ChatModel assistant;
@@ -88,6 +90,10 @@ public final class OpenAiChatModels {
         if (entry.getTemperature() != null) {
             optionsBuilder.temperature(entry.getTemperature());
         }
+        // 启动即把生效的接入点打出来：多厂商配置下最容易错的就是 base-url（多写/少写 /v1）
+        log.info("OpenAI 协议模型就绪：config={}, baseUrl={}, model={}, temperature={}, timeout={}",
+                prefix, StrUtil.isBlank(entry.getBaseUrl()) ? "(厂商默认)" : entry.getBaseUrl(),
+                entry.getModel(), entry.getTemperature(), entry.getTimeout());
         return OpenAiChatModel.builder()
                 .openAiApi(apiBuilder.build())
                 .defaultOptions(optionsBuilder.build())
