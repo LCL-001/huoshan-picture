@@ -44,7 +44,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>
  * 单测证明不了的部分在这里：真实登录产出的凭据——Sa-Token 写的 {@code satoken} Cookie——确实能被代理的
  * 取值逻辑捞到并原样转发到引擎；会话 Cookie 也必须是**原样透传**（2026-09-14 真图库冒烟暴露的坑：
- * Spring Session 的 Cookie 值是 Base64 形态，{@code session.getId()} 是解码后的 id，用后者打图库回 40100）。
+ * Spring Session 的 Cookie 值是 Base64 形态，{@code session.getId()} 是解码后的 id，用后者打图库回 40100）；
+ * 以及"两把凭据必须同属一人"（review R4：假 token 与"别人的真 token"都要在入口拦住）。
  * 桩引擎是进程内 JDK HttpServer（经 {@code @DynamicPropertySource} 注入地址），
  * 因此本类不依赖外部引擎，但需要 MySQL / Redis（真实登录），按既有约定以 IntegrationTest 结尾、
  * 不进 CI/门禁，靠本地全量回归执行。
@@ -76,6 +77,8 @@ class AiAssistantProxyIntegrationTest {
     private StringRedisTemplate stringRedisTemplate;
 
     private User user;
+    /** 第二个真实账号：用于"satoken 属于别人"的一致性负向用例（两把凭据各自都真实有效） */
+    private User otherUser;
 
     @DynamicPropertySource
     static void engineProperties(DynamicPropertyRegistry registry) {
@@ -117,18 +120,28 @@ class AiAssistantProxyIntegrationTest {
 
     @BeforeAll
     void setUpFixture() {
-        user = new User();
-        user.setUserAccount("ai-proxy-" + UUID.randomUUID());
-        user.setUserPassword(userService.getEncryptPassword(RAW_PASSWORD));
-        user.setUserName("ai-proxy-it");
-        user.setUserRole(UserConstant.DEFAULT_ROLE);
+        user = newUserFixture("ai-proxy-it");
         userService.save(user);
+        otherUser = newUserFixture("ai-proxy-it-other");
+        userService.save(otherUser);
+    }
+
+    private User newUserFixture(String userName) {
+        User fixture = new User();
+        fixture.setUserAccount("ai-proxy-" + UUID.randomUUID());
+        fixture.setUserPassword(userService.getEncryptPassword(RAW_PASSWORD));
+        fixture.setUserName(userName);
+        fixture.setUserRole(UserConstant.DEFAULT_ROLE);
+        return fixture;
     }
 
     @AfterAll
     void cleanFixture() {
         if (user != null) {
             userService.removeById(user.getId());
+        }
+        if (otherUser != null) {
+            userService.removeById(otherUser.getId());
         }
         if (engine != null) {
             engine.stop(0);
@@ -143,7 +156,7 @@ class AiAssistantProxyIntegrationTest {
 
     @Test
     void forwardsCredentialsThatRealLoginActuallyProduced() {
-        Cookie satokenCookie = login();
+        Cookie satokenCookie = login(user);
         MockHttpServletRequest loginRequest = currentRequest();
         String decodedSessionId = loginRequest.getSession(false).getId();
         assertThat(RAW_SESSION_COOKIE)
@@ -169,7 +182,7 @@ class AiAssistantProxyIntegrationTest {
     /** 只带 satoken、不带会话 Cookie：代理入口即拒，不把请求打到引擎（plan T10 负向验收） */
     @Test
     void rejectsWhenBrowserRequestCarriesOnlySatokenWithoutSessionCookie() {
-        Cookie satokenCookie = login();
+        Cookie satokenCookie = login(user);
 
         MockHttpServletRequest chatRequest = new MockHttpServletRequest();
         chatRequest.setSession(currentRequest().getSession(false));
@@ -198,15 +211,58 @@ class AiAssistantProxyIntegrationTest {
         assertThat(REQUESTS.get()).isZero();
     }
 
+    /**
+     * R4 复现（2026-09-14 独立 review 实测的洞）：真会话 + 随手编的 satoken。
+     * 修复前这个请求会被照常转发（`listSpaces` 一类路径只由 Spring Session 授权，拿到假 token 也读真实空间），
+     * 修复后必须在入口回 40100 且零上游请求。
+     */
+    @Test
+    void rejectsBogusSatokenEvenWithRealSession() {
+        login(user);
+        MockHttpServletRequest loginRequest = currentRequest();
+
+        MockHttpServletRequest chatRequest = new MockHttpServletRequest();
+        chatRequest.setSession(loginRequest.getSession(false));
+        chatRequest.setCookies(new Cookie("satoken", "review-bogus-token"),
+                new Cookie("SESSION", RAW_SESSION_COOKIE));
+
+        assertThatThrownBy(() -> aiAssistantController.chat("我有几个空间", null, chatRequest))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
+        assertThat(REQUESTS.get()).as("无效 satoken 必须在代理入口拦住，不能打到引擎").isZero();
+    }
+
+    /**
+     * 两把凭据各自都真实有效（都是真登录产出），但分属不同账号：一致性校验必须拦住（40102）。
+     * 这是 R4 的核心语义——代理不做授权判定，但"透传出去的 satoken 是谁的"必须与会话用户一致。
+     */
+    @Test
+    void rejectsSatokenBelongingToAnotherUser() {
+        login(user);
+        MockHttpServletRequest ownerSessionRequest = currentRequest();
+        Cookie otherUserSatoken = login(otherUser);
+
+        MockHttpServletRequest chatRequest = new MockHttpServletRequest();
+        chatRequest.setSession(ownerSessionRequest.getSession(false));
+        chatRequest.setCookies(otherUserSatoken, new Cookie("SESSION", RAW_SESSION_COOKIE));
+
+        assertThatThrownBy(() -> aiAssistantController.chat("我有几个空间", null, chatRequest))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.SPACE_NOT_LOGIN.getCode());
+        assertThat(REQUESTS.get()).as("两把凭据不同人必须在代理入口拦住，不能打到引擎").isZero();
+    }
+
     /** 走真实登录流程（种子图形验证码绕过图形校验，频控保持开启），返回框架写出的 satoken Cookie */
-    private Cookie login() {
+    private Cookie login(User target) {
         MockHttpServletRequest loginRequest = new MockHttpServletRequest();
         MockHttpServletResponse loginResponse = new MockHttpServletResponse();
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(loginRequest, loginResponse));
         String captchaUuid = UUID.randomUUID().toString(true);
         stringRedisTemplate.opsForValue().set(IMG_CAPTCHA_KEY + captchaUuid, "abcd", 2, TimeUnit.MINUTES);
         UserLoginRequest loginRequestDto = new UserLoginRequest();
-        loginRequestDto.setUserAccount(user.getUserAccount());
+        loginRequestDto.setUserAccount(target.getUserAccount());
         loginRequestDto.setUserPassword(RAW_PASSWORD);
         loginRequestDto.setCaptchaUuid(captchaUuid);
         loginRequestDto.setCaptchaCode("abcd");

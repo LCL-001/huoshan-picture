@@ -14,6 +14,15 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class SaTokenConfigure implements WebMvcConfigurer {
 
+    /**
+     * 注解鉴权生效的路径清单 = "Sa-Token 注解可信区"。
+     * <p>
+     * 未注册进拦截器的路径上，Sa-Token 注解会**静默失效**（比不写更危险），所以 /ai/** 刻意不在其中：
+     * 助手端点的登录门槛在 controller 里显式判，由 {@code AiPathSaTokenGuardTest} 反射守护
+     * （该测试同时断言"用了 Sa-Token 注解的控制器必须落在本清单覆盖范围内"）。
+     */
+    static final String[] ANNOTATION_GUARDED_PATTERNS = {"/picture/**", "/space/**", "/spaceUser/**", "/file/**"};
+
     static {
         // @SaSpaceCheckPermission 是 @SaCheckPermission 的组合注解（@AliasFor），
         // Sa-Token 默认用 JDK 反射读取注解，无法识别组合注解；
@@ -26,6 +35,6 @@ public class SaTokenConfigure implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         // SaInterceptor 默认开启注解鉴权（isAnnotation = true），auth 函数为空操作，仅做注解校验
         registry.addInterceptor(new SaInterceptor())
-                .addPathPatterns("/picture/**", "/space/**", "/spaceUser/**", "/file/**");
+                .addPathPatterns(ANNOTATION_GUARDED_PATTERNS);
     }
 }

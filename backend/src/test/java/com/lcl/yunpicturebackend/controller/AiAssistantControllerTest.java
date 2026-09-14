@@ -1,10 +1,13 @@
 package com.lcl.yunpicturebackend.controller;
 
+import cn.dev33.satoken.SaManager;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantProxyManager;
+import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.service.IUserService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -23,12 +26,18 @@ import static org.mockito.Mockito.when;
 
 /**
  * T10 代理端点单测（docs/plan.md T10）：登录门槛、凭据组取法（satoken 三处 + Spring Session 会话 Cookie）、
- * 以及"缺任一把在代理入口即拒"（fail-closed，不把请求打到引擎）。
+ * "缺任一把在代理入口即拒"（fail-closed，不把请求打到引擎），以及"两把凭据必须同属一人"（review R4）。
  * 纯单测：MockHttpServletRequest + Mockito，不启 Spring、不依赖 MySQL/Redis，进门禁。
+ * <p>
+ * 真实 satoken 用 Sa-Token 的内存 DAO 播种（无 Spring 时 {@code SaManager} 缺省即
+ * {@code SaTokenDaoDefaultImpl}），故本类校验的是真实的 {@code StpKit.SPACE.getLoginIdByToken} 语义，
+ * 而不是被打桩的替身。
  */
 class AiAssistantControllerTest {
 
     private static final long USER_ID = 900900001L;
+    /** 另一账号的 id：用于"两把凭据不属于同一人"的一致性负向用例 */
+    private static final long OTHER_USER_ID = 900900002L;
     private static final String TOKEN = "test-satoken-value";
     private static final String MESSAGE = "看看我的空间";
     /** 浏览器真实带的会话 Cookie 值形态（Spring Session 默认 Base64 编码） */
@@ -44,6 +53,19 @@ class AiAssistantControllerTest {
         proxyManager = mock(AiAssistantProxyManager.class);
         controller = new AiAssistantController(userService, proxyManager, "satoken", "SESSION");
         when(proxyManager.chat(any(), any(), any(), any(), any())).thenReturn(new SseEmitter());
+        // 常规用例里 TOKEN 就是 USER_ID 真实登录产出的那把
+        seedSpaceToken(TOKEN, USER_ID);
+    }
+
+    @AfterEach
+    void clearSeededTokens() {
+        SaManager.getSaTokenDao().delete(StpKit.SPACE.splicingKeyTokenValue(TOKEN));
+        SaManager.getSaTokenDao().delete(StpKit.SPACE.splicingKeyTokenValue(TOKEN + "-header"));
+    }
+
+    /** 播种一把"真实存在"的 satoken：无 Spring 时 Sa-Token 用内存 DAO，键名由框架自己拼 */
+    private void seedSpaceToken(String token, long loginId) {
+        SaManager.getSaTokenDao().set(StpKit.SPACE.splicingKeyTokenValue(token), String.valueOf(loginId), 600L);
     }
 
     /** 已登录请求：有 Spring Session（会话里能取到用户）+ 浏览器带的 SESSION Cookie */
@@ -115,6 +137,7 @@ class AiAssistantControllerTest {
     void headerWinsOverCookie() {
         MockHttpServletRequest request = loggedInRequest();
         request.addHeader("satoken", TOKEN + "-header");
+        seedSpaceToken(TOKEN + "-header", USER_ID);
 
         controller.chat(MESSAGE, null, request);
 
@@ -185,6 +208,37 @@ class AiAssistantControllerTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getCode())
                 .isEqualTo(ErrorCode.PARAMS_ERROR.getCode());
+        verifyNoInteractions(proxyManager);
+    }
+
+    /**
+     * R4 复现（2026-09-14 独立 review 实测的洞）：真会话 + **随手编的** satoken 曾被照常转发，
+     * 引擎拿着它去读真实空间——因为 satoken 只在图库服务端判 RBAC，代理原先只判"非空白"。
+     * 现在必须在入口拦住，且不产生任何上游请求。
+     */
+    @Test
+    void rejectsBogusSatokenEvenWithRealSession() {
+        MockHttpServletRequest request = loggedInRequestWithSatokenCookie();
+        request.setCookies(new Cookie("SESSION", SESSION_COOKIE_VALUE), new Cookie("satoken", "review-bogus-token"));
+
+        assertThatThrownBy(() -> controller.chat(MESSAGE, null, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
+        verifyNoInteractions(proxyManager);
+    }
+
+    /** 两把凭据都真实有效，但分属不同账号：一致性校验必须拦住（40102，与空间维度读图同一口径） */
+    @Test
+    void rejectsSatokenBelongingToAnotherUser() {
+        seedSpaceToken(TOKEN, OTHER_USER_ID);
+        MockHttpServletRequest request = loggedInRequestWithSatokenCookie();
+
+        assertThatThrownBy(() -> controller.chat(MESSAGE, null, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不一致")
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.SPACE_NOT_LOGIN.getCode());
         verifyNoInteractions(proxyManager);
     }
 }
