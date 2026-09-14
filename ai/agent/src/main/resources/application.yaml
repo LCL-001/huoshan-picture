@@ -89,6 +89,13 @@ app:
         model: ${AI_OPENAI_VISION_MODEL:}
         temperature: 0.2
         timeout: 120s
+  # 图库助手（T8 档 1）：headless 端点（/ai/huoshan/chat）+ 图库 API 客户端。
+  # headless-api-key 为空时端点一律拒绝（fail-closed）；密钥走环境变量，不入库。
+  huoshan:
+    base-url: ${HUOSHAN_BASE_URL:http://localhost:8123/api}
+    headless-api-key: ${HUOSHAN_HEADLESS_API_KEY:}
+    connect-timeout: 5s
+    read-timeout: 30s
 
 search-api:
   api-key: ${SEARCH_API_KEY:}
