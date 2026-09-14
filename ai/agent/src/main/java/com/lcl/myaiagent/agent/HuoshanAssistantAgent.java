@@ -1,9 +1,9 @@
 package com.lcl.myaiagent.agent;
 
 import com.lcl.myaiagent.advisors.MyLoggerAdvisor;
-import com.lcl.myaiagent.chatmemory.FlowWindowBasedChatMemory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 
@@ -37,8 +37,14 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
             When you have the answer, summarise it in Chinese and end this run.
             """;
 
+    /**
+     * @param tools           图库工具集（per-request 构建，携带调用者 satoken）
+     * @param chatModel       图库助手主脑模型（OpenAI 协议，见 OpenAiChatModels.assistant()）
+     * @param conversationId  引擎侧会话 id（见 HuoshanAssistantSession）
+     * @param chatMemory      会话记忆（容器里是 FlowWindowBasedChatMemory；接口注入便于单测）
+     */
     public HuoshanAssistantAgent(ToolCallback[] tools, ChatModel chatModel, String conversationId,
-                                 FlowWindowBasedChatMemory flowWindowBasedChatMemory) {
+                                 ChatMemory chatMemory) {
         super(tools);
         // 会话 ID 必须在构建时定下来，供记忆 Advisor 逐步读写外部记忆
         this.setConversationId(conversationId);
@@ -48,7 +54,7 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
         this.setMaxSteps(20);
         ChatClient chatClient = ChatClient.builder(chatModel)
                 .defaultAdvisors(new MyLoggerAdvisor(),
-                        MessageChatMemoryAdvisor.builder(flowWindowBasedChatMemory).build())
+                        MessageChatMemoryAdvisor.builder(chatMemory).build())
                 .build();
         this.setChatClient(chatClient);
     }
