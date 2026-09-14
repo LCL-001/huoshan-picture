@@ -82,9 +82,10 @@
 - [ ] T12 一期联调验收：跑通两条场景（智能整理/选图入库）；按规则 9 写功能讲解文档 docs/features/
   - 文件范围：联调发现的必要小修 + docs/features/
   - 验收：设计文档"验收标准"4 条全过；门禁绿 + 全量回归
-- [ ] T13（可选）引擎教学遗留清理（承接原 yu-ai-agent T1）：AuthAdvisor 假实现、demo 包、空壳控制器（ChatMessage/ChatSummary）、FileBasedChatMemory 死代码、空目录
+- [x] T13 引擎教学遗留清理（承接原 yu-ai-agent T1）（2026-09-14 完成）：AuthAdvisor 假实现、demo 包、空壳控制器（ChatMessage/ChatSummary）、FileBasedChatMemory 死代码、空目录
   - 文件范围：ai/agent 内上述文件与目录
   - 验收：编译 + 门禁绿
+  - 实施记录：提交 `05db19e`，删 8 个文件（`advisors/AuthAdvisor.java` 328 行、`chatmemory/FileBasedChatMemory.java` 147 行、两个 **20 行空壳** `@RestController`（`ChatMessageController` / `ChatSummaryController`，类体是空的）、`demo/invoke/` 四个教学类）+ 空掉的 `demo/` 目录。**删除前逐条核实引用**：全部零引用（`AuthAdvisor` 只有 `@Slf4j`、不是 Spring Bean；`FileBasedChatMemory` 无注解、无人 new；两份 yaml/json/properties 零命中）。**顺带纠正一处计划描述**：`ChatMessage` / `ChatSummary` 的 **PO / Mapper / Repository / Service 不是死代码**——它们是 `FlowWindowBasedChatMemory`（现行记忆实现）的落地表，只删那两个**空壳 Controller**。门禁 **108 例**绿
 
 ## 任务清单（存量修复，已完成）
 
