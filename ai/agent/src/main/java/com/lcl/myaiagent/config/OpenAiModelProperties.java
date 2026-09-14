@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * OpenAI 协议模型配置（T6）：图库助手主脑与 visionTagger 视觉模型各一套独立配置项，
@@ -59,6 +60,17 @@ public class OpenAiModelProperties {
         private Duration timeout;
 
         /**
+         * 厂商私有请求参数，原样并进请求体顶层（留空不附加）。
+         * <p>
+         * 存在的理由：OpenAI 协议只标准化了一部分字段，各家还有自己的开关——DeepSeek 的
+         * {@code {"thinking":{"type":"disabled"}}} 就是必须走这里的例子（见 docs/decisions.md 2026-09-14）。
+         * 因为它与厂商绑定，**只应该写在 application-local.yaml 这类环境配置里**，
+         * 不要写进通用的 application.yaml，免得换厂商时把不认识的字段发出去。
+         * </p>
+         */
+        private Map<String, Object> extraBody;
+
+        /**
          * 配置是否完整可用。
          */
         public boolean isConfigured() {
@@ -111,6 +123,14 @@ public class OpenAiModelProperties {
 
         public void setTimeout(Duration timeout) {
             this.timeout = timeout;
+        }
+
+        public Map<String, Object> getExtraBody() {
+            return extraBody;
+        }
+
+        public void setExtraBody(Map<String, Object> extraBody) {
+            this.extraBody = extraBody;
         }
     }
 }

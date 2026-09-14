@@ -5,6 +5,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 
 import java.time.Duration;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -74,6 +75,32 @@ class OpenAiChatModelsTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("app.ai.openai.vision")
                 .hasMessageContaining("必须同时提供");
+    }
+
+    @Test
+    void passesVendorSpecificExtraBodyThrough() {
+        OpenAiModelProperties properties = new OpenAiModelProperties();
+        properties.getAssistant().setBaseUrl("https://api.deepseek.com");
+        properties.getAssistant().setApiKey("deepseek-key");
+        properties.getAssistant().setModel("deepseek-flash");
+        properties.getAssistant().setExtraBody(Map.of("thinking", Map.of("type", "disabled")));
+
+        OpenAiChatModels models = OpenAiChatModels.from(properties);
+
+        assertThat(optionsOf(models.assistant()).getExtraBody())
+                .as("厂商私有开关（如 DeepSeek 的 thinking）必须原样并进请求体，否则思考模式关不掉")
+                .containsEntry("thinking", Map.of("type", "disabled"));
+    }
+
+    @Test
+    void extraBodyAbsentWhenNotConfigured() {
+        OpenAiModelProperties properties = new OpenAiModelProperties();
+        properties.getAssistant().setApiKey("key");
+        properties.getAssistant().setModel("deepseek-flash");
+
+        OpenAiChatModels models = OpenAiChatModels.from(properties);
+
+        assertThat(optionsOf(models.assistant()).getExtraBody()).isNullOrEmpty();
     }
 
     private static OpenAiChatOptions optionsOf(ChatModel chatModel) {

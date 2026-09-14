@@ -96,10 +96,15 @@ public final class OpenAiChatModels {
         if (entry.getTemperature() != null) {
             optionsBuilder.temperature(entry.getTemperature());
         }
+        if (entry.getExtraBody() != null && !entry.getExtraBody().isEmpty()) {
+            optionsBuilder.extraBody(entry.getExtraBody());
+        }
         // 启动即把生效的接入点打出来：多厂商配置下最容易错的就是 base-url（多写/少写 /v1）
-        log.info("OpenAI 协议模型就绪：config={}, baseUrl={}, model={}, temperature={}, timeout={}",
+        // extraBody 只打键名不打值（它承载厂商私有开关，键名足够定位配置来源）
+        log.info("OpenAI 协议模型就绪：config={}, baseUrl={}, model={}, temperature={}, timeout={}, extraBodyKeys={}",
                 prefix, StrUtil.isBlank(entry.getBaseUrl()) ? "(厂商默认)" : entry.getBaseUrl(),
-                entry.getModel(), entry.getTemperature(), entry.getTimeout());
+                entry.getModel(), entry.getTemperature(), entry.getTimeout(),
+                entry.getExtraBody() == null ? "[]" : entry.getExtraBody().keySet());
         return OpenAiChatModel.builder()
                 .openAiApi(apiBuilder.build())
                 .defaultOptions(optionsBuilder.build())
