@@ -19,6 +19,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -41,8 +42,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * T10 凭据链集成验证（docs/plan.md T10「凭据组透传」验收）。
  * <p>
- * 单测证明不了的部分在这里：真实登录产出的凭据——Sa-Token 写的 {@code satoken} Cookie 与
- * Spring Session 的会话 id——确实能被代理的取值逻辑捞到并原样转发到引擎。
+ * 单测证明不了的部分在这里：真实登录产出的凭据——Sa-Token 写的 {@code satoken} Cookie——确实能被代理的
+ * 取值逻辑捞到并原样转发到引擎；会话 Cookie 也必须是**原样透传**（2026-09-14 真图库冒烟暴露的坑：
+ * Spring Session 的 Cookie 值是 Base64 形态，{@code session.getId()} 是解码后的 id，用后者打图库回 40100）。
  * 桩引擎是进程内 JDK HttpServer（经 {@code @DynamicPropertySource} 注入地址），
  * 因此本类不依赖外部引擎，但需要 MySQL / Redis（真实登录），按既有约定以 IntegrationTest 结尾、
  * 不进 CI/门禁，靠本地全量回归执行。
@@ -55,6 +57,8 @@ class AiAssistantProxyIntegrationTest {
     private static final String IMG_CAPTCHA_KEY = "huoshantuku:auth:captcha:img:";
     private static final String RAW_PASSWORD = "password123";
     private static final String INTERNAL_API_KEY = "integration-internal-key";
+    /** 浏览器真实携带的会话 Cookie 形态（Base64 编码，实测解码后才是 session id） */
+    private static final String RAW_SESSION_COOKIE = "N2MyMGYwNWItYmJmMi00YzBiLWJjOGUtODE5NDdmY2JmOGIz";
 
     private static final AtomicInteger REQUESTS = new AtomicInteger();
     private static volatile String engineBaseUrl;
@@ -139,6 +143,63 @@ class AiAssistantProxyIntegrationTest {
 
     @Test
     void forwardsCredentialsThatRealLoginActuallyProduced() {
+        Cookie satokenCookie = login();
+        MockHttpServletRequest loginRequest = currentRequest();
+        String decodedSessionId = loginRequest.getSession(false).getId();
+        assertThat(RAW_SESSION_COOKIE)
+                .as("桩用的 Cookie 值必须是不同于 session id 的另一种形态，否则测不出'原样转发'")
+                .isNotEqualTo(decodedSessionId);
+
+        // 模拟浏览器后续请求：凭据唯一来源就是这两个 Cookie
+        MockHttpServletRequest chatRequest = new MockHttpServletRequest();
+        chatRequest.setSession(loginRequest.getSession(false));
+        chatRequest.setCookies(satokenCookie, new Cookie("SESSION", RAW_SESSION_COOKIE));
+
+        SseEmitter emitter = aiAssistantController.chat("我有几个空间", "chat-it", chatRequest);
+
+        assertThat(emitter).isNotNull();
+        awaitEngineRequest();
+        assertThat(REQUESTS.get()).isEqualTo(1);
+        assertThat(receivedUri).contains("userId=" + user.getId()).contains("chatId=chat-it");
+        assertThat(receivedApiKey).isEqualTo(INTERNAL_API_KEY);
+        assertThat(receivedSatoken).isEqualTo(satokenCookie.getValue());
+        assertThat(receivedCookie).isEqualTo("SESSION=" + RAW_SESSION_COOKIE);
+    }
+
+    /** 只带 satoken、不带会话 Cookie：代理入口即拒，不把请求打到引擎（plan T10 负向验收） */
+    @Test
+    void rejectsWhenBrowserRequestCarriesOnlySatokenWithoutSessionCookie() {
+        Cookie satokenCookie = login();
+
+        MockHttpServletRequest chatRequest = new MockHttpServletRequest();
+        chatRequest.setSession(currentRequest().getSession(false));
+        chatRequest.setCookies(satokenCookie);
+
+        assertThatThrownBy(() -> aiAssistantController.chat("我有几个空间", null, chatRequest))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("缺少会话 Cookie")
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
+        assertThat(REQUESTS.get()).as("凭据不全必须在代理入口拦住，不能打到引擎").isZero();
+    }
+
+    /** 未登录（没有 Spring Session 用户）：先被登录门槛拦住 */
+    @Test
+    void rejectsWhenNotLoggedIn() {
+        MockHttpServletRequest chatRequest = new MockHttpServletRequest();
+        chatRequest.setSession(new MockHttpSession());
+        chatRequest.setCookies(new Cookie("SESSION", RAW_SESSION_COOKIE));
+        chatRequest.addHeader("satoken", "whatever-token");
+
+        assertThatThrownBy(() -> aiAssistantController.chat("我有几个空间", null, chatRequest))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
+        assertThat(REQUESTS.get()).isZero();
+    }
+
+    /** 走真实登录流程（种子图形验证码绕过图形校验，频控保持开启），返回框架写出的 satoken Cookie */
+    private Cookie login() {
         MockHttpServletRequest loginRequest = new MockHttpServletRequest();
         MockHttpServletResponse loginResponse = new MockHttpServletResponse();
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(loginRequest, loginResponse));
@@ -155,36 +216,13 @@ class AiAssistantProxyIntegrationTest {
         assertThat(satokenCookie)
                 .as("登录后框架应写出名为 satoken 的 Cookie——代理读的就是这个名字")
                 .isNotNull();
-        String sessionId = loginRequest.getSession(false).getId();
-
-        // 模拟浏览器后续请求：凭据唯一来源就是这两个 Cookie
-        MockHttpServletRequest chatRequest = new MockHttpServletRequest();
-        chatRequest.setSession(loginRequest.getSession(false));
-        chatRequest.setCookies(satokenCookie);
-
-        SseEmitter emitter = aiAssistantController.chat("我有几个空间", "chat-it", chatRequest);
-
-        assertThat(emitter).isNotNull();
-        awaitEngineRequest();
-        assertThat(REQUESTS.get()).isEqualTo(1);
-        assertThat(receivedUri).contains("userId=" + user.getId()).contains("chatId=chat-it");
-        assertThat(receivedApiKey).isEqualTo(INTERNAL_API_KEY);
-        assertThat(receivedSatoken).isEqualTo(satokenCookie.getValue());
-        assertThat(receivedCookie).isEqualTo("SESSION=" + sessionId);
+        return satokenCookie;
     }
 
-    @Test
-    void rejectsWhenBrowserRequestCarriesOnlySessionWithoutSatoken() {
-        MockHttpServletRequest chatRequest = new MockHttpServletRequest();
-        chatRequest.setSession(new org.springframework.mock.web.MockHttpSession());
-        chatRequest.getSession(false).setAttribute(UserConstant.USER_LOGIN_STATE, user);
-
-        assertThatThrownBy(() -> aiAssistantController.chat("我有几个空间", null, chatRequest))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("登录态不完整")
-                .extracting(e -> ((BusinessException) e).getCode())
-                .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
-        assertThat(REQUESTS.get()).as("凭据不全必须在代理入口拦住，不能打到引擎").isZero();
+    private MockHttpServletRequest currentRequest() {
+        ServletRequestAttributes attributes =
+                (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
+        return (MockHttpServletRequest) attributes.getRequest();
     }
 
     private void awaitEngineRequest() {

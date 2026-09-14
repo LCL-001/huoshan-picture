@@ -79,17 +79,18 @@ public class AiAssistantProxyManager {
     /**
      * 打开一条到引擎的 SSE 流并以 {@link SseEmitter} 返回浏览器。
      *
-     * @param message   用户本轮提问
-     * @param userId    图库登录用户 id（引擎映射为 {@code huoshan:<userId>} 的会话归属）
-     * @param chatId    对话串标识，可为空（空 = 引擎新起一条会话）
-     * @param satoken   调用者 sa-token（原样透传，由图库服务端判 RBAC）
-     * @param sessionId 调用者 Spring Session 会话 id（空间接口需要它）
+     * @param message       用户本轮提问
+     * @param userId        图库登录用户 id（引擎映射为 {@code huoshan:<userId>} 的会话归属）
+     * @param chatId        对话串标识，可为空（空 = 引擎新起一条会话）
+     * @param satoken       调用者 sa-token（原样透传，由图库服务端判 RBAC）
+     * @param sessionCookie 调用者 Spring Session 会话 Cookie 的**原始值**（空间接口需要它；
+     *                      注意是 Cookie 值本身，不是 session.getId()——两者在 Base64 编码下不等价）
      */
-    public SseEmitter chat(String message, Long userId, String chatId, String satoken, String sessionId) {
+    public SseEmitter chat(String message, Long userId, String chatId, String satoken, String sessionCookie) {
         ForwardRequest request = new ForwardRequest(
                 requireConfigured(properties.getEngineBaseUrl(), "图库助手引擎地址未配置"),
                 requireConfigured(properties.getInternalApiKey(), "图库助手引擎密钥未配置"),
-                message, userId, chatId, satoken, sessionId);
+                message, userId, chatId, satoken, sessionCookie);
 
         SseEmitter emitter = createEmitter();
         AtomicReference<HttpURLConnection> upstream = new AtomicReference<>();
@@ -134,7 +135,7 @@ public class AiAssistantProxyManager {
         connection.setRequestMethod("GET");
         connection.setRequestProperty(INTERNAL_API_KEY_HEADER, request.apiKey());
         connection.setRequestProperty(SATOKEN_HEADER, request.satoken());
-        connection.setRequestProperty("Cookie", SESSION_COOKIE_NAME + "=" + request.sessionId());
+        connection.setRequestProperty("Cookie", SESSION_COOKIE_NAME + "=" + request.sessionCookie());
         connection.setRequestProperty("Accept", SSE_CONTENT_TYPE);
         connection.setConnectTimeout(toMillis(properties.getConnectTimeout()));
         connection.setReadTimeout(toMillis(properties.getReadTimeout()));
@@ -284,6 +285,6 @@ public class AiAssistantProxyManager {
 
     /** 一次转发所需的全部入参（凭据只在请求生命周期内存流转，不落库、不进日志） */
     private record ForwardRequest(String baseUrl, String apiKey, String message, Long userId,
-                                  String chatId, String satoken, String sessionId) {
+                                  String chatId, String satoken, String sessionCookie) {
     }
 }
