@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.function.Supplier;
 
 /**
@@ -37,5 +40,22 @@ final class HuoshanToolSupport {
         node.put("code", code);
         node.put("message", message);
         return node.toString();
+    }
+
+    /**
+     * 清洗字符串列表（档 3 写类工具的 id / 标签 / URL 共用）：去空白、丢空项、按首次出现去重。
+     * 模型偶尔会把同一个 id 报两遍，或把标签写成带空格的样式；在这里收口，后端与图库接口都拿干净输入。
+     */
+    static List<String> cleanList(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        LinkedHashSet<String> cleaned = new LinkedHashSet<>();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                cleaned.add(value.trim());
+            }
+        }
+        return new ArrayList<>(cleaned);
     }
 }

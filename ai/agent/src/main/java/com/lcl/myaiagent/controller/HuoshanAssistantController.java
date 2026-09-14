@@ -78,7 +78,7 @@ public class HuoshanAssistantController {
         String conversationId = HuoshanAssistantSession.conversationId(owner, chatId);
         log.info("图库助手会话开始, owner={}, conversationId={}", owner, conversationId);
 
-        ToolCallback[] tools = HuoshanToolFactory.readOnlyTools(huoshanProperties.apiClient(satoken, sessionId));
+        ToolCallback[] tools = HuoshanToolFactory.assistantTools(huoshanProperties.apiClient(satoken, sessionId));
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),
                 conversationId, flowWindowBasedChatMemory);
         return agent.runStream(message);
