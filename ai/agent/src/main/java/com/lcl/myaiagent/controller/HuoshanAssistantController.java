@@ -14,6 +14,7 @@ import com.lcl.myaiagent.tools.huoshan.HuoshanToolFactory;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -78,7 +79,13 @@ public class HuoshanAssistantController {
         String conversationId = HuoshanAssistantSession.conversationId(owner, chatId);
         log.info("图库助手会话开始, owner={}, conversationId={}", owner, conversationId);
 
-        ToolCallback[] tools = HuoshanToolFactory.assistantTools(huoshanProperties.apiClient(satoken, sessionId));
+        // 视觉模型没配就不挂 visionTagger：宁可让模型看见"手上没有这个工具"，也不给它一个每次都报错的工具
+        ChatModel visionModel = openAiChatModels.hasVision() ? openAiChatModels.vision() : null;
+        if (visionModel == null) {
+            log.warn("视觉模型未配置（app.ai.openai.vision.*），本次会话不挂 visionTagger：看图打标不可用");
+        }
+        ToolCallback[] tools = HuoshanToolFactory.assistantTools(
+                huoshanProperties.apiClient(satoken, sessionId), visionModel);
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),
                 conversationId, flowWindowBasedChatMemory);
         return agent.runStream(message);

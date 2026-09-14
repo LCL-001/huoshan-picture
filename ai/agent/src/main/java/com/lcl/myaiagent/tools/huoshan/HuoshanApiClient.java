@@ -12,7 +12,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriBuilder;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -155,6 +157,17 @@ public class HuoshanApiClient {
         return toPictureItem(postForData("/picture/upload/url", body));
     }
 
+    /**
+     * 单张图片详情（图库 GET /picture/get/vo?id=，T7 档 3）：visionTagger 靠它把 id 换成图片地址，
+     * 免得让模型自己去复制粘贴长 URL（复制长串是模型最容易出错的环节）。
+     * 图库按目标图片的落库归属做空间权限校验，越权会回 40101/40102。
+     */
+    public PictureItem getPicture(String pictureId) {
+        String path = "/picture/get/vo";
+        return toPictureItem(getForData(path,
+                builder -> builder.path(path).queryParam("id", pictureId).build()));
+    }
+
     private JsonNode postForData(String path, ObjectNode body) {
         String raw = restClient.post()
                 .uri(path)
@@ -168,13 +181,17 @@ public class HuoshanApiClient {
     }
 
     private JsonNode getForData(String path) {
+        return getForData(path, builder -> builder.path(path).build());
+    }
+
+    private JsonNode getForData(String label, Function<UriBuilder, URI> uriBuilder) {
         String raw = restClient.get()
-                .uri(path)
+                .uri(uriBuilder)
                 .header(SATOKEN_HEADER, satoken)
                 .headers(this::addSessionCookie)
                 .retrieve()
                 .body(String.class);
-        return unwrap(raw, path);
+        return unwrap(raw, label);
     }
 
     /**
