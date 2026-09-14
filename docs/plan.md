@@ -56,6 +56,11 @@
   - 验收：集成测试（API key 校验/凭据组透传，含"只带 satoken 不带会话 Cookie 时引擎拒绝"的负向用例）+ 与 ai/agent 冒烟联调
   - 注意：凭据只在请求生命周期内存流转、不落库、不进日志（与引擎侧同口径）
   - 实施记录：提交 68ded79（端点+转发+配置+19 单测）/ e329a48（凭据链集成测试）/ 7988542（fix 会话 Cookie 原样值）。实现选型 `SseEmitter` + JDK `HttpURLConnection` + 专用有界线程池（上界 64，零新增依赖）；端点 `GET /api/ai/assistant/chat?message=&chatId=`（`/ai/**` 不进 SaTokenConfigure，登录门槛在 controller 显式判）；「只带 satoken 不带会话 Cookie」的负向在**代理入口**即拒（40100，零上游请求），引擎侧的存在性拒绝不变。门禁 32 例绿；集成测试 3 例本地绿；真图库正/负冒烟与浏览器端到端见"档 2 实施记录"
+- [x] T11.1 助手界面可用性打磨（2026-09-14 用户实机使用后当场提出并当日完成，属 T11 的返工打磨）：① **回答渲染 Markdown 子集**——模型回答里的 `**加粗**`、`- `/`1. ` 列表、`` `行内代码` ``、http(s) 链接、`> ` 引用目前字面显示成星号/横杠；② **工具步骤不再平铺原始 JSON 与参数**——那是给开发看的，普通用户只需要"干了什么、结果几条"，改为「工具 · 中文别名 + 一句话摘要（共 N 个空间 / 共 N 张图片 / 标签 N 个·分类 M 个 / 失败：原因）」，原始返回收进该行「详情」折叠、默认收起
+  - 文件范围：frontend/src 的 components/assistant/*、utils/assistantFormat.ts、pages/AssistantPage.vue
+  - 验收：浏览器实测——回答里加粗/列表/行内代码/链接正常渲染，工具行默认只见摘要、点「详情」才出原始 JSON；`npm run type-check` 净增 0（既有 138 例存量不动）
+  - 实现口径：**不引 markdown 库、不用 `v-html`**——自写子集解析 + Vue 模板插值（转义交给 Vue），从根上不留 XSS 面（回答文本可被工具数据/提问影响，绝不能当 HTML 渲染）；摘要解析失败一律退化成"已完成"，不抛错、不空屏
+  - 实施记录：提交 5fac9d2。新增 `utils/assistantFormat.ts`（`parseAssistantText` / `summarizeToolResult` / `toolLabel`，纯函数）+ `components/assistant/{AssistantText,AssistantInline,ToolStepRow}.vue`，改 `StepTimeline.vue`（工具步走 ToolStepRow、思考步走 AssistantText）与 `AssistantPage.vue`（回答气泡用 AssistantText，`white-space: normal`）。**验证**：无前端测试框架，改用 esbuild 把真实 `assistantFormat.ts` 转成 mjs 后在 node 里跑 19 条断言（载荷取自真机 SSE 原文与回答原文，覆盖摘要四类 + 兜底、块解析五种 + URL 尾随标点 + `3 > 2` 不误判引用），19/19 通过（脚本 `%TEMP%\t11-smoke\format-check.mjs`，仓库外）；改动的前端文件 eslint 干净、`vue-tsc --build --force` 计数仍 138（净增 0）；浏览器实机复跑：工具行显示「工具 · 读取标签词表 / 标签 13 个 · 分类 5 个 / 详情」，点「详情」展开原始 JSON 且按钮变「收起」，回答里 `**加粗**` 渲染为真粗体、反引号渲染成代码片（截图 `%TEMP%\t11-smoke\ui-polish-{default,detail}.png`）。**顺带观察**：摘要数比模型口播更准（同一轮工具返回 13 个标签，模型口播"10个标签"），因为摘要直接读工具载荷
 - [x] T11 前端助手界面（2026-09-14 完成）：AI 助手入口 + 对话面板 + SSE 步骤折叠条（消费 ai/agent 步骤事件协议语义，AntD 组件渲染）；复用现有登录态
   - 文件范围：frontend/src 新增助手页面/组件、路由入口、openapi 生成代码如需
   - 验收：npm run type-check + lint 过；对话与折叠条人工验收

@@ -11,7 +11,7 @@
 
 1. 顶栏菜单或左侧浮动栏点「AI 助手」（入口在任何页面都在；移动端在汉堡抽屉里）。
 2. 空状态给了三个示例问题，点一下即填入输入框；`Enter` 发送、`Shift+Enter` 换行。
-3. 发送后：你自己的消息靠右、下方出现**默认展开的步骤折叠条**（`思考` 与 `工具 · 工具名` 两类，工具步骤里显示引擎返回的结构化 JSON），助手回答靠左。输入框在回答期间禁用，按钮变成红色「停止」。
+3. 发送后：你自己的消息靠右、下方出现**默认展开的步骤折叠条**。折叠条里两类行：`思考`（模型的自然语言推理）与 `工具 · <中文别名>`——工具行默认只给一句话摘要（如「共 3 个空间」「标签 13 个 · 分类 5 个」「失败：未登录」），原始返回点该行的「详情」才展开。助手回答靠左，按 Markdown 子集渲染（粗体、列表、行内代码、链接、引用）。输入框在回答期间禁用，按钮变成红色「停止」。
 4. 「停止」= 关闭这条 SSE 流（不是暂停）；「新对话」= 换一条对话串（旧会话记忆仍留在引擎，但不再续聊）。
 5. 未登录点进来会被重定向到登录页（`EventSource` 读不到 HTTP 状态码，登录态必须前置判）。
 
@@ -23,6 +23,9 @@
 |---|---|---|
 | 前端页面 | `frontend/src/pages/AssistantPage.vue` | 对话面板：消息列表、输入区、停止/新对话、登录前置判 |
 | 前端组件 | `frontend/src/components/assistant/StepTimeline.vue` | SSE 步骤折叠条（`a-collapse`，运行中显示转圈） |
+| 前端组件 | `frontend/src/components/assistant/ToolStepRow.vue` | 工具步骤行：中文别名 + 一句话摘要 + 「详情」折叠原始返回 |
+| 前端组件 | `frontend/src/components/assistant/AssistantText.vue` + `AssistantInline.vue` | 回答/思考文本的 Markdown 子集渲染（块 + 行内两段） |
+| 前端文本 | `frontend/src/utils/assistantFormat.ts` | 纯函数：Markdown 子集解析、工具返回摘要与中文别名 |
 | 前端 SSE | `frontend/src/utils/assistantSse.ts` | `EventSource` 封装，解析 `step`/`answer`/`[DONE]` |
 | 前端地址 | `frontend/src/api/assistantController.ts` | 拼 GET 流地址（复用 `request.ts` 导出的 `BASE_URL`） |
 | 后端端点 | `backend/.../controller/AiAssistantController.java` | 登录门槛、凭据组取值、`GET /api/ai/assistant/chat` |
@@ -55,6 +58,7 @@
 6. **前端必须 `EventSource` + 显式 `close()`**。不能用 `request.ts` 的 axios（浏览器端无流式响应形态，且 10s 超时会掐断长对话）；而 `EventSource` 在流正常结束与出错时**都会自动重连**，不 `close()` 就会把同一条 message 重发一遍（等于重跑一次 agent、重复调工具）。
 7. **`/ai/**` 不进 `SaTokenConfigure` 的拦截路径**，登录门槛在 controller 里显式 `getLoginUser`。理由：Sa-Token 注解只在注册路径上生效，未注册路径上的 `@SaCheckLogin` 会**静默失效**（比不写更危险）。
 8. **凭据不落库、不进日志**：`log.info` 只记 `userId` 与 `chatId`；密钥走环境变量 / `application-local.yaml`，不入库。
+9. **呈现层两条口径（T11.1，用户实机反馈后定）**：① 回答渲染 **Markdown 子集**——自写解析（`**粗体**`／`` `代码` ``／http(s) 链接／`- `·`1. ` 列表／`> ` 引用）+ Vue 模板插值，**不引 markdown 库、绝不用 `v-html`**：回答内容会被工具数据与用户提问影响，只有"永不产出 HTML 字符串"才能从根上不留 XSS 面（引库则必须再引 sanitizer）。② 工具步骤**默认只给一句话摘要**（中文别名 + 「共 N 个空间 / 共 N 张图片 / 标签 N 个·分类 M 个 / 失败：原因」，由工具返回的 JSON 载荷算出），原始 JSON（图片 URL、雪花 id）收进「详情」、默认收起——那是开发排查用的，对普通用户是噪音。摘要解析失败一律退化为"已完成"，永不抛错或空屏。
 
 ## 怎么验证
 
@@ -62,11 +66,12 @@
 - **集成测试（本地，需 MySQL/Redis）**：`AiAssistantProxyIntegrationTest` 3 例——真实登录产出 `satoken` Cookie 后原样转发、会话 Cookie 原样值转发（不等于 `session.getId()`）、只带 satoken 不带会话 Cookie 在入口即拒且零上游请求。
 - **curl 冒烟（真引擎 + 真图库）**：探针账号登录 → 走代理 → `listSpaces` 读到真实空间 `tier1-probe-space`、回答正确、`[DONE]` 收尾；停掉引擎再打一次 → 收到合成的"引擎暂时不可用"+`[DONE]`（不挂死）。原始片段见 handoff 0013。
 - **浏览器端到端**：本地起 backend(`local,test`)+引擎+前端 dev，登录后进 `/assistant`，发送后界面依次呈现：用户气泡 → 折叠条「正在执行（0 步）」+ 转圈 + 输入禁用 + 停止按钮 → 「执行步骤（1 步）」含 `工具 · listSpaces` 与真实返回 → 回答气泡 → 输入恢复。该会话用户真实空间数为 0，工具仍回 `code=0`，说明凭据确实透传成功（未透传会是 `40100`）。
+- **呈现层纯函数断言（19 条，仓库外脚本）**：项目无前端测试框架，用 esbuild 把真实 `utils/assistantFormat.ts` 转成 mjs 后在 node 里断言——载荷直接取自真机 SSE 原文与回答原文（含 13 个标签的 `<code>` 列表、URL 尾随中文句号、`3 > 2` 不被误判成引用）。脚本 `%TEMP%\t11-smoke\format-check.mjs`，19/19 通过；改动的前端文件 eslint 干净、`vue-tsc --build --force` 计数仍 138（净增 0）。
 - 前端 `npm run type-check`：**净增 0**（基线 138 例既有错误，见已知限制）。
 
 ## 已知限制
 
-1. **回答按纯文本渲染**，模型若输出 Markdown（实测回答里出现 `**加粗**`）会字面显示星号。要修就得加 markdown 渲染依赖或自己写极简渲染，属额外范围。
+1. **Markdown 只支持子集**（2026-09-14 T11.1 已从"纯文本"升级）：支持粗体、行内代码、http(s) 链接、`- `/`1. ` 列表、`> ` 引用；**不支持**表格、嵌套列表、图片、标题、单星号斜体——模型若用这些语法会字面显示。要全覆盖就得引 markdown 库 + sanitizer（见口径 9 的取舍）。
 2. **错误没有独立视觉**：服务端失败以"助手回答"的形式出现（如"图库助手引擎暂时不可用，请稍后重试"），看起来像模型在说话；也没有独立的错误事件类型（引擎侧"超时转显式错误事件"仍按 decisions.md 挂账）。
 3. **对话历史不落库**：前端内存态，刷新即丢；`chatId` 存 `sessionStorage`，刷新仍续同一条对话串。引擎侧多轮记忆由 `chat_message` 承载（档 1 口径）。
 4. **同一页面只允许一条流**（发送中禁输入）；"停止"只关流，不承诺让引擎侧停止（R1）。
