@@ -6,9 +6,16 @@
 
 fail() {
   echo ""
-  echo "[vibe-gate] FAIL: tests did not pass - commit blocked. Fix tests first."
+  echo "[vibe-gate] FAIL: commit blocked. Fix the issue reported above first."
   exit 1
 }
+
+# --- 1. secret scan on staged additions (always, even docs-only) -------------
+if git diff --cached --no-color | grep -Ein '^\+(BEGIN [A-Z ]*PRIVATE KEY|.*sk-[A-Za-z0-9]{20,}|.*AKIA[0-9A-Z]{16}|.*ghp_[A-Za-z0-9]{30,}|.*xox[baprs]-[A-Za-z0-9-]{10,}|.*AIza[0-9A-Za-z_-]{30,})' >/dev/null 2>&1; then
+  echo "[vibe-gate] FAIL: possible secret/credential in staged changes."
+  echo "[vibe-gate] Remove it and use .env instead (keep .env out of git, commit a .env.example)."
+  exit 1
+fi
 
 # Docs-only commits (AGENTS.md / NOTES.md / docs/** / .gitattributes / .githooks/**)
 # skip the test gate: no code changed, nothing to verify.
