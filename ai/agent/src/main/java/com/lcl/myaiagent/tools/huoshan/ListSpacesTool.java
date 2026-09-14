@@ -19,6 +19,7 @@ public class ListSpacesTool {
             返回 JSON：total/current/pageSize/hasMore/items[]，
             items[] 含 id、spaceName、spaceType(0-私有 1-团队)、spaceLevel(0-普通 1-专业 2-旗舰)、
             totalCount/maxCount（已用/上限图片数）、permissionList（当前用户权限点）。
+            注意：id 是**字符串**（19 位雪花 id），必须原样复制给其它工具，不要当作数字改写。
             """)
     public String listSpaces(
             @ToolParam(description = "页码，从 1 开始", required = false) Integer pageNum,

@@ -85,7 +85,7 @@ class HuoshanReadOnlyToolsTest {
         nextStatusCode = 200;
         nextResponseBody = """
                 {"code":0,"data":{"records":[
-                  {"id":7,"spaceName":"团队空间","spaceType":1,"spaceLevel":1,"totalCount":12,"maxCount":100,
+                  {"id":"2099389400592543745","spaceName":"团队空间","spaceType":1,"spaceLevel":1,"totalCount":12,"maxCount":100,
                    "totalSize":2048,"maxSize":1048576,"permissionList":["picture:view"]}],
                   "total":1,"size":10,"current":1,"pages":1},"message":"ok"}""";
 
@@ -106,7 +106,10 @@ class HuoshanReadOnlyToolsTest {
         assertThat(result.get("total").asLong()).isEqualTo(1);
         assertThat(result.get("hasMore").asBoolean()).isFalse();
         JsonNode item = result.get("items").get(0);
-        assertThat(item.get("id").asLong()).isEqualTo(7);
+        assertThat(item.get("id").isTextual())
+                .as("id 必须按字符串透传：图库 Long→字符串防 JS 精度丢失，转成数字会让模型截断 19 位雪花 id")
+                .isTrue();
+        assertThat(item.get("id").asText()).isEqualTo("2099389400592543745");
         assertThat(item.get("spaceName").asText()).isEqualTo("团队空间");
         assertThat(item.get("totalCount").asLong()).isEqualTo(12);
     }
@@ -116,19 +119,22 @@ class HuoshanReadOnlyToolsTest {
         nextStatusCode = 200;
         nextResponseBody = """
                 {"code":0,"data":{"records":[
-                  {"id":31,"name":"落日.jpg","url":"https://cos/1.jpg","thumbnailUrl":"https://cos/1_thumb.jpg",
+                  {"id":"2045431671356391425","name":"落日.jpg","url":"https://cos/1.jpg","thumbnailUrl":"https://cos/1_thumb.jpg",
                    "category":"风景","tags":["天空","落日"],"picFormat":"jpg","picSize":10240,
-                   "picWidth":1920,"picHeight":1080,"spaceId":7}],
+                   "picWidth":1920,"picHeight":1080,"spaceId":"2099389400592543745"}],
                   "total":25,"size":10,"current":2,"pages":3},"message":"ok"}""";
 
-        String json = new ListPicturesTool(client()).listPictures(7L, 2, 10, "落日", null);
+        String json = new ListPicturesTool(client()).listPictures("2099389400592543745", 2, 10, "落日", null);
 
         String[] captured = LAST_REQUEST.get("/picture/list/page/vo");
         assertThat(captured).isNotNull();
         assertThat(captured[0]).isEqualTo("POST");
         assertThat(captured[2]).isEqualTo("test-satoken");
         JsonNode sent = MAPPER.readTree(captured[1]);
-        assertThat(sent.get("spaceId").asLong()).isEqualTo(7);
+        assertThat(sent.get("spaceId").isTextual())
+                .as("空间 id 进出都按字符串，避免数字化后精度丢失")
+                .isTrue();
+        assertThat(sent.get("spaceId").asText()).isEqualTo("2099389400592543745");
         assertThat(sent.get("searchText").asText()).isEqualTo("落日");
 
         JsonNode result = MAPPER.readTree(json);
@@ -136,6 +142,8 @@ class HuoshanReadOnlyToolsTest {
         assertThat(result.get("hasMore").asBoolean()).as("current=2 < pages=3").isTrue();
         JsonNode item = result.get("items").get(0);
         assertThat(item.get("name").asText()).isEqualTo("落日.jpg");
+        assertThat(item.get("id").asText()).isEqualTo("2045431671356391425");
+        assertThat(item.get("spaceId").asText()).isEqualTo("2099389400592543745");
         assertThat(item.get("category").asText()).isEqualTo("风景");
         assertThat(item.get("tags")).hasSize(2);
     }

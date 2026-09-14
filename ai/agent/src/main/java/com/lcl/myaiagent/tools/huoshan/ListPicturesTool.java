@@ -18,9 +18,10 @@ public class ListPicturesTool {
             分页拉取某空间下的图片清单（只读元数据，不修改任何数据）。
             返回 JSON：total/current/pageSize/hasMore/items[]，
             items[] 含 id、name、url、thumbnailUrl、category、tags[]、picFormat、picSize、picWidth、picHeight、spaceId。
+            注意：所有 id 都是**字符串**，必须从 listSpaces/listPictures 的返回里原样复制，不要当作数字改写或计算。
             """)
     public String listPictures(
-            @ToolParam(description = "空间 id，必传：先用 listSpaces 拿到") Long spaceId,
+            @ToolParam(description = "空间 id，字符串，原样复制 listSpaces 返回的 items[].id") String spaceId,
             @ToolParam(description = "页码，从 1 开始", required = false) Integer pageNum,
             @ToolParam(description = "每页条数，默认 10，最大 50", required = false) Integer pageSize,
             @ToolParam(description = "按名称/简介搜索的关键字，可不传", required = false) String searchText,

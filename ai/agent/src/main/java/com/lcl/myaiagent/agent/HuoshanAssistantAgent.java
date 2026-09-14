@@ -24,6 +24,8 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
             You help the user understand and organise their pictures by calling the platform's own tools.
             Rules:
             - All platform data comes from tools; never invent spaces, pictures, tags or counts.
+            - Ids returned by tools are strings (19-digit snowflake ids). Copy them verbatim when passing them
+              back to another tool; never treat an id as a number, round it, or do arithmetic on it.
             - Call listSpaces before you need a space id, and getTagCategory before proposing tags.
             - Prefer reusing existing tags from the vocabulary; propose a new tag only when the vocabulary truly lacks it.
             - You can only read in this stage: never claim that you changed, uploaded or deleted anything.

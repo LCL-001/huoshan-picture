@@ -81,11 +81,13 @@ public class HuoshanApiClient {
 
     /**
      * 图片分页（图库 POST /picture/list/page/vo）。
+     *
+     * @param spaceId 空间 id 按字符串传：图库的 Long 走字符串序列化，id 不能当数字处理
      */
-    public PageResult<PictureItem> listPictures(Long spaceId, Integer pageNum, Integer pageSize,
+    public PageResult<PictureItem> listPictures(String spaceId, Integer pageNum, Integer pageSize,
                                                 String searchText, String category) {
         ObjectNode body = MAPPER.createObjectNode();
-        if (spaceId != null) {
+        if (spaceId != null && !spaceId.isBlank()) {
             body.put("spaceId", spaceId);
         }
         body.put("current", normalizePage(pageNum));
@@ -176,7 +178,7 @@ public class HuoshanApiClient {
 
     private SpaceItem toSpaceItem(JsonNode node) {
         SpaceItem item = new SpaceItem();
-        item.setId(longOrNull(node, "id"));
+        item.setId(textOrNull(node, "id"));
         item.setSpaceName(textOrNull(node, "spaceName"));
         item.setSpaceType(intOrNull(node, "spaceType"));
         item.setSpaceLevel(intOrNull(node, "spaceLevel"));
@@ -190,7 +192,7 @@ public class HuoshanApiClient {
 
     private PictureItem toPictureItem(JsonNode node) {
         PictureItem item = new PictureItem();
-        item.setId(longOrNull(node, "id"));
+        item.setId(textOrNull(node, "id"));
         item.setName(textOrNull(node, "name"));
         item.setUrl(textOrNull(node, "url"));
         item.setThumbnailUrl(textOrNull(node, "thumbnailUrl"));
@@ -200,7 +202,7 @@ public class HuoshanApiClient {
         item.setPicSize(longOrNull(node, "picSize"));
         item.setPicWidth(intOrNull(node, "picWidth"));
         item.setPicHeight(intOrNull(node, "picHeight"));
-        item.setSpaceId(longOrNull(node, "spaceId"));
+        item.setSpaceId(textOrNull(node, "spaceId"));
         return item;
     }
 

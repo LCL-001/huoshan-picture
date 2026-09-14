@@ -9,7 +9,8 @@ import java.util.List;
 @Data
 public class PictureItem {
 
-    private Long id;
+    /** 图片 id：字符串透传，理由同 {@link SpaceItem#getId()} */
+    private String id;
 
     private String name;
 
@@ -29,5 +30,6 @@ public class PictureItem {
 
     private Integer picHeight;
 
-    private Long spaceId;
+    /** 空间 id：字符串透传，理由同 {@link SpaceItem#getId()} */
+    private String spaceId;
 }

@@ -9,7 +9,11 @@ import java.util.List;
 @Data
 public class SpaceItem {
 
-    private Long id;
+    /**
+     * 空间 id。**字符串而非 Long**：图库把 Long 统一序列化成字符串（JsonConfig 的 ToStringSerializer）防 JS 精度丢失，
+     * 这里再转回数字会让模型把 19 位雪花 id 当数字读、写回时被截断（实测 2099389400592543745 → 2099389400592543700）。
+     */
+    private String id;
 
     private String spaceName;
 
