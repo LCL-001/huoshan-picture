@@ -30,7 +30,9 @@
         <div v-for="(turn, index) in turns" :key="index" class="assistant-turn">
           <div class="assistant-bubble assistant-bubble--user">{{ turn.question }}</div>
           <StepTimeline :steps="turn.steps" :running="turn.running" />
-          <div v-if="turn.answer" class="assistant-bubble assistant-bubble--assistant">{{ turn.answer }}</div>
+          <div v-if="turn.answer" class="assistant-bubble assistant-bubble--assistant">
+            <AssistantText :text="turn.answer" />
+          </div>
         </div>
       </div>
 
@@ -57,6 +59,7 @@ import { useRouter } from 'vue-router'
 import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
 import { buildAssistantChatUrl } from '@/api/assistantController.ts'
 import { AssistantStream, type AssistantStep } from '@/utils/assistantSse.ts'
+import AssistantText from '@/components/assistant/AssistantText.vue'
 import StepTimeline from '@/components/assistant/StepTimeline.vue'
 
 /** 一问一答（含这一轮的步骤），是本页唯一的会话结构 */
@@ -241,6 +244,8 @@ onUnmounted(() => stream.stop())
   border: 1px solid var(--app-border-soft);
   border-top-left-radius: 2px;
   background: var(--app-surface);
+  /* 助手回答交给 AssistantText 按块渲染（Markdown 子集），不再原样保留换行 */
+  white-space: normal;
 }
 
 /* ---------- 空状态 ---------- */

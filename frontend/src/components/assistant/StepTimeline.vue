@@ -1,5 +1,10 @@
 <template>
-  <a-collapse v-if="steps.length || running" class="step-timeline" :bordered="false" :default-active-key="['steps']">
+  <a-collapse
+    v-if="steps.length || running"
+    class="step-timeline"
+    :bordered="false"
+    :default-active-key="['steps']"
+  >
     <a-collapse-panel key="steps">
       <template #header>
         <span class="step-timeline__head">
@@ -10,10 +15,14 @@
       </template>
       <div class="step-timeline__body">
         <div v-for="(step, index) in steps" :key="index" class="step-timeline__item">
-          <span class="step-timeline__label" :class="`step-timeline__label--${step.kind}`">
-            {{ step.kind === 'tool' ? `工具 · ${step.name || '未知'}` : '思考' }}
-          </span>
-          <pre class="step-timeline__content">{{ step.content }}</pre>
+          <!-- 工具步骤只给一句话摘要，原始返回收进「详情」；见 ToolStepRow -->
+          <ToolStepRow v-if="step.kind === 'tool'" :name="step.name" :content="step.content" />
+          <template v-else>
+            <span class="step-timeline__label">思考</span>
+            <div class="step-timeline__think">
+              <AssistantText :text="step.content" />
+            </div>
+          </template>
         </div>
       </div>
     </a-collapse-panel>
@@ -22,6 +31,8 @@
 
 <script setup lang="ts">
 import { CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons-vue'
+import AssistantText from '@/components/assistant/AssistantText.vue'
+import ToolStepRow from '@/components/assistant/ToolStepRow.vue'
 import type { AssistantStep } from '@/utils/assistantSse.ts'
 
 defineProps<{
@@ -60,32 +71,16 @@ defineProps<{
   align-self: flex-start;
   padding: 1px 8px;
   border-radius: var(--app-radius-sm);
+  background: var(--app-primary-softer);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 18px;
 }
 
-.step-timeline__label--think {
+.step-timeline__think {
+  padding-left: 10px;
+  border-left: 2px solid var(--app-border-soft);
   color: var(--app-text-secondary);
-  background: var(--app-primary-softer);
-}
-
-.step-timeline__label--tool {
-  color: var(--app-primary);
-  background: var(--app-primary-soft);
-}
-
-.step-timeline__content {
-  margin: 0;
-  padding: 6px 10px;
-  max-height: 200px;
-  overflow: auto;
-  border: 1px solid var(--app-border-soft);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface);
-  color: var(--app-text);
-  font-size: 12px;
-  font-family: inherit;
-  white-space: pre-wrap;
-  word-break: break-word;
+  font-size: 13px;
 }
 </style>
