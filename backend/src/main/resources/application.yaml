@@ -95,7 +95,9 @@ mybatis-plus:
 app:
   cors:
     # 默认面向本地开发；生产环境由 application-prod.yaml 覆盖为线上域名
-    allowed-origins: http://localhost:*,http://127.0.0.1:*,https://www.lincode.online,https://lincode.online
+    # 不列 apex（lincode.online）：它与 www 同站，SameSite 按 site 判定，放行 apex 等于让
+    # "跨域读不到响应体"这道防线对它失效（2026-09-14 review，见 docs/decisions.md）
+    allowed-origins: http://localhost:*,http://127.0.0.1:*,https://www.lincode.online
   auth:
     # 图形/邮箱验证码校验与登录限流开关，默认开启；
     # 仅压测/联调时由 application-test.yaml 覆盖为 false
