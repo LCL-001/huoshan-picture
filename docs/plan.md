@@ -82,6 +82,7 @@
 - [ ] T12 一期联调验收：跑通两条场景（智能整理/选图入库）；按规则 9 写功能讲解文档 docs/features/
   - 文件范围：联调发现的必要小修 + docs/features/
   - 验收：设计文档"验收标准"4 条全过；门禁绿 + 全量回归
+  - **前置（2026-09-14）**：图库助手模型已按用户指定接入 **DeepSeek 官方（`deepseek-flash`，主脑与 visionTagger 共用）**——口径见 docs/decisions.md 同日行；`application-local.yaml` 的 `app.ai.openai.*` 已就位并验证能绑上（一次性上下文冒烟实测两组 `baseUrl=https://api.deepseek.com, model=deepseek-flash, extraBodyKeys=[thinking]`）。**仍缺真实密钥**：`DEEPSEEK_API_KEY` 未提供，当前 `isConfigured()=false`，headless 端点在入口即拒；真机联调前要做两件事——① 提供密钥（导出环境变量或直接写进那份不入库的 yaml）；② **实测确认 Spring AI 拼的 `/v1/chat/completions` 路径 DeepSeek 侧可用**（官方文档的 curl 示例用的是不带 `/v1` 的 `/chat/completions`，这条只能实测，配错就是 404）
 - [x] T13 引擎教学遗留清理（承接原 yu-ai-agent T1）（2026-09-14 完成）：AuthAdvisor 假实现、demo 包、空壳控制器（ChatMessage/ChatSummary）、FileBasedChatMemory 死代码、空目录
   - 文件范围：ai/agent 内上述文件与目录
   - 验收：编译 + 门禁绿
