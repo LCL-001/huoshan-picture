@@ -30,6 +30,7 @@ const DONE_FLAG = '[DONE]'
  *    且那里的 10s 超时会把长对话掐断；
  * 2. 收到 [DONE] 与出错时都必须显式 close()——EventSource 在流正常结束和出错时都会自动重连，
  *    不关会把同一条 message 重发一遍（等于重跑一次 agent、重复调工具）。
+ *    R5 之后这条又多一层原因：一次性凭据取用即失效，自动重连带着已用过的票必然被服务端拒。
  */
 export class AssistantStream {
   private source: EventSource | null = null

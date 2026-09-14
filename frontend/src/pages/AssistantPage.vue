@@ -57,7 +57,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
-import { buildAssistantChatUrl } from '@/api/assistantController.ts'
+import { buildAssistantChatUrl, fetchAssistantTicket } from '@/api/assistantController.ts'
 import { AssistantStream, type AssistantStep } from '@/utils/assistantSse.ts'
 import AssistantText from '@/components/assistant/AssistantText.vue'
 import StepTimeline from '@/components/assistant/StepTimeline.vue'
@@ -102,19 +102,30 @@ const onPressEnter = (event: KeyboardEvent) => {
   send()
 }
 
-const send = () => {
+const send = async () => {
   const question = input.value.trim()
   if (!question || running.value) {
     return
   }
-  const url = buildAssistantChatUrl(question, chatId)
   turns.value.push({ question, answer: '', steps: [], running: true })
   // 必须取数组里的那个响应式对象：直接改 push 之前的原始对象不会触发视图更新
   const turn = turns.value[turns.value.length - 1]
   input.value = ''
   scrollToBottom()
 
-  stream.start(url, {
+  // R5：先取一次性凭据再建流。取票走 axios——登录态失效时 request.ts 的响应拦截器会提示并跳登录页，
+  // 而 chat 本身是 EventSource，读不到状态码，只能显示"连接中断"。
+  let ticket: string
+  try {
+    ticket = await fetchAssistantTicket()
+  } catch {
+    turn.running = false
+    turn.answer = '助手暂时不可用（未能取得本次对话凭据），请稍后重试'
+    scrollToBottom()
+    return
+  }
+
+  stream.start(buildAssistantChatUrl(question, chatId, ticket), {
     onStep: (step) => {
       turn.steps.push(step)
       scrollToBottom()
