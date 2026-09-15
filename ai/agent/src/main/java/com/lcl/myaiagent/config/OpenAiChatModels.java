@@ -6,15 +6,24 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
+import org.springframework.ai.retry.TransientAiException;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.client.reactive.ClientHttpConnector;
 import org.springframework.http.client.reactive.JdkClientHttpConnector;
+import org.springframework.retry.RetryPolicy;
+import org.springframework.retry.backoff.ExponentialBackOffPolicy;
+import org.springframework.retry.policy.CompositeRetryPolicy;
+import org.springframework.retry.policy.SimpleRetryPolicy;
+import org.springframework.retry.policy.TimeoutRetryPolicy;
+import org.springframework.retry.support.RetryTemplate;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * OpenAI 协议模型组（T6）：主脑与 visionTagger 视觉模型的装配结果持有器。
@@ -23,9 +32,25 @@ import java.time.Duration;
  * 而 Spring AI 的 ChatClient.Builder 自动装配按类型取单个 ChatModel，再放两个 ChatModel 进去
  * 会让该自动装配与既有按类型注入同时变成不唯一。需要哪个模型，由调用方按会话类型显式取（T7/T8）。
  * </p>
+ * <p>
+ * T18 起两个模型都挂**有界重试模板**（见 {@link #boundedRetryTemplate()}）：默认模板的
+ * 10 次 + 指数退避到 180s 与这条链路的 300s 上限不相容。
+ * </p>
  */
 @Slf4j
 public final class OpenAiChatModels {
+
+    /** 重试总预算：从首次尝试起算的墙钟上界，必须明显小于 SSE emitter 的 300s（T18） */
+    static final Duration RETRY_BUDGET = Duration.ofSeconds(45);
+
+    /** 尝试次数上限（含首次）：4 次 = 1 次 + 3 次重试（T18） */
+    static final int RETRY_MAX_ATTEMPTS = 4;
+
+    /** 退避起点：秒失败的形态下 0.5s / 1s / 2s 三级，总等待不到 4s（T18） */
+    static final Duration RETRY_INITIAL_BACKOFF = Duration.ofMillis(500);
+
+    /** 退避封顶（默认模板封顶 180s，对交互式请求等于挂死）（T18） */
+    static final Duration RETRY_MAX_BACKOFF = Duration.ofSeconds(4);
 
     private final ChatModel assistant;
 
@@ -108,7 +133,50 @@ public final class OpenAiChatModels {
         return OpenAiChatModel.builder()
                 .openAiApi(apiBuilder.build())
                 .defaultOptions(optionsBuilder.build())
+                // T18：不给模板就落到 RetryUtils.DEFAULT_RETRY_TEMPLATE（10 次 + 退避到 180s ≈ 19 分钟）
+                .retryTemplate(boundedRetryTemplate())
                 .build();
+    }
+
+    /**
+     * 有界重试模板（T18）：替代 Spring AI 的 {@code RetryUtils.DEFAULT_RETRY_TEMPLATE}。
+     * <p>
+     * 默认模板是 {@code maxAttempts(10)} + 指数退避 2s→180s，9 段退避合计约 <b>19 分钟</b>；
+     * 而这条链路的上限是 SSE emitter 的 300s，于是"provider 不可达"这类失败会让用户在 300s 时被
+     * **裸断连**（T8-d 实测：error 事件根本没机会发出）。这里给两把尺子，取"都允许才重试"：
+     * <ul>
+     * <li><b>尝试上限 4 次</b>——对付**秒失败**（连接被拒、瞬时 5xx/限流）：退避 0.5/1/2s，总等待不到 4s；</li>
+     * <li><b>总预算 45s</b>——对付**慢失败**（单次就耗掉自己的超时）：首次尝试一超预算就不再重试，
+     * 整次调用墙钟 ≈ 单次超时（主脑 {@code assistant.timeout} 60s / 看图 45s），而不是 10 倍。</li>
+     * </ul>
+     * 刻意不用现成的 {@code RetryUtils.SHORT_RETRY_TEMPLATE}：它只是把退避换成固定 100ms，
+     * <b>仍是 10 次尝试</b>，对"每次都要 60s 才超时"的形态等于 10 分钟，等于没修。
+     * </p>
+     */
+    static RetryTemplate boundedRetryTemplate() {
+        return boundedRetryTemplate(RETRY_BUDGET, RETRY_MAX_ATTEMPTS, RETRY_INITIAL_BACKOFF, RETRY_MAX_BACKOFF);
+    }
+
+    /** 包级可见（测试用）：注入更小的预算/退避，既能跑得快，也能钉住"预算真的会把重试截断" */
+    static RetryTemplate boundedRetryTemplate(Duration budget, int maxAttempts,
+                                              Duration initialBackoff, Duration maxBackoff) {
+        SimpleRetryPolicy attempts = new SimpleRetryPolicy(maxAttempts, Map.of(
+                TransientAiException.class, true,
+                ResourceAccessException.class, true));
+        TimeoutRetryPolicy budgetPolicy = new TimeoutRetryPolicy(budget.toMillis());
+        CompositeRetryPolicy policy = new CompositeRetryPolicy();
+        policy.setOptimistic(false);
+        policy.setPolicies(new RetryPolicy[] {attempts, budgetPolicy});
+
+        ExponentialBackOffPolicy backOff = new ExponentialBackOffPolicy();
+        backOff.setInitialInterval(initialBackoff.toMillis());
+        backOff.setMultiplier(2.0);
+        backOff.setMaxInterval(maxBackoff.toMillis());
+
+        RetryTemplate template = new RetryTemplate();
+        template.setRetryPolicy(policy);
+        template.setBackOffPolicy(backOff);
+        return template;
     }
 
     /**

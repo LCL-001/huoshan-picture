@@ -2,6 +2,8 @@ package com.lcl.myaiagent.tools.huoshan;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lcl.myaiagent.common.ErrorCode;
+import com.lcl.myaiagent.exception.BusinessException;
 import com.lcl.myaiagent.tools.huoshan.dto.PictureItem;
 import com.lcl.myaiagent.tools.huoshan.dto.TagCategoryResult;
 import com.lcl.myaiagent.tools.huoshan.dto.VisionTagResult;
@@ -16,8 +18,18 @@ import org.springframework.util.MimeTypeUtils;
 
 import java.net.URI;
 import java.net.URL;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 看图打标（T7 档 3，**只读**）：整理管家的"眼睛"（设计文档 L58/L62）。
@@ -29,16 +41,29 @@ import java.util.Set;
  * 3. **提示词注入当前词表**：优先复用已有标签/分类，词表缺词才提议新标签——词表有分寸地生长（设计文档 L63）。
  * </p>
  * <p>
- * 一次最多 {@value #MAX_IMAGES_PER_CALL} 张：逐张串行调模型（每张数秒），太多会把一步拖成超长请求。
+ * 并发与时限（T18，2026-09-15 用户拍板按 T15 的"层次一"对齐，与 backend {@code PictureAiTagManager} 同口径）：
+ * 一次最多 {@value #MAX_IMAGES_PER_CALL} 张，用**有界池并发 {@value #CONCURRENCY}** 看图、
+ * **单张 {@value #PER_IMAGE_SECONDS} 秒墙钟预算**、单张超时或失败**只降级该张**、结果**按输入顺序**落位。
+ * 老口径是逐张串行 + 单张吃满 HTTP 超时（120s）：8 张最坏十几分钟，而这条链路上限是 SSE emitter 的 300s——
+ * 那样连"失败"都来不及报给用户。
  * </p>
  */
 @Slf4j
 public class VisionTaggerTool {
 
-    /** 单次上限：逐张串行调多模态模型，8 张已是数十秒量级 */
+    /** 单次上限：与 backend 的 {@code app.ai.vision.max-per-request} 同口径 */
     static final int MAX_IMAGES_PER_CALL = 8;
 
-    /** 登录态失效类错误码：命中即停止后续张（后面每张都会同样失败） */
+    /** 有界并发：同时看几张（层次一；与 backend 的 {@code app.ai.vision.concurrency} 同口径） */
+    static final int CONCURRENCY = 4;
+
+    /** 单张看图的墙钟预算（与 backend 的 {@code app.ai.vision.timeout-ms} 同口径） */
+    static final Duration PER_IMAGE_TIMEOUT = Duration.ofSeconds(45);
+
+    /** 单张墙钟预算的秒数（供工具描述与日志用；与 {@link #PER_IMAGE_TIMEOUT} 同源） */
+    static final int PER_IMAGE_SECONDS = 45;
+
+    /** 登录态失效类错误码：命中即停止提交后续批次（后面每张都会同样失败） */
     private static final Set<Integer> FATAL_AUTH_CODES = Set.of(40100, 40102);
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -62,18 +87,30 @@ public class VisionTaggerTool {
 
     private final ChatClient visionClient;
 
+    /** 并发度与单张预算：构造期定死，便于测试注入更小的值 */
+    private final int concurrency;
+
+    private final Duration perImageTimeout;
+
     public VisionTaggerTool(HuoshanApiClient client, ChatModel visionModel) {
+        this(client, visionModel, CONCURRENCY, PER_IMAGE_TIMEOUT);
+    }
+
+    /** 包级可见（测试用）：注入更小的并发度/单张预算——既能跑得快，也能钉住"单张超时只降级该张" */
+    VisionTaggerTool(HuoshanApiClient client, ChatModel visionModel, int concurrency, Duration perImageTimeout) {
         this.client = client;
         this.visionClient = ChatClient.builder(visionModel).build();
+        this.concurrency = Math.max(1, concurrency);
+        this.perImageTimeout = perImageTimeout;
     }
 
     @Tool(description = """
             看图片内容，逐张给出标签与分类建议（只读，不改任何数据）。
             用法：先用 listPictures 拿到图片 id（字符串），再把要打标的 id 列表交给本工具；
-            工具会自己去取图片地址并逐张看图，返回 JSON：requested/suggested/skipped/suggestions[]/note，
-            suggestions[] 每条含 pictureId、ok、tags[]、category，失败时还有 message。
+            工具会自己去取图片地址并看图（多张并发，一次最多 8 张，要整理更多就先分批），
+            返回 JSON：requested/suggested/skipped/suggestions[]/note，
+            suggestions[] 与传入的 id 列表**顺序一一对应**，每条含 pictureId、ok、tags[]、category，失败时还有 message。
             建议**不会自动落库**：拿到建议后，先把要采用的部分讲给用户，用户确认后再调 batchEditPictures 落库。
-            一次最多 8 张，要整理更多就先分批。
             """)
     public String visionTagger(
             @ToolParam(description = "空间 id（字符串，原样复制 listSpaces 返回的 items[].id）") String spaceId,
@@ -103,26 +140,77 @@ public class VisionTaggerTool {
         VisionTagResult result = new VisionTagResult();
         result.setSpaceId(spaceId);
         result.setRequested(ids.size());
-        for (int i = 0; i < ids.size(); i++) {
-            String pictureId = ids.get(i);
-            try {
-                PictureItem picture = client.getPicture(pictureId);
-                result.getSuggestions().add(suggest(pictureId, picture, prompt));
-            } catch (HuoshanApiException e) {
-                result.getSuggestions().add(failed(pictureId, null, e.getCode() + "：" + e.getMessage()));
-                if (FATAL_AUTH_CODES.contains(e.getCode())) {
-                    result.setSkipped(ids.size() - i - 1);
-                    result.setNote("图库返回 " + e.getCode() + "（" + e.getMessage() + "），"
-                            + "后续张会同样失败，已提前停止；剩余 " + result.getSkipped() + " 张未尝试。");
+        ExecutorService pool = newPool(Math.min(concurrency, ids.size()));
+        try {
+            // 按"波"提交：波内并发看图，波与波之间检查上一波有没有撞上登录态失效——命中就不再提交后续批次。
+            // 并发下"逐张检查"做不到（同波的几张已经在飞了），所以提前停止的粒度是**逐波**而不是逐张。
+            for (int from = 0; from < ids.size(); from += concurrency) {
+                int to = Math.min(from + concurrency, ids.size());
+                boolean fatalAuth = lookAtWave(pool, ids.subList(from, to), prompt, result);
+                if (fatalAuth) {
+                    result.setSkipped(ids.size() - to);
+                    result.setNote("图库返回登录态失效（40100/40102），已停止提交后续批次；剩余 "
+                            + result.getSkipped() + " 张未尝试。");
                     break;
                 }
             }
+        } finally {
+            pool.shutdownNow();
         }
         result.setSuggested((int) result.getSuggestions().stream().filter(VisionTagSuggestion::isOk).count());
         if (result.getNote() == null) {
             result.setNote("以上仅为建议，尚未写入图库；请把要采用的部分告诉用户，确认后再调 batchEditPictures。");
         }
         return result;
+    }
+
+    /**
+     * 看一波（并发度以内的若干张），按输入顺序把结果落进 {@code result}。
+     *
+     * @return 这一波里有没有遇到登录态失效（决定要不要放弃后续批次）
+     */
+    private boolean lookAtWave(ExecutorService pool, List<String> wave, String prompt, VisionTagResult result) {
+        List<Future<PictureOutcome>> futures = new ArrayList<>(wave.size());
+        for (String pictureId : wave) {
+            futures.add(pool.submit(() -> lookAtOne(pictureId, prompt)));
+        }
+        boolean fatalAuth = false;
+        for (int i = 0; i < wave.size(); i++) {
+            PictureOutcome outcome = awaitOne(futures.get(i), wave.get(i));
+            result.getSuggestions().add(outcome.suggestion());
+            fatalAuth = fatalAuth || outcome.fatalAuth();
+        }
+        return fatalAuth;
+    }
+
+    /** 单张：取地址 → 调多模态模型 → 解析建议；图库业务错误只降级这一张（登录态失效标记成致命） */
+    private PictureOutcome lookAtOne(String pictureId, String prompt) {
+        try {
+            PictureItem picture = client.getPicture(pictureId);
+            return new PictureOutcome(suggest(pictureId, picture, prompt), false);
+        } catch (HuoshanApiException e) {
+            return new PictureOutcome(failed(pictureId, null, e.getCode() + "：" + e.getMessage()),
+                    FATAL_AUTH_CODES.contains(e.getCode()));
+        }
+    }
+
+    /** 收单张结果：超时/异常都降级成"这一张失败"，不向外抛（同波其余张照常返回） */
+    private PictureOutcome awaitOne(Future<PictureOutcome> future, String pictureId) {
+        try {
+            return future.get(perImageTimeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            log.warn("看图超时, pictureId={}", pictureId);
+            return new PictureOutcome(failed(pictureId, null,
+                    "看图超时（超过 " + perImageTimeout.toSeconds() + "s），已跳过这张"), false);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            log.warn("看图失败, pictureId={}, error={}", pictureId, cause.toString());
+            return new PictureOutcome(failed(pictureId, null, "看图失败：" + cause.getMessage()), false);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "看图被中断");
+        }
     }
 
     /** 取图片地址 → 调多模态模型 → 解析建议；单张失败只降级这一张 */
@@ -142,6 +230,26 @@ public class VisionTaggerTool {
             log.warn("看图失败, pictureId={}, error={}", pictureId, e.toString());
             return failed(pictureId, url, "看图失败：" + e.getMessage());
         }
+    }
+
+    /** 每请求一个独立有界池：守护线程、有界队列、拒绝策略兜底（队列按单次上限留足，正常不会触发） */
+    private ExecutorService newPool(int poolSize) {
+        AtomicInteger seq = new AtomicInteger();
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(
+                poolSize, poolSize, 60L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(MAX_IMAGES_PER_CALL),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "vision-tagger-" + seq.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
+    }
+
+    /** 单张的结果：建议本身 + 是否因登录态失效而致命（后者决定要不要放弃后续批次） */
+    private record PictureOutcome(VisionTagSuggestion suggestion, boolean fatalAuth) {
     }
 
     /** 解析模型返回：容错剥掉 Markdown 代码块，只认第一段 JSON 对象 */
