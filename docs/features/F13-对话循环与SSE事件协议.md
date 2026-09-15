@@ -6,7 +6,7 @@
 
 ## 一句话
 
-引擎的对话循环从"两套循环 + 一堆受保护字段旁路"收敛成**一套循环 + 一个事件接口**：`step()` 直接产出事件载荷，消费端只认 `AgentEventListener`，SSE 帧协议（`step`/`answer`/`metrics`/`error`/`[DONE]`）由显式契约测试钉住；顺带修掉了三处协议缺口——最后一次**双发 `[DONE]`**、**校验失败的流不以 `[DONE]` 收尾**（代理会因此再补一条回答）、**失败时把厂商原文当回答重复多轮**。
+引擎的对话循环从"两套循环 + 一堆受保护字段旁路"收敛成**一套循环 + 一个事件接口**：`step()` 直接产出事件载荷，消费端只认 `AgentEventListener`，SSE 帧协议（`step`/`answer`/`metrics`/`error`/`notice`/`[DONE]`）由显式契约测试钉住；顺带修掉了三处协议缺口——最后一次**双发 `[DONE]`**、**校验失败的流不以 `[DONE]` 收尾**（代理会因此再补一条回答）、**失败时把厂商原文当回答重复多轮**。
 
 ## 怎么用
 
@@ -25,24 +25,25 @@
 | `ai/agent/.../agent/BaseAgent.java` | 唯一循环 `runLoop(prompt, listener)`；`runStream()` 变薄壳（备 emitter + 挂连接回调 + 异步驱动循环）；`createEmitter()` 测试缝；失败文案与超时判定（沿 cause 链） |
 | `ai/agent/.../agent/ReActAgent.java` | think→act 流转；**不再吞异常**（失败沿栈上抛给循环统一收尾） |
 | `ai/agent/.../agent/ToolCallAgent.java` | `think()` 调模型、`act()` 执行工具并**组装事件**（思考帧 + 工具帧，或一条回答帧） |
-| `ai/agent/.../agent/event/AgentEvent.java` | 事件协议本体：`Step` / `Answer` / `Metrics` / `Error` / `Done`（record 组件名即帧字段名） |
+| `ai/agent/.../agent/event/AgentEvent.java` | 事件协议本体：`Step` / `Answer` / `Metrics` / `Error` / `Notice` / `Done`（record 组件名即帧字段名） |
 | `ai/agent/.../agent/event/AgentEventListener.java` | 事件消费者接口（替代原先的受保护字段通道） |
 | `ai/agent/.../agent/event/SseAgentEventListener.java` | 事件 → SSE 帧；`Done` → 原始文本 `[DONE]` + `complete()`；写失败回调整停止标记 |
 | `ai/agent/.../test/.../event/SseEventProtocolContractTest.java` | **协议契约**（帧级 / 循环级 / runStream 级 / 断流） |
-| `ai/agent/.../test/.../agent/AgentFailureEventTest.java` | 失败与超时的收尾契约（超时两种形态 + 通用失败 + 循环兜底） |
-| `frontend/src/utils/assistantSse.ts` | 前端消费端：按 `event` 分流，认 `error` |
+| `ai/agent/.../test/.../agent/AgentFailureEventTest.java` | 失败与超时的收尾契约（超时两种形态 + 通用失败 + 循环兜底 + 中途失败） |
+| `frontend/src/utils/assistantSse.ts` | 前端消费端：按 `event` 分流，认 `error` 与 `notice`（`onNotice` 可选实现，未实现则静默忽略） |
 | `backend/.../manager/ai/AiAssistantProxyManager.java` | 代理：逐帧原样中继 `data:`，认 `[DONE]` 收尾（**不支持的事件类型也原样穿过**） |
 
 ### 核心流程
 
 ```
-runStream(prompt)
+runStream(prompt[, openingEvents])          // openingEvents = 本轮开头的提示事件（T22）
   └─ createEmitter()                       // 测试可覆写为记录型 emitter
   └─ 挂 onError / onTimeout / onCompletion  // 只改状态与停止标记，不写数据
-  └─ CompletableFuture.runAsync(runLoop(prompt, new SseAgentEventListener(emitter, () -> stopped = true)))
+  └─ CompletableFuture.runAsync(runLoop(prompt, listener, openingEvents))
 
 runLoop
-  ├─ 校验失败（非 IDLE / 空提示词）→ Answer + Done，直接返回（不进入循环）
+  ├─ 校验失败（非 IDLE / 空提示词）→ Answer + Done，直接返回（不进入循环、**也不发开场事件**）
+  ├─ 开场事件逐条发出（T22）→ 例：Notice("图片搜索服务暂时不可用…")
   ├─ while (currentStep < maxSteps && state != FINISHED && !stopped)
   │    ├─ step() → 逐条 listener.onEvent(...)        // 工具步 2 条（think + tool），回答步 1 条
   │    └─ isStuck() → handleStuckState() → 达阈值则发 Answer("检测到循环…") 并 break
@@ -60,6 +61,7 @@ runLoop
 | `Answer(t)` | `{"event":"answer","content":t}` |
 | `Metrics(map)` | `{"event":"metrics", …map 平铺}` |
 | `Error(t)` | `{"event":"error","content":t}` |
+| `Notice(t)`（T22） | `{"event":"notice","content":t}` |
 | `Done()` | `[DONE]`（**原始文本，不是 JSON**） |
 
 ### 关键设计与理由
@@ -94,3 +96,4 @@ runLoop
 7. ~~**上限提示未判状态**~~ **2026-09-15 T21 收口**：根因是循环的两个退出条件（`state != FINISHED` 与 `currentStep < maxSteps`）会**同时成立**——最终回答（或卡死终止）恰好落在第 `maxSteps` 步时，回答之后还会多补一条"执行结束：达到最大步骤 (N)"。现在尾部判断加了状态前置条件 `if (this.state == AgentState.RUNNING && this.currentStep >= this.maxSteps)`，并补了两条契约测试（回答落在最后一步、卡死落在最后一步；修复前各红一次，红输出 `but was: "final-answer` + 换行 + `执行结束：达到最大步骤 (1)"`）。**负向控制**：摘掉 `state == RUNNING` 重跑，恰好这两条红、同类其余 13 例保持绿。图库助手 `maxSteps=20`，只有长对话才会撞上——撞上时用户原本会在气泡里多读到这么一句。
 8. ~~**`Error` 事件"只发一条"≠"本轮唯一的事件"**~~ **2026-09-15 T21 收口**：`AgentEvent.Error` 的 javadoc 已改为"**替代回答帧**、是本轮**最后**一条业务事件（其后只有 Done）"，并写明"只有**第一步就失败**时它才是本轮唯一的事件"（中途失败时此前已有 step/answer 帧），同时注明全仓产出点仅 `BaseAgent.runLoop` 的 catch 一处。原先"桩模型在第一次调用即抛、没有钉住中途失败形态"的缺口一并补上：`AgentFailureEventTest.failureAfterEarlierFramesIsNotTheOnlyEventOfTheRun` 钉住"中途失败时 error 之前已有回答帧"。前端对此一直是安全的（有回答就追加）。
 9. ~~**一个 agent 实例只跑一次**~~ **2026-09-15 T21 收口（表述上提，非行为改动）**：不变量整段移到 `BaseAgent` 类注释，并写明它**不被入口守卫强制**——`runLoop` 只要求进入时为 `IDLE`，所以"正常跑完一次"的实例技术上能再跑（`messageList` 会把上一轮会话带进来）；真正让实例不可复用的是两处**状态粘连**：失败后 `state=ERROR` 被 `cleanUp()` 保留（只有非 ERROR 才复位 IDLE）、`stopped` 从不复位 ⇒ 失败过的实例再 `runStream` 只会拿到"错误：无法从该状态运行代理"。当前生产两个控制器都是按请求 `new`；将来若要做实例池化或"失败后重试同一实例"，必须先处理这两处状态复位。
+10. **`notice` 帧（T22）目前只有一个生产者、一种语义**：机制是通用的（`BaseAgent.runStream(prompt, openingEvents)` = "本轮开头要发的事件"），但眼下只有 `HuoshanAssistantController` 在搜图 MCP 降级时用它发一条提示；**只在开场发**，所以"中途才发现降级"这种形态它覆盖不到（真出现得在循环里加产出点）。与 `Error` 的分工是"环境说明 vs 本轮失败"，两者都不混进回答文本；前端把 `notice` 渲染成回答上方一行弱化文本（与 5 一样，**未做浏览器人工验收**，只过了 `type-check`/`eslint` 与帧级契约）。
