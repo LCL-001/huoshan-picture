@@ -95,6 +95,7 @@
   - 文件范围：ai/agent 内上述文件与目录
   - 验收：编译 + 门禁绿
   - 实施记录：提交 `05db19e`，删 8 个文件（`advisors/AuthAdvisor.java` 328 行、`chatmemory/FileBasedChatMemory.java` 147 行、两个 **20 行空壳** `@RestController`（`ChatMessageController` / `ChatSummaryController`，类体是空的）、`demo/invoke/` 四个教学类）+ 空掉的 `demo/` 目录。**删除前逐条核实引用**：全部零引用（`AuthAdvisor` 只有 `@Slf4j`、不是 Spring Bean；`FileBasedChatMemory` 无注解、无人 new；两份 yaml/json/properties 零命中）。**顺带纠正一处计划描述**：`ChatMessage` / `ChatSummary` 的 **PO / Mapper / Repository / Service 不是死代码**——它们是 `FlowWindowBasedChatMemory`（现行记忆实现）的落地表，只删那两个**空壳 Controller**。门禁 **108 例**绿
+  - **顺带项收口（2026-09-15，提交 `fdbcab7`，用户拍板"两个都删"）**：上一次只做了"正列"的 8 个文件，档 3 计划 T13 条目里那句"**顺带** `TerminalOperationTool` / `ParallelSearchTool`（不注册的死代码，是否删属本次决策点）"被留成了悬空项（handoff 0022 因此把整个 T13 又列成待办——见该快照勘误）。两个类与各自测试共 4 文件删除：`TerminalOperationTool`（可执行本机 shell 命令，虽未注册，但留在仓里就是随时会被挂回去的风险面）、`ParallelSearchTool`（给本仓不存在的 DeepResearchAgent 写的并发搜图）。删前核实零引用（不在 `ToolRegistration`、不在 `HuoshanToolFactory`）⇒ 行为零影响；`.githooks` 排除名单同步、F12 已知限制 3 的先例引用改写。**门禁 143 → 137 例**（连 6 例 mock 驱动的并发契约一起删）。**T13 至此真正收口**，档 3 无剩余任务。
 
 ## 任务清单（存量修复，已完成）
 
