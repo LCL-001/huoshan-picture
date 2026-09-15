@@ -61,6 +61,7 @@
   - 文件范围：ai/agent 的 BaseAgent/ReActAgent/ToolCallAgent 循环重构、agent 装配类、controller 新增端点、config、受影响测试迁移
   - 档位拆分（见上"MVP 档位"）：会话类型 + headless SSE 端点 + 鉴权与身份映射属**档 1**；循环收敛（统一 run/runStream、`run()` 退役、受保护字段收编、事件协议固化为显式契约）属**档 3（T8-hard）**。**档 1 部分已于 2026-09-14 完成**（`ConversationType` + `HuoshanAssistantAgent` + `HuoshanAssistantSession` + `HuoshanAssistantController` + `HeadlessApiKeyInterceptor`，循环零改动）；原属 T8 的"超时转显式错误事件 + 埋点"**顺延档 2**（口径见 docs/decisions.md 2026-09-14 条）
   - 验收：单测（鉴权/身份映射/工具装配/事件协议契约）+ SSE 端点冒烟；门禁绿
+  - **实施计划（2026-09-15 立，待用户放行）**：`docs/plans/2026-09-15-T8hard-循环收敛实施计划.md`——含现状四处缺口（受保护字段旁路 / 卡死路径双 `[DONE]` / 校验失败流不以 `[DONE]` 收尾 / 失败文本多轮进气泡且重复）、事件模型与单一循环设计、四个任务、三个待拍板项（是否纳入 T8-c 显式错误事件、`MyManusTest` 处置、`runSummary()` 去留）。**开工前实测基线：`ai/agent` 门禁 118 例绿（HEAD `9daa286`，工作区干净）。**
 - [x] T9 MCP client 接入（ai/agent）（2026-09-14 完成）：spring-ai-starter-mcp-client（已在 pom）连接 ai/image-search-mcp-server（**传输方式定为 SSE**）；Pexels 搜图工具进图库助手工具集；MCP 服务本体零改动
   - 文件范围：ai/agent 的 application.yaml、MCP client 配置/装配
   - 验收：单测 + 本地双进程冒烟（搜图返回 URL 列表）
