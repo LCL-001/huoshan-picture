@@ -1,6 +1,7 @@
 package com.lcl.myaiagent.controller;
 
 import cn.hutool.core.util.StrUtil;
+import com.lcl.myaiagent.agent.AgentRunMetrics;
 import com.lcl.myaiagent.agent.HuoshanAssistantAgent;
 import com.lcl.myaiagent.agent.HuoshanAssistantSession;
 import com.lcl.myaiagent.agent.event.AgentEvent;
@@ -69,6 +70,10 @@ public class HuoshanAssistantController {
     @Resource
     private McpToolCallbackResolver mcpToolCallbackResolver;
 
+    /** R1 埋点：超时与提前终止的计数（agent 每请求新建，所以由控制器注入） */
+    @Resource
+    private AgentRunMetrics agentRunMetrics;
+
     /**
      * 图库助手对话（SSE）。
      *
@@ -124,6 +129,8 @@ public class HuoshanAssistantController {
                 huoshanProperties.apiClient(satoken, sessionId), visionModel, canTagPictures, mcp.callbacks());
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),
                 conversationId, flowWindowBasedChatMemory);
+        // R1 埋点：超时与"用户停止/断连"各计一次，供上线后按实测决定是否要换 connector
+        agent.setMetrics(agentRunMetrics);
         return mcp.degraded()
                 ? agent.runStream(message, List.of(new AgentEvent.Notice(MCP_DEGRADED_NOTICE)))
                 : agent.runStream(message);

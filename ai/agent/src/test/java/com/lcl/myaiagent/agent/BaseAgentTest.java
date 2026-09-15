@@ -3,11 +3,14 @@ package com.lcl.myaiagent.agent;
 import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.event.RecordingAgentEventListener;
 import com.lcl.myaiagent.agent.model.AgentState;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -159,6 +162,72 @@ class BaseAgentTest {
 
             assertThat(listener.events()).noneMatch(AgentEvent.Notice.class::isInstance);
             assertThat(listener.joinedAnswers()).contains("用户提示不能为空");
+        }
+    }
+
+    // ==================== 可观测计数（R1 埋点） ====================
+
+    @Nested
+    @DisplayName("运行计数")
+    class RunMetrics {
+
+        @Test
+        @DisplayName("超时与提前终止各计一次，互不串味")
+        void countsTimeoutsAndCancellations() {
+            MeterRegistry registry = new SimpleMeterRegistry();
+
+            TimeoutAgent timeoutAgent = new TimeoutAgent();
+            timeoutAgent.setMetrics(new AgentRunMetrics(registry));
+            runLoop(timeoutAgent, "test");
+
+            StoppedAgent stoppedAgent = new StoppedAgent();
+            stoppedAgent.setMetrics(new AgentRunMetrics(registry));
+            runLoop(stoppedAgent, "test");
+
+            assertThat(registry.get("huoshan.agent.run.timeout").counter().count())
+                    .as("第一步即抛超时形态异常算一次超时")
+                    .isEqualTo(1.0);
+            assertThat(registry.get("huoshan.agent.run.cancelled").counter().count())
+                    .as("停止标记置位算一次提前终止")
+                    .isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("不注入计数器时循环照常跑（MyManus 旧链路与测试不受影响）")
+        void worksWithoutMetricsInjected() {
+            TestAgent agent = new TestAgent("final-answer");
+            agent.setFinishOnStep(true);
+
+            assertThat(runLoop(agent, "test").joinedAnswers()).isEqualTo("final-answer");
+        }
+
+        /** 第一步就抛"超时形态"异常（外层包着 TimeoutException，沿 cause 链判定，与 T8-c 同口径） */
+        private static final class TimeoutAgent extends BaseAgent {
+
+            @Override
+            public List<AgentEvent> step() {
+                throw new IllegalStateException("provider 超时", new TimeoutException("响应流空闲超时"));
+            }
+
+            @Override
+            protected void cleanUp() {
+                // 测试不需要额外清理
+            }
+        }
+
+        /** 循环中途被置停止标记（等价于用户点"停止生成"或前端断开连接） */
+        private static final class StoppedAgent extends BaseAgent {
+
+            @Override
+            public List<AgentEvent> step() {
+                setStopped(true);
+                return List.of(new AgentEvent.Answer("半截回答"));
+            }
+
+            @Override
+            protected void cleanUp() {
+                // 测试不需要额外清理
+            }
         }
     }
 

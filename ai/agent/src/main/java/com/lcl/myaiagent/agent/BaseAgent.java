@@ -73,6 +73,9 @@ public abstract class BaseAgent {
     // 会话 ID：Advisor 读写外部 ChatMemory 时用它定位会话
     private String conversationId;
 
+    // 运行期计数（R1 埋点）：超时与提前终止各一个计数器；不注入时为 null，循环照常跑
+    private AgentRunMetrics metrics;
+
     // 添加重复内容阈值
     private int duplicateThreshold = 2;
 
@@ -207,6 +210,7 @@ public abstract class BaseAgent {
                 // 用户点了"停止生成"：连接已断开，不再向它写数据，
                 // 终止执行（当前这步的 LLM 调用无法中断，但后续步骤不再执行）
                 this.state = AgentState.FINISHED;
+                countCancelled();
                 log.info("用户停止生成，Agent 提前终止, steps={}", this.currentStep);
             } else {
                 // 检查是否超出步骤限制：只在"仍在运行"时才算真撞上限——最终回答恰好落在第 maxSteps 步时
@@ -221,6 +225,9 @@ public abstract class BaseAgent {
             // 终止性失败（provider 超时、调用失败、工具或内部异常）：本轮以一条 error 收尾并结束。
             // 不再把异常文本当回答发出去——原文只进日志（T8-c：原先同样的原始异常文本会重复多轮）
             this.state = AgentState.ERROR;
+            if (isTimeout(e)) {
+                countTimeout();
+            }
             log.error("{} 执行失败，本轮终止：{}", getName(), e.getMessage(), e);
             listener.onEvent(new AgentEvent.Error(failureText(e)));
         } finally {
@@ -236,6 +243,19 @@ public abstract class BaseAgent {
      */
     private static String failureText(Throwable failure) {
         return isTimeout(failure) ? TIMEOUT_FAILURE_TEXT : GENERIC_FAILURE_TEXT;
+    }
+
+    /** R1 埋点：不注入计数器时是空操作（测试与 MyManus 旧链路不受影响） */
+    private void countTimeout() {
+        if (this.metrics != null) {
+            this.metrics.timeout();
+        }
+    }
+
+    private void countCancelled() {
+        if (this.metrics != null) {
+            this.metrics.cancelled();
+        }
     }
 
     /**
