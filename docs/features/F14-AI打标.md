@@ -63,6 +63,7 @@ apply  ：校验 → 载入图片（按 id）→ 逐条清洗（转义 HTML / �
 - **并发的四条契约**（`PictureAiTagManagerTest$Concurrency`）：有界并发（6 张 / 并发 3 ⇒ 峰值并发**恰为 3**）、结果保序（第 1 张最慢也仍在第 1 位）、单张超时只降级该张、单张失败不连坐；另有"没有图片地址的图不发模型调用"。
 - **请求形态**（`AiVisionTagApiTest`，进程内 JDK HttpServer 桩）：路径 `/v1/chat/completions`、`Bearer`、`model`、`content=[text, image_url]`；非 2xx 抛业务异常且**文案里不含厂商响应体原文**；未配置时一个请求都不发。
 - **审核字段不变量**：单测断言 SET 子句（见上）；**集成测试**（`PictureAiTagIntegrationTest`，本机 MySQL + 桩模型）用真库核对——① 出建议零写库；② 应用后 `tags`/`category` 已写；③ `reviewStatus`/`reviewerId`/`reviewMessage`/`reviewTime` **逐字段与写入前相同**；④ 词表 `usageCount` 各 +1。测试自建唯一词条并**硬删**收尾（`picture` 有 `@TableLogic`，用 SQL 物理删），不留探针数据。
+- **管理员限定**：两个端点带 `@AuthCheck(mustRole = ADMIN_ROLE)`，并有反射守护测试钉住"注解在、角色对、路径对"（防止有人删了注解没人发现）。**证据边界**：运行期的拒绝走的是仓内既有的 `AuthInterceptor` AOP（`/picture/review`、`/picture/upload/batch` 等 6 个管理员端点同款），本轮**没有**额外跑"普通用户调用 → 40300"的端到端用例——留给 T16 做管理页时自然覆盖（那时会有真实的前端调用链）。
 - **负向控制**（规则 12）：把并发池临时改成 1 → "峰值并发恰为 3"**红**（`expected: 3`）；摘掉 `applyAiTags` 的 `@AuthCheck` → 守护测试**红**。两者改回后全绿。
 
 ## 已知限制
