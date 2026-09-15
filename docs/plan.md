@@ -144,6 +144,11 @@
   - **未做 / 已知代价**：用户侧看不到"搜图工具本轮被回退"（模型照常作答；明确要求搜图时会得到工具错误）；降级粒度是整批 MCP 工具而非单个工具；冷却状态在进程内（多实例各自计时）。
   - **顺带实测发现（2026-09-15，与 T19 无关、未修、待用户拍板）**：`OpenAiChatModelsRetryTest.totalBudgetTruncatesRetriesEvenWhenAttemptsRemain`（T18 的用例）是**时间敏感**的——预算 800ms、首次退避 500ms，两者太近。本轮全量跑里偶发红一次（`expected: 2 but was: 3`，该用例自身耗时 2.399s），而**单类隔离跑 4 次全绿**（每次 9.4s）⇒ 只在满载（并行跑全模块）时触发，**门禁会随机拦提交**。收口二选一：把断言放宽成"远小于 10 次"（如 `isLessThanOrEqualTo(3)`），或用可控时钟/更宽的预算-退避比把时序钉死；属 T18 的文件范围，按规则 1 不在 T19 内顺手改。
 
+- [ ] T20（2026-09-15，用户要求修复本轮 review）**T19 并发首探测与文档口径收口**：MCP 故障窗口内只允许一个会话执行工具列表探测，其余并发会话立即按“少一个工具”降级，避免多个请求依次支付约 20s 超时；同时订正 T19 的 HTTP/业务码与自愈时间表述。
+  - 文件范围：`ai/agent/.../tools/mcp/McpToolCallbackResolver.java`、对应测试；`docs/plan.md`、`docs/features/F12-图库助手档3工具与联调.md`、最新 T19 handoff；不改 controller、MCP 配置、`request-timeout` 与用户可见事件。
+  - 验收：先新增确定性并发复现测试并看到红（首个探测在途时，第二个会话必须快速返回且 provider 调用计数仍为 1）→ 实现 single-flight 后转绿；原 8 条 T19 测试保持绿；ai/agent 门禁绿。文档统一为“HTTP 200 + 业务码 50000”以及“失败被确认后最多再等 60s 重试（从服务恢复时刻计算还需叠加在途探测的剩余超时）”。
+  - 口径不变：仍是 T19 的失败降级与 60s 冷却，只补并发正确性和文字精度，spec 关键三行无需修改。
+
 ## 存量遗留（未做，未拍板）
 
 - **前端社交模块残留**（2026-09-15 排查 `frontend/src/api/` 时发现）：后端 `Post` / `PostInteraction` / `UserFollow` 相关 controller 的类注解已注释、Spring 不加载（见 spec 的 F7），但**前端还在用**——路由里 `/square`、`/post/:id`、`/user/:id` 三个页面照旧注册着，`SquarePage.vue` / `PostDetailPage.vue` / `UserProfilePage.vue` / `GlobalHeader.vue` 四个文件引用 `@/api/postController.ts`，其中帖子/点赞/关注那批函数打的是**已停用**的 `/post/**`（用户点进去大概率失败）。
