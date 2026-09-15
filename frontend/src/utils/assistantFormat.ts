@@ -6,6 +6,10 @@ const TOOL_LABELS: Record<string, string> = {
   listSpaces: '查询空间列表',
   listPictures: '查询图片清单',
   getTagCategory: '读取标签词表',
+  visionTagger: '看图打标建议',
+  batchEditPictures: '批量修改图片',
+  batchUploadByUrl: '按 URL 入库',
+  searchImage: '联网搜图',
 }
 
 /** 计数摘要的量词（按工具名分）；认不出就"条" */
@@ -23,6 +27,11 @@ export const toolLabel = (name?: string) => (name ? (TOOL_LABELS[name] ?? name) 
  * 原始返回另行收进「详情」。任何解析失败都退化成"已完成"——摘要永远不该抛错或空着。
  */
 export const summarizeToolResult = (content: string, name?: string): string => {
+  // MCP 搜图返回的是逗号拼接的 URL 串（不是 JSON），单独认一下，别退化成"已完成"
+  if (name === 'searchImage') {
+    const count = (content.match(/https?:\/\//g) ?? []).length
+    return count > 0 ? `搜到 ${count} 张图` : '已完成'
+  }
   const payload = parsePayloadObject(content)
   if (!payload) {
     return '已完成'
@@ -30,6 +39,18 @@ export const summarizeToolResult = (content: string, name?: string): string => {
   if (payload.error === true) {
     const reason = typeof payload.message === 'string' ? payload.message : '未知原因'
     return `失败：${reason}`
+  }
+  // 打标只给建议、不落库，摘要里必须如实说清（与工具自己的 note 同口径）
+  if (typeof payload.suggested === 'number') {
+    return `建议 ${payload.suggested} 张（未写入图库）`
+  }
+  if (typeof payload.succeeded === 'number') {
+    const failed = typeof payload.failed === 'number' ? payload.failed : 0
+    return failed > 0 ? `入库 ${payload.succeeded} 张（失败 ${failed}）` : `入库 ${payload.succeeded} 张`
+  }
+  // 批编只代表"提交成功"，工具自己也只承诺到这一步（不属于该空间的 id 会被静默跳过）
+  if (typeof payload.requestedCount === 'number') {
+    return `提交 ${payload.requestedCount} 张`
   }
   if (typeof payload.total === 'number') {
     return `共 ${payload.total} ${COUNT_UNITS[name ?? ''] ?? '条'}`
@@ -65,10 +86,15 @@ export type InlinePart =
   | { type: 'code'; value: string }
   | { type: 'link'; value: string; href: string }
 
-export type TextBlock = { kind: 'paragraph' | 'bullet' | 'ordered' | 'quote'; items: InlinePart[][] }
+export type TextBlock = {
+  kind: 'paragraph' | 'bullet' | 'ordered' | 'quote' | 'heading'
+  /** 仅 heading 用：模型的 # 级数（1-6），渲染时映射到 h3~h6 */
+  level?: number
+  items: InlinePart[][]
+}
 
 /**
- * 只认模型实际会用的那几样：`**粗体**`、`` `行内代码` ``、http(s) 链接、`- `/`* ` 与 `1. ` 列表、`> ` 引用。
+ * 只认模型实际会用的那几样：`**粗体**`、`` `行内代码` ``、http(s) 链接、`- `/`* ` 与 `1. ` 列表、`> ` 引用、`#`~`######` 标题。
  *
  * 不做表格/嵌套/图片，也**不产出 HTML**——渲染交回 Vue 模板插值（自动转义），
  * 从根上不留 XSS 面（回答内容会被工具数据与用户提问影响，绝不能当 HTML 渲染）。
@@ -81,6 +107,13 @@ export const parseAssistantText = (text: string): TextBlock[] => {
     const trimmed = line.trim()
     if (!trimmed) {
       current = null
+      continue
+    }
+    // 标题：模型常写 `## 标题`，此前不认它、井号会原样透出（2026-09-15 验收实测）
+    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed)
+    if (headingMatch) {
+      current = null
+      blocks.push({ kind: 'heading', level: headingMatch[1].length, items: [parseInline(headingMatch[2])] })
       continue
     }
     const listMatch = /^(?:[-*]|(\d+)[.)])\s+(.*)$/.exec(trimmed)

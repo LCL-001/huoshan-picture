@@ -16,6 +16,13 @@
           <AssistantInline :parts="item" />
         </p>
       </blockquote>
+      <component
+        :is="headingTag(block.level)"
+        v-else-if="block.kind === 'heading'"
+        class="assistant-text__heading"
+      >
+        <AssistantInline :parts="block.items[0]" />
+      </component>
       <p v-else class="assistant-text__paragraph">
         <AssistantInline :parts="block.items[0]" />
       </p>
@@ -33,6 +40,9 @@ const props = defineProps<{
 }>()
 
 const blocks = computed(() => parseAssistantText(props.text))
+
+/** 模型的 `#` 级数 → 真标题标签。页面主标题是 h2，故从 h3 起算、上限 h6 */
+const headingTag = (level?: number) => `h${Math.min((level ?? 1) + 2, 6)}`
 </script>
 
 <style scoped>
@@ -56,9 +66,16 @@ const blocks = computed(() => parseAssistantText(props.text))
   margin: 0;
 }
 
+.assistant-text__heading {
+  margin: 10px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .assistant-text__paragraph:last-child,
 .assistant-text__list:last-child,
-.assistant-text__quote:last-child {
+.assistant-text__quote:last-child,
+.assistant-text__heading:last-child {
   margin-bottom: 0;
 }
 </style>

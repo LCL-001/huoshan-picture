@@ -56,7 +56,6 @@ public class AiAssistantProxyManager {
     private static final String DATA_PREFIX = "data:";
     private static final String DONE_FLAG = "[DONE]";
     private static final int ERROR_BODY_MAX_CHARS = 2048;
-    private static final int ERROR_TEXT_MAX_CHARS = 200;
 
     private final AiAssistantProperties properties;
     private final ObjectMapper objectMapper;
@@ -252,7 +251,11 @@ public class AiAssistantProxyManager {
         }
     }
 
-    /** 从引擎错误 JSON 里取 message；不是 JSON 时退回截断原文，保证仍然可读 */
+    /**
+     * 从引擎错误 JSON 里取 {@code message}。**不是 JSON 就返回 null**，由调用方改发通用文案：
+     * 非 JSON 的错误体多半是网关的 HTML 错误页，把原文塞进回答气泡既读不懂、也把内部细节摊给用户
+     * （2026-09-15 复核提升的 P2）；原文只进日志，运维仍拿得到。
+     */
     private String extractMessage(String body) {
         if (StrUtil.isBlank(body)) {
             return null;
@@ -262,10 +265,11 @@ public class AiAssistantProxyManager {
             if (!node.isMissingNode() && StrUtil.isNotBlank(node.asText())) {
                 return node.asText();
             }
+            log.warn("引擎的错误体是 JSON 但没有 message 字段，改发通用文案；原文：{}", body);
         } catch (IOException e) {
-            // 非 JSON 响应体：走下面的截断兜底
+            log.warn("引擎的错误体不是 JSON（多半是网关页），改发通用文案、原文不发用户；原文：{}", body);
         }
-        return body.length() > ERROR_TEXT_MAX_CHARS ? body.substring(0, ERROR_TEXT_MAX_CHARS) + "…" : body;
+        return null;
     }
 
     private String requireConfigured(String value, String message) {

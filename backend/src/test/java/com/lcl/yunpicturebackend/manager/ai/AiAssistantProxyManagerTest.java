@@ -276,9 +276,34 @@ class AiAssistantProxyManagerTest {
         assertThat(frames.get(1)).isEqualTo("[DONE]");
     }
 
+    /**
+     * 上游回 200 + 非 JSON 体（典型是网关的 HTML 错误页）：**原文不得进回答气泡**——
+     * 用户只该看到通用文案，细节走日志。这是 2026-09-15 复核提升的 P2。
+     */
     @Test
-    void unreachableEngineBecomesVisibleAnswer() throws IOException {
-        int closedPort;
+    void nonJsonUpstreamErrorBodyDoesNotLeakIntoTheAnswer() {
+        stubStatus = 200;
+        stubContentType = "text/html";
+        stubBody = "<html><head><title>502 Bad Gateway</title></head><body>"
+                + "<center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.24.0</center></body></html>";
+
+        RecordingManager manager = manager();
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
+        List<String> frames = manager.emitter.awaitFrames();
+
+        assertThat(frames).hasSize(2);
+        assertThat(frames.get(0))
+                .contains("\"event\":\"answer\"")
+                .contains("引擎响应异常")
+                .as("非 JSON 的上游错误体不得把原文当文案发给用户")
+                .doesNotContain("Bad Gateway")
+                .doesNotContain("nginx")
+                .doesNotContain("<html>");
+        assertThat(frames.get(1)).isEqualTo("[DONE]");
+    }
+
+    @Test
+    void unreachableEngineBecomesVisibleAnswer() throws IOException {        int closedPort;
         try (ServerSocket socket = new ServerSocket(0)) {
             closedPort = socket.getLocalPort();
         }

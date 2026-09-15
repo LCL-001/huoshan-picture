@@ -14,10 +14,18 @@ const ASSISTANT_TICKET_PATH = '/api/ai/assistant/ticket'
  *
  * 走 axios 而不是 EventSource：签发是普通 JSON 请求，且登录态失效时 request.ts 的响应拦截器
  * 会接手提示并跳登录页（EventSource 读不到状态码，只能显示"连接中断"）。
+ *
+ * **必须判 `code`**：业务失败时 HTTP 仍可能是 200（如 Redis 不可用回 50000），
+ * 直接取 `data.data` 会拿到 null ⇒ URL 变成 `ticket=null` ⇒ 用户看到"连接中断"而不是"没取得凭据"，
+ * 还白打一次 chat（AGENTS.md 规则 17 那条"用户能看见的错误信息不可信"）。
  */
 export const fetchAssistantTicket = async () => {
   const response = await myAxios.post(ASSISTANT_TICKET_PATH)
-  return response.data.data as string
+  const ticket = response.data?.data
+  if (response.data?.code !== 0 || typeof ticket !== 'string' || !ticket) {
+    throw new Error(response.data?.message || '未能取得本次对话凭据')
+  }
+  return ticket
 }
 
 /**
