@@ -97,6 +97,13 @@
   - 实施记录：提交 `05db19e`，删 8 个文件（`advisors/AuthAdvisor.java` 328 行、`chatmemory/FileBasedChatMemory.java` 147 行、两个 **20 行空壳** `@RestController`（`ChatMessageController` / `ChatSummaryController`，类体是空的）、`demo/invoke/` 四个教学类）+ 空掉的 `demo/` 目录。**删除前逐条核实引用**：全部零引用（`AuthAdvisor` 只有 `@Slf4j`、不是 Spring Bean；`FileBasedChatMemory` 无注解、无人 new；两份 yaml/json/properties 零命中）。**顺带纠正一处计划描述**：`ChatMessage` / `ChatSummary` 的 **PO / Mapper / Repository / Service 不是死代码**——它们是 `FlowWindowBasedChatMemory`（现行记忆实现）的落地表，只删那两个**空壳 Controller**。门禁 **108 例**绿
   - **顺带项收口（2026-09-15，提交 `fdbcab7`，用户拍板"两个都删"）**：上一次只做了"正列"的 8 个文件，档 3 计划 T13 条目里那句"**顺带** `TerminalOperationTool` / `ParallelSearchTool`（不注册的死代码，是否删属本次决策点）"被留成了悬空项（handoff 0022 因此把整个 T13 又列成待办——见该快照勘误）。两个类与各自测试共 4 文件删除：`TerminalOperationTool`（可执行本机 shell 命令，虽未注册，但留在仓里就是随时会被挂回去的风险面）、`ParallelSearchTool`（给本仓不存在的 DeepResearchAgent 写的并发搜图）。删前核实零引用（不在 `ToolRegistration`、不在 `HuoshanToolFactory`）⇒ 行为零影响；`.githooks` 排除名单同步、F12 已知限制 3 的先例引用改写。**门禁 143 → 137 例**（连 6 例 mock 驱动的并发契约一起删）。**T13 至此真正收口**，档 3 无剩余任务。
 
+- [x] T14（2026-09-15 独立 review 的 P2）**助手能力口径回填**：`/assistant` 页面与 F11 讲解文档仍向用户宣称"只读不改"，而档 3 的写工具早已可用（`visionTagger` 看图建议、`batchEditPictures` 批量改标签、`batchUploadByUrl` 按 URL 入库且消耗空间配额）——这是唯一一条**用户可见的错误声明**（文案是档 1/档 2 期的真实口径，档 3 放开写权限后没回填）
+  - 文件范围：`frontend/src/pages/AssistantPage.vue`（仅页面文案两处）+ `docs/features/F11-AI助手MVP.md`
+  - 验收：① 页面文案与引擎侧系统提示词同口径——可读可改、**改动只在用户明确要求时发生**、不支持删除；② F11 的只读表述（一句话 / 怎么用 / 核心流程图）全部回填、「已知限制 12」改写为已收口；③ `npm run type-check` 净增 0（基线 138、改动文件 0 命中）、改动文件 eslint 0 错
+  - 不做：示例问题不新增写类样例（三条只读样例不算错误声明，属可选增强）；前端错误态 UI、工具摘要增强仍按 F12 已知限制挂着
+  - 实施记录（2026-09-15 完成）：提交 `29e8ee6`（前端文案，走 pre-commit：backend 48 例 + ai/agent 137 例双绿）+ 一笔 `docs:`（F11 回填、本条目勾选、decisions 该 P2 状态更新）。文案：subtitle → "用你自己的登录态操作空间 / 图片 / 标签——范围与你本人一致；改动只在你明确要求时发生，删除类操作不支持"；空状态提示 → "可读也可改：看图给建议、批量改标签、按 URL 入库都在能力范围内，但只在你明确要求时才动手，且不支持删除"。F11：`一句话` 与 `怎么用` 补档 3 能力（新增第 4 条，原 4/5/6 顺延）、核心流程图 L61 的"三个只读工具"改为完整工具集、已知限制 12 收口。**前端检查**：`type-check` 138（与基线持平、改动文件 0 命中）、改动文件 `eslint` 干净。**未做**：浏览器端人工看一眼文案排版（纯文本改动，与 F13 已知限制 5 同属"前端改动只过了类型与 lint"这一类）。
+- [ ] **同批 review 的 3 条 P3（未做，可穿插到任何一次会碰这些文件的任务）**：① `BaseAgent.runLoop` 的上限提示未判 `state`——最终回答恰好落在第 `maxSteps` 步时会多补一条"执行结束：达到最大步骤 (N)"回答帧（改成 `if (state == RUNNING && currentStep >= maxSteps)` + 补一例 `maxSteps=1 + finishOnStep` 的契约测试即会先红后绿）；② `AgentEvent.Error` javadoc 的"且是本轮唯一的事件"措辞过强（中途失败时此前已有 step/answer 帧发出）；③ 计划 §5 的设计（新增 `AgentExecutionException`、失败置 `state=FINISHED`）与实现（不新增异常类、置 `state=ERROR`）不一致，"一个 agent 实例只跑一次"的不变量宜从 `HuoshanAssistantAgent` 类注释提到 `BaseAgent`。全文见 `decisions.md` 2026-09-15 review 行与 F13「已知限制」7/8/9。
+
 ## 任务清单（存量修复，已完成）
 
 以下为 2026-09-12 功能审查（三个只读子代理 + 逐条人工核验，详见 handoff/0002）产出的修复批次，按优先级排列：
