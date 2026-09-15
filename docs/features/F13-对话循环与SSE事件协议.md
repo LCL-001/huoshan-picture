@@ -91,3 +91,6 @@ runLoop
 4. **`act()` 阶段异常现在也终止本轮**：工具自身已把业务错误转成结构化字符串，所以 `act()` 抛异常意味着意外内部失败；但若有"可重试的工具异常"，现在不会再自动进入下一轮（要重试得在工具内部做）。
 5. **前端对 `error` 事件的渲染只是"文本进气泡"**：没有独立错误态 UI，带部分回答时错误文案追加在下面；浏览器端的真实渲染未做人工验收（服务端帧与代理透传均已实测，前端改动只过了 type-check/lint）。
 6. **`agent.event` 包的测试替身**（`RecordingAgentEventListener` / `RecordingSseEmitter`）在 `src/test` 下，若将来要在别的模块复用需提级。
+7. **上限提示未判状态**（2026-09-15 独立 review，P3）：`runLoop` 尾部只看 `currentStep >= maxSteps`，若**最终回答恰好落在第 `maxSteps` 步**，会在回答之后再补一条"执行结束：达到最大步骤 (N)"回答帧（旧代码同形，非本次引入）。`BaseAgentTest` 只覆盖了"没有 FINISHED 就撑到上限"的形态；改成 `if (this.state == AgentState.RUNNING && this.currentStep >= this.maxSteps)` 并补一例 `maxSteps=1 + finishOnStep` 的契约测试即可收口。图库助手 `maxSteps=20`，只有长对话才会撞上。
+8. **`Error` 事件"只发一条"≠"本轮唯一的事件"**（2026-09-15 独立 review，P3）：`AgentEvent.Error` 的 javadoc 写的是"且是本轮唯一的事件"，那只在**第一步就失败**时成立；中途失败（如第 3 步 provider 挂了）此前已有 step/answer 帧发出去，`error` 只是本轮最后一条业务事件。`AgentFailureEventTest` 的桩模型在第一次调用即抛，所以没有钉住这个形态。前端对此是安全的（有回答就追加），只是措辞需要订正。
+9. **一个 agent 实例只跑一次**（2026-09-15 独立 review，P3）：失败后 `state=ERROR` 会被 `cleanUp()` 保留（只有非 ERROR 才复位 IDLE），`stopped` 也从不复位——所以失败过的实例再 `runStream` 只会拿到"错误：无法从该状态运行代理"。当前生产两个控制器都是按请求 `new`（这条只在 `HuoshanAssistantAgent` 的类注释里写了半句），将来若要做实例池化或"失败后重试同一实例"，必须先处理这两处状态复位；宜把这条不变量提到 `BaseAgent` 的类注释。

@@ -93,7 +93,7 @@
 ## 已知限制
 
 1. **Markdown 只支持子集**（2026-09-14 T11.1 已从"纯文本"升级）：支持粗体、行内代码、http(s) 链接、`- `/`1. ` 列表、`> ` 引用；**不支持**表格、嵌套列表、图片、标题、单星号斜体——模型若用这些语法会字面显示。要全覆盖就得引 markdown 库 + sanitizer（见口径 9 的取舍）。
-2. **错误没有独立视觉**：服务端失败以"助手回答"的形式出现（如"图库助手引擎暂时不可用，请稍后重试"），看起来像模型在说话；也没有独立的错误事件类型（引擎侧"超时转显式错误事件"仍按 decisions.md 挂账）。
+2. **错误没有独立视觉**：服务端失败以"助手回答"的形式出现（如"图库助手引擎暂时不可用，请稍后重试"），看起来像模型在说话。**2026-09-15 更新**：引擎侧已有独立的错误事件类型（`event=error`，机制见 `F13-对话循环与SSE事件协议.md`），但前端仍把它当文本追加进回答气泡（没有独立错误态 UI）；代理侧自身合成的失败（引擎不可达、上游错误体）仍走 `answer`，"代理侧错误语义统一"仍是挂账项。
 3. **对话历史不落库**：前端内存态，刷新即丢；`chatId` 存 `sessionStorage`，刷新仍续同一条对话串。引擎侧多轮记忆由 `chat_message` 承载（档 1 口径）。
 4. **同一页面只允许一条流**（发送中禁输入）；"停止"只关流，不承诺让引擎侧停止（R1）。
 5. **前端门禁存量红**：`npm run type-check` 138 例、`eslint .` 73 例既有错误（分布在本次未触碰的文件里，多为 `LocationQueryValue`/`any`/未用变量一类），AGENTS/handoff 0001 里"前端以 type-check + lint 为准"这条目前**不成立**；本次改动净增 0，清理需单独立任务。
@@ -102,4 +102,9 @@
 8. **凭据组一致性（review R4）已于 2026-09-14 收口**：代理现在校验 `satoken` 与 Spring Session 用户同属一人（无效/过期 40100、不同人 40102，与 `checkSpaceViewPermission` 同口径，零上游请求），"真会话 + 随手编的 token 仍读到真实空间"这个洞不再成立。**残留边界（仍未做，按需另立任务）**：① 代理只判身份一致性、**不判权限**，能不能看某个空间仍只由图库服务端判；② 该失败发生在返回 `SseEmitter` 之前，走 `GlobalExceptionHandler` 回 HTTP 200 + JSON，而前端 `EventSource` 读不到响应体 → 用户只会看到"助手连接中断，请重试"，实际得重新登录（与限制 2 同源，前端若要做"登录态失效→跳登录页"需另开任务）；**R5 之后这条已被收敛大半**：建流前的取票走 axios，能读到 40100 并交给 `request.ts` 的响应拦截器提示 + 跳登录页，剩下读不到的只是"取票与建流之间恰好失效"这种窄缝；③ satoken 走 HttpOnly + SameSite=Lax Cookie，本档未改其存储形态。
 9. **SSE 中继的四个边界（review 用自建桩引擎实测）**：① 上游多行 `data:` 被中继用 `\n` 拼成**单帧**发出，线路上是半个 JSON 帧（`data:{"event":"answer",` + 裸换行 + `"content":"multi-line"}`），浏览器 `JSON.parse` 失败、前端**静默丢弃**（现引擎不会发多行 data，属潜伏缺陷）；② 上游未发 `[DONE]` 就 EOF 时，已发出的完整答案后面会**再跟一条"图库助手响应意外中断，请重试"**（答案 + 假错误同屏）；③ 上游非 JSON 错误体（部署形态里若有网关，如 nginx 502 的 HTML）被原文塞进回答气泡（实测 `<html>...502 Bad Gateway...`）；④ 线程池拒绝给浏览器的是**空体 HTTP 500**（`completeWithError` 未走 `GlobalExceptionHandler`），前端只能显示"助手连接中断，请重试"。
 10. **`chatId` 未做净化，可换行注入后端日志**（review 实测：`chatId=inj%0AFORGED-LINE-MARKER` 在日志里伪造出独立一行）。`message` 不进日志、凭据不进日志（三个探针实例日志对真 token/会话值 0 命中，含异常与拒绝路径）。
-11. **`ai/agent` 的门禁口径是 `.githooks` 的排除名单，不是 AGENTS 那条通用过滤命令**：AGENTS/handoff 记的 `-Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests'` 直接套到 `ai/agent` 会红（97 例 1 错误：`MyManusTest` 注入不存在的 `MyManus` bean，遗留教学测试）；`.githooks/pre-commit:54` 那条排除 10 个类之后才是 87 例绿。两者差异未记录在 AGENTS 的测试命令节，容易让下一个人把红当回归。
+11. **`ai/agent` 的门禁口径是 `.githooks` 的排除名单，不是 AGENTS 那条通用过滤命令**：AGENTS/handoff 记的 `-Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests'` 直接套到 `ai/agent` 会红（97 例 1 错误：`MyManusTest` 注入不存在的 `MyManus` bean，遗留教学测试）；`.githooks/pre-commit:54` 那条排除若干类之后才是绿（**2026-09-15 现状**：排除 9 类 ⇒ 143 例；`MyManusTest` 已随 T8-hard 删除）。两者差异未记录在 AGENTS 的测试命令节，容易让下一个人把红当回归。
+12. **本页（用户可见功能的入口讲解）有三处随档 3／T8-hard 失真，待一次小任务回填**（2026-09-15 独立 review，P2）：
+    - **"只读"口径已不成立**：`/assistant` 页面的 subtitle 写"当前只读不改"、空状态提示写"当前只能读取（空间 / 图片 / 标签词表），不会改动任何数据"，但档 3 已上线写工具（`visionTagger` 看图、`batchEditPictures` 改标签、`batchUploadByUrl` 入库并消耗空间配额），且这些写入会被空间配额记账——**这是给用户的错误承诺**；本页「怎么用」一节同样只描述只读链路。
+    - **错误事件类型的那半句已过期**（见限制 2，已就地订正）。
+    - **门禁数字已过期**（见限制 11，已就地订正）。
+    前端文案与讲解文档都归一次小任务处理（改文案属 `frontend/` 改动，需先立 plan 条目）。
