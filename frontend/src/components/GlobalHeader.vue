@@ -39,12 +39,6 @@
                     <UserOutlined />
                     个人信息
                   </a-menu-item>
-                  <!-- 论坛暂不启用
-                  <a-menu-item @click="goToMyProfile">
-                    <UserOutlined />
-                    我的主页
-                  </a-menu-item>
-                  -->
                   <a-menu-item>
                     <router-link to="/my_space">
                       <AppstoreOutlined />
@@ -238,7 +232,7 @@ import { editUserUsingPost, getUserVoByIdUsingGet, userLogoutUsingPost } from '@
 import { bindEmailUsingPost } from '@/api/authCaptcha.ts'
 import { useImgCaptcha, useEmailCode } from '@/composables/useCaptcha.ts'
 import { uploadFileUsingPost } from '@/api/fileController.ts'
-import { clearNotificationsUsingPost, clearUnreadUsingPost, deleteNotificationUsingPost, getUnreadCountUsingGet, listNotificationsUsingGet } from '@/api/postController.ts'
+import { clearNotificationsUsingPost, clearUnreadUsingPost, deleteNotificationUsingPost, getUnreadCountUsingGet, listNotificationsUsingGet } from '@/api/notificationController.ts'
 import { formatDateTime, formatRelativeTime } from '@/utils'
 
 const emit = defineEmits(['toggle-mobile-menu'])
@@ -252,12 +246,6 @@ const originItems = [
     label: '主页',
     title: '主页',
   },
-  // 论坛暂不启用
-  // {
-  //   key: '/square',
-  //   label: '论坛',
-  //   title: '广场',
-  // },
   {
     key: '/add_picture',
     label: '上传图片',
@@ -346,11 +334,6 @@ const openUserProfile = async () => {
   } finally {
     userProfileLoading.value = false
   }
-}
-
-const goToMyProfile = () => {
-  const uid = loginUserStore.loginUser.id
-  if (uid) router.push('/user/' + uid)
 }
 
 // 编辑模式相关

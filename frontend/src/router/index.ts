@@ -16,9 +16,6 @@ import SearchPicturePage from '@/pages/SearchPicturePage.vue'
 import AssistantPage from '@/pages/AssistantPage.vue'
 import SpaceAnalyzePage from '@/pages/SpaceAnalyzePage.vue'
 import SpaceUserManagePage from '@/pages/admin/SpaceUserManagePage.vue'
-import SquarePage from '@/pages/SquarePage.vue'
-import PostDetailPage from '@/pages/PostDetailPage.vue'
-import UserProfilePage from '@/pages/UserProfilePage.vue'
 import UserExchangeVipPage from '@/pages/UserExchangeVipPage.vue'
 
 
@@ -112,23 +109,6 @@ const router = createRouter({
       path: '/assistant',
       name: 'AI 助手',
       component: AssistantPage,
-    },
-    {
-      path: '/square',
-      name: '论坛',
-      component: SquarePage,
-    },
-    {
-      path: '/user/:id',
-      name: '用户主页',
-      component: UserProfilePage,
-      props: true,
-    },
-    {
-      path: '/post/:id',
-      name: '帖子详情',
-      component: PostDetailPage,
-      props: true,
     },
     {
       path: '/user_exchange_vip',

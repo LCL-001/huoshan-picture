@@ -21,7 +21,7 @@ const cachedPages = ['HomePage', 'SpaceDetailPage']
 const transitionName = computed(() => {
   const path = route.path
   // 详情页从右侧滑入，营造"进入"感
-  if (path.startsWith('/picture/') || path.startsWith('/post/')) {
+  if (path.startsWith('/picture/')) {
     return 'page-slide-right'
   }
   // 其他页面统一淡入
