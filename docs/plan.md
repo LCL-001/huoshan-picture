@@ -145,15 +145,19 @@
 - **T8-hard review 的 P3**、**T6 review 的 P3**：均已收口或转入功能文档「已知限制」。
 - **零碎**：`frontend/src/api/index.ts`（零引用死文件）、`typings.d.ts` 里的 `Post*` 类型——**关闭**：删除它们属于"顺手清理"，按规则 1 不主动做；真要清时随手开一个小任务即可。
 
-### 复核提升为 P2（要做时开任务 + 立字据，因为属"用户可见行为变更"）
+### 复核提升为 P2（**三条已于 2026-09-15 收口**）
 
-1. **上游非 JSON 错误体原文进气泡**（`AiAssistantProxyManager.extractMessage` 非 JSON 时回退截断原文）→ 用户可能看到网关 502 的 HTML。
-2. **前端取票不判 `data.code`**（`api/assistantController.ts:18`）→ Redis 故障时 URL 变 `ticket=null`，用户看到"助手连接中断"而非"未取得凭据"。
-3. **（2026-09-15 T17/T22 验收新发现）回答里的 `## ` 标题字面显示**：前端自写的 Markdown 子集（T11.1）不认 `#` 标题，模型却常用 `## 标题`，于是井号原样透出（实测看到 `## 🏷️ 标签词表参考`）。属于同一类"用户可见"，改动在 `frontend/src/utils/assistantFormat.ts`。
+1. ~~**上游非 JSON 错误体原文进气泡**~~ → **已修**：非 JSON / 无 message 字段时改发通用文案，原文只进日志（`AiAssistantProxyManager.extractMessage`）。单测红→绿，`AiAssistantProxyManagerTest` 13/13（断言 `doesNotContain("Bad Gateway"/"nginx"/"<html>")`）。
+2. ~~**前端取票不判 `data.code`**~~ → **已修**：改判 `code === 0` + 非空字符串，否则 throw 走既有文案。浏览器内故障注入验证：伪造 `HTTP 200 + code=50000` 后**一次 chat 都没发**，用户看到"未能取得本次对话凭据"而非"连接中断"。
+3. ~~**回答里的 `## ` 标题字面显示**~~ → **已修**：新增 `heading` 块并渲染成真标题（`##`→h4、`###`→h5），浏览器实测无字面井号。
+
+实施记录与全部证据：`docs/plans/records/assistant-visible-fixes.md`；口径：`docs/decisions/2026-09-15-assistant-visible-defects.md`。
+
+配套：前端校验脚本**入库**（`frontend/scripts/check-assistant-format.mjs`，`npm run check:assistant-format`，21 断言），补上"复现测试永久保留"在无测试框架下的落点。
 
 ### 已判为「已知限制并关闭」补充（2026-09-15 验收新发现）
 
-- **步骤行里 `visionTagger` 没有中文别名与摘要**（`assistantFormat.ts` 的别名表缺它）：其余工具都渲染成「工具 · 查询空间列表 / 共 37 个空间」，只有打标那行是裸工具名。**关闭**：纯观感，不影响能力判定。
+- ~~**步骤行里 `visionTagger` 没有中文别名与摘要**~~ → **已修**：与上面第 3 项同文件同函数，一并做了（字据里交代了重开理由）；同时补齐 `batchEditPictures` / `batchUploadByUrl` / `searchImage` 的别名与摘要。
 
 ## 任务清单（存量修复，已完成）
 
