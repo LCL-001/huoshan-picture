@@ -35,6 +35,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseListPictureAiTagSuggestionVO_ = {
+    code?: number
+    data?: PictureAiTagSuggestionVO[]
+    message?: string
+  }
+
   type BaseResponseListPictureVO_ = {
     code?: number
     data?: PictureVO[]
@@ -437,6 +443,32 @@ declare namespace API {
     updateTime?: string
     url?: string
     userId?: number
+  }
+
+  /** AI 打标出建议入参：id 是雪花 id，图库统一序列化成字符串，按字符串回传防精度丢失 */
+  type PictureAiTagRequest = {
+    pictureIdList?: string[]
+  }
+
+  /** AI 打标逐张建议/写入结果 */
+  type PictureAiTagSuggestionVO = {
+    category?: string
+    message?: string
+    ok?: boolean
+    pictureId?: string
+    tags?: string[]
+    url?: string
+  }
+
+  /** AI 打标应用入参的单张（空值表示"这项不改"） */
+  type PictureAiTagApplyItem = {
+    category?: string
+    pictureId?: string
+    tags?: string[]
+  }
+
+  type PictureAiTagApplyRequest = {
+    items?: PictureAiTagApplyItem[]
   }
 
   type PictureEditByBatchRequest = {

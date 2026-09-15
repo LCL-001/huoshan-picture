@@ -5,6 +5,17 @@
       <a-space>
         <a-button type="primary" href="/add_picture">+ 上传图片</a-button>
         <a-button type="primary" href="/add_picture/batch" ghost>+ 批量上传图片</a-button>
+        <a-button
+          type="primary"
+          ghost
+          :disabled="!selectedIds.length"
+          @click="aiTagModalRef?.openModal()"
+        >
+          <template #icon>
+            <RobotOutlined />
+          </template>
+          AI 打标{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
+        </a-button>
       </a-space>
     </a-flex>
     <div style="margin-bottom: 16px" />
@@ -48,6 +59,7 @@
       :columns="columns"
       :data-source="dataList"
       :pagination="pagination"
+      :row-selection="{ selectedRowKeys: selectedIds, onChange: onSelectChange }"
       @change="doTableChange"
     >
       <template #bodyCell="{ column, record }">
@@ -120,6 +132,11 @@
         </template>
       </template>
     </a-table>
+    <AiTagPictureModal
+      ref="aiTagModalRef"
+      :picture-ids="selectedIds"
+      :on-success="handleAiTagSuccess"
+    />
   </div>
 </template>
 <script lang="ts" setup>
@@ -129,12 +146,14 @@ import {
   CloseCircleOutlined,
   DeleteOutlined,
   EditOutlined,
+  RobotOutlined,
 } from '@ant-design/icons-vue'
 import {
   deletePictureUsingPost,
   doPictureReviewUsingPost,
   listPictureByPageUsingPost,
 } from '@/api/pictureController.ts'
+import AiTagPictureModal from '@/components/AiTagPictureModal.vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   PIC_REVIEW_STATUS_ENUM,
@@ -278,6 +297,20 @@ const doDelete = (id: string) => {
       }
     },
   })
+}
+
+// AI 打标：勾选的图片 id（雪花 id 由后端序列化成字符串，按字符串回传防精度丢失）
+const selectedIds = ref<string[]>([])
+const aiTagModalRef = ref<InstanceType<typeof AiTagPictureModal>>()
+
+const onSelectChange = (keys: (string | number)[]) => {
+  selectedIds.value = keys.map((key) => String(key))
+}
+
+// 打标写入成功后刷新列表（后端已清列表缓存），并清空勾选
+const handleAiTagSuccess = () => {
+  selectedIds.value = []
+  fetchData()
 }
 
 // 审核图片

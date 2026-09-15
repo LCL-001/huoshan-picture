@@ -296,3 +296,33 @@ export async function uploadPictureByUrlUsingPost(
     ...(options || {}),
   })
 }
+
+/** suggestAiTags POST /api/picture/ai_tag/suggest（仅管理员；只读不写库） */
+export async function suggestAiTagsUsingPost(
+  body: API.PictureAiTagRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseListPictureAiTagSuggestionVO_>('/api/picture/ai_tag/suggest', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** applyAiTags POST /api/picture/ai_tag/apply（仅管理员；只写标签与分类，不动审核状态） */
+export async function applyAiTagsUsingPost(
+  body: API.PictureAiTagApplyRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseListPictureAiTagSuggestionVO_>('/api/picture/ai_tag/apply', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
