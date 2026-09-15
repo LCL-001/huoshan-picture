@@ -1,5 +1,6 @@
 package com.lcl.myaiagent.agent;
 
+import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.model.AgentState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,7 +24,9 @@ class BaseAgentStuckTest {
 
     static class TestAgent extends BaseAgent {
         @Override
-        public String step() { return "ok"; }
+        public List<AgentEvent> step() {
+            return List.of(new AgentEvent.Answer("ok"));
+        }
 
         @Override
         protected void cleanUp() {

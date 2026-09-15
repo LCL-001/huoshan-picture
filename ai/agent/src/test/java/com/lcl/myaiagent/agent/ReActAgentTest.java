@@ -1,5 +1,6 @@
 package com.lcl.myaiagent.agent;
 
+import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.model.AgentState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -7,6 +8,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReActAgentTest {
 
     /**
-     * 可控的 ReActAgent 实现：可预设 think 和 act 的返回值
+     * 可控的 ReActAgent 实现：可预设 think 的返回值与 act 产出的事件
      */
     static class ControlledAgent extends ReActAgent {
         private boolean thinkResult = true;
@@ -37,9 +40,9 @@ class ReActAgentTest {
         }
 
         @Override
-        public String act() {
+        public List<AgentEvent> act() {
             if (throwInAct) throw new RuntimeException("act failed");
-            return actResult;
+            return List.of(new AgentEvent.Answer(actResult));
         }
 
         @Override
@@ -57,50 +60,57 @@ class ReActAgentTest {
         agent.setName("TestReAct");
     }
 
+    /** step() 只产出回答事件时取它的文本，便于断言 */
+    private String answerOf(List<AgentEvent> events) {
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0)).isInstanceOf(AgentEvent.Answer.class);
+        return ((AgentEvent.Answer) events.get(0)).content();
+    }
+
     @Nested
     @DisplayName("step() 流转")
     class StepFlow {
 
         @Test
-        @DisplayName("think() 返回 false → 返回最后一条消息文本，不调用 act()")
+        @DisplayName("think() 返回 false → 产出最后一条消息作为回答，不调用 act()")
         void shouldReturnLastMessageWhenThinkFalse() {
             agent.setThinkResult(false);
             agent.getMessageList().add(new UserMessage("user"));
             agent.getMessageList().add(new AssistantMessage("hello-world"));
 
-            String result = agent.step();
+            String result = answerOf(agent.step());
 
             assertThat(result).isEqualTo("hello-world");
         }
 
         @Test
-        @DisplayName("think() 返回 true → 调用 act() 并返回其结果")
+        @DisplayName("think() 返回 true → 采用 act() 产出的事件")
         void shouldCallActWhenThinkTrue() {
             agent.setThinkResult(true);
             agent.setActResult("tool-executed-successfully");
 
-            String result = agent.step();
+            String result = answerOf(agent.step());
 
             assertThat(result).isEqualTo("tool-executed-successfully");
         }
 
         @Test
-        @DisplayName("think() 抛异常 → 捕获并返回错误信息")
+        @DisplayName("think() 抛异常 → 捕获并以回答事件告知")
         void shouldCatchThinkException() {
             agent.setThrowInThink(true);
 
-            String result = agent.step();
+            String result = answerOf(agent.step());
 
             assertThat(result).contains("步骤执行失败").contains("think failed");
         }
 
         @Test
-        @DisplayName("act() 抛异常 → 捕获并返回错误信息")
+        @DisplayName("act() 抛异常 → 捕获并以回答事件告知")
         void shouldCatchActException() {
             agent.setThinkResult(true);
             agent.setThrowInAct(true);
 
-            String result = agent.step();
+            String result = answerOf(agent.step());
 
             assertThat(result).contains("步骤执行失败").contains("act failed");
         }

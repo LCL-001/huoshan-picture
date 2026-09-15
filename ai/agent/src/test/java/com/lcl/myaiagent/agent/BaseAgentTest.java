@@ -1,37 +1,52 @@
 package com.lcl.myaiagent.agent;
 
+import com.lcl.myaiagent.agent.event.AgentEvent;
+import com.lcl.myaiagent.agent.event.RecordingAgentEventListener;
 import com.lcl.myaiagent.agent.model.AgentState;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
 
 /**
  * BaseAgent 单元测试 — 覆盖状态机、step循环、stuck检测、边界校验
+ * <p>
+ * T8-hard：{@code run()} 已退役，断言口径从"返回的结果串"改为"事件流 + 收集"；帧级契约见
+ * {@code com.lcl.myaiagent.agent.event.SseEventProtocolContractTest}。
  */
 @DisplayName("BaseAgent")
 class BaseAgentTest {
 
     /**
-     * 用于测试的轻量级 BaseAgent 实现
+     * 用于测试的轻量级 BaseAgent 实现：按脚本逐个吐出回答事件
      */
     static class TestAgent extends BaseAgent {
         private final String[] stepResults;
         private int callCount = 0;
+        private boolean finishOnStep = false;
 
         TestAgent(String... stepResults) {
             this.stepResults = stepResults;
             this.setName("TestAgent");
         }
 
+        /** 模拟"这一步就是最终回答"（生产里由 think() 无工具调用时置 FINISHED） */
+        void setFinishOnStep(boolean finishOnStep) {
+            this.finishOnStep = finishOnStep;
+        }
+
         @Override
-        public String step() {
-            if (callCount < stepResults.length) {
-                return stepResults[callCount++];
+        public List<AgentEvent> step() {
+            if (finishOnStep) {
+                setState(AgentState.FINISHED);
             }
-            return "default-step-result";
+            if (callCount < stepResults.length) {
+                return List.of(new AgentEvent.Answer(stepResults[callCount++]));
+            }
+            return List.of(new AgentEvent.Answer("default-step-result"));
         }
 
         @Override
@@ -41,6 +56,13 @@ class BaseAgentTest {
                 setState(AgentState.IDLE);
             }
         }
+    }
+
+    /** 同步驱动一次运行，收回全部事件 */
+    private RecordingAgentEventListener runLoop(BaseAgent agent, String userPrompt) {
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+        agent.runLoop(userPrompt, listener);
+        return listener;
     }
 
     // ==================== 状态机测试 ====================
@@ -57,10 +79,11 @@ class BaseAgentTest {
         }
 
         @Test
-        @DisplayName("run() 后状态回到 IDLE")
+        @DisplayName("运行后状态回到 IDLE")
         void shouldReturnToIdleAfterRun() {
             TestAgent agent = new TestAgent("done");
-            agent.run("test");
+            agent.setMaxSteps(1);
+            runLoop(agent, "test");
             assertThat(agent.getState()).isEqualTo(AgentState.IDLE);
         }
 
@@ -68,9 +91,23 @@ class BaseAgentTest {
         @DisplayName("IDLE → RUNNING → FINISHED → IDLE 完整生命周期")
         void shouldFollowCorrectLifecycle() {
             TestAgent agent = new TestAgent("done");
+            agent.setFinishOnStep(true);
             assertThat(agent.getState()).isEqualTo(AgentState.IDLE);
-            agent.run("test");
+            runLoop(agent, "test");
             assertThat(agent.getState()).isEqualTo(AgentState.IDLE);
+        }
+
+        @Test
+        @DisplayName("step 里置 FINISHED 即收尾，不再发最大步数提示")
+        void shouldStopWhenStepFinishes() {
+            TestAgent agent = new TestAgent("final-answer");
+            agent.setFinishOnStep(true);
+            agent.setMaxSteps(10);
+
+            RecordingAgentEventListener listener = runLoop(agent, "test");
+
+            assertThat(listener.joinedAnswers()).isEqualTo("final-answer");
+            assertThat(listener.joinedAnswers()).doesNotContain("达到最大步骤");
         }
     }
 
@@ -81,31 +118,36 @@ class BaseAgentTest {
     class Validation {
 
         @Test
-        @DisplayName("非 IDLE 状态时 run() 抛出异常")
+        @DisplayName("非 IDLE 状态时以回答事件报错，不进入循环")
         void shouldRejectNonIdleState() {
             TestAgent agent = new TestAgent("step1");
             agent.setState(AgentState.ERROR);
-            assertThatThrownBy(() -> agent.run("test"))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("Can not run agent");
+
+            RecordingAgentEventListener listener = runLoop(agent, "test");
+
+            assertThat(listener.joinedAnswers()).contains("无法从该状态运行代理");
+            assertThat(agent.getMessageList()).isEmpty();
+            assertThat(agent.getCurrentStep()).isZero();
         }
 
         @Test
-        @DisplayName("空提示词时 run() 抛出异常")
+        @DisplayName("空提示词时以回答事件报错")
         void shouldRejectBlankPrompt() {
             TestAgent agent = new TestAgent("done");
-            assertThatThrownBy(() -> agent.run(""))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("can not be empty");
+
+            RecordingAgentEventListener listener = runLoop(agent, "");
+
+            assertThat(listener.joinedAnswers()).contains("用户提示不能为空");
         }
 
         @Test
-        @DisplayName("null 提示词时 run() 抛出异常")
+        @DisplayName("null 提示词时以回答事件报错")
         void shouldRejectNullPrompt() {
             TestAgent agent = new TestAgent("done");
-            assertThatThrownBy(() -> agent.run(null))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("can not be empty");
+
+            RecordingAgentEventListener listener = runLoop(agent, null);
+
+            assertThat(listener.joinedAnswers()).contains("用户提示不能为空");
         }
     }
 
@@ -120,8 +162,10 @@ class BaseAgentTest {
         void shouldTerminateAtMaxStepsWhenStepDoesNotFinish() {
             TestAgent agent = new TestAgent("final-answer");
             agent.setMaxSteps(1);
-            String result = agent.run("hello");
-            assertThat(result).isNotEmpty().contains("Reached max steps");
+
+            RecordingAgentEventListener listener = runLoop(agent, "hello");
+
+            assertThat(listener.joinedAnswers()).contains("达到最大步骤");
         }
 
         @Test
@@ -130,18 +174,20 @@ class BaseAgentTest {
             TestAgent agent = new TestAgent("s1", "s2", "s3", "s4", "s5",
                     "s6", "s7", "s8", "s9", "s10", "s11");
             agent.setMaxSteps(3);
-            String result = agent.run("test");
-            assertThat(result).contains("Reached max steps");
+
+            RecordingAgentEventListener listener = runLoop(agent, "test");
+
+            assertThat(listener.joinedAnswers()).contains("达到最大步骤 (3)");
         }
 
         @Test
-        @DisplayName("currentStep 在 run() 后正确计数")
+        @DisplayName("currentStep 在运行后由 cleanUp 归零")
         void shouldTrackStepCount() {
             TestAgent agent = new TestAgent("a", "b", "c");
             agent.setMaxSteps(2);
-            agent.run("test");
+            runLoop(agent, "test");
             // cleanUp 重置为 0，maxSteps 达到后 FINISH
-            assertThat(agent.getCurrentStep()).isEqualTo(0); // cleanUp 重置
+            assertThat(agent.getCurrentStep()).isEqualTo(0);
         }
     }
 
@@ -165,15 +211,20 @@ class BaseAgentTest {
                 agent.getMessageList().add(
                         new org.springframework.ai.chat.messages.AssistantMessage("repeated-text"));
             }
-            String result = agent.run("test");
-            assertThat(result).contains("Agent stuck in a loop");
+
+            RecordingAgentEventListener listener = runLoop(agent, "test");
+
+            assertThat(listener.joinedAnswers()).contains("检测到循环，智能体已终止");
         }
 
         @Test
         @DisplayName("消息少于2条时 stuck 检测返回 false")
         void shouldReturnFalseWhenTooFewMessages() {
             TestAgent agent = new TestAgent("done");
-            agent.run("single-message");
+            agent.setFinishOnStep(true);
+
+            runLoop(agent, "single-message");
+
             assertThat(agent.getState()).isEqualTo(AgentState.IDLE);
         }
     }
@@ -188,6 +239,7 @@ class BaseAgentTest {
         @DisplayName("runStream() 返回非 null 的 SseEmitter")
         void shouldReturnSseEmitter() {
             TestAgent agent = new TestAgent("done");
+            agent.setFinishOnStep(true);
             var emitter = agent.runStream("hello");
             assertThat(emitter).isNotNull();
         }

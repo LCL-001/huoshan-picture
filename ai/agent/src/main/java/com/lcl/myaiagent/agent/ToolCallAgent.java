@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.model.AgentState;
 import com.lcl.myaiagent.tools.AskHumanTool;
 import lombok.Data;
@@ -140,8 +141,7 @@ public class ToolCallAgent extends ReActAgent {
             AssistantMessage assistantMessage = chatResponse.getResult().getOutput();
             // 输出提示信息
             String result = assistantMessage.getText();
-            // 模型在发起工具调用前的自然语言推理，前端折叠区作为"思考"步骤展示
-            this.lastThinkText = (result == null || result.isBlank()) ? null : result;
+//            log.info(getName() + "的思考：" + result);
             List<AssistantMessage.ToolCall> toolCallList = assistantMessage.getToolCalls();
 //            log.info(getName() + "的思考：" + result);
             log.info(getName() + "选择了" + toolCallList.size() + "个工具来使用");
@@ -166,19 +166,20 @@ public class ToolCallAgent extends ReActAgent {
     }
 
     /**
-     * 执行工具调用并返回结果
+     * 执行工具调用并返回本步要发出的事件
      * <p>
      * 该方法执行以下逻辑：
      * 1. 检查是否有工具调用
      * 2. 使用ToolCallingManager执行工具调用
      * 3. 更新对话历史，添加工具执行结果
-     * 4. 提取并返回工具执行的响应信息
+     * 4. 产出事件——普通工具步是"思考 + 工具结果"两条（思考文本与工具名原先靠受保护字段
+     *    旁路给循环，现已收编进事件载荷）；askHuman / doTerminate 以用户可见的回答收尾
      * </p>
      *
-     * @return 工具执行结果的描述字符串，包含各工具的完成情况和返回数据
+     * @return 本步产出的事件，按发送顺序排列
      */
     @Override
-    public String act() {
+    public List<AgentEvent> act() {
         AssistantMessage assistantMessage = toolCallChatResponse.getResult().getOutput();
         String assistantText = assistantMessage.getText();
         // 调用工具
@@ -190,8 +191,8 @@ public class ToolCallAgent extends ReActAgent {
         setMessageList(new ArrayList<>(toolExecutionResult.conversationHistory()));
         // 获取当前工具调用的结果
         ToolResponseMessage toolResponseMessage = (ToolResponseMessage) CollUtil.getLast(toolExecutionResult.conversationHistory());
-        // 记录本步调用的工具名列表，供 SSE 折叠区展示
-        this.lastToolNames = toolResponseMessage.getResponses().stream()
+        // 本步调用的工具名列表，进工具事件载荷（前端折叠区按"、"连接展示）
+        List<String> toolNames = toolResponseMessage.getResponses().stream()
                 .map(ToolResponseMessage.ToolResponse::name)
                 .toList();
         String results = toolResponseMessage.getResponses().stream()
@@ -207,23 +208,25 @@ public class ToolCallAgent extends ReActAgent {
                 .orElse(null);
         if (askHumanQuestion != null) {
             // askHuman 的提问面向用户，按最终回答渲染而不是过程步骤
-            this.lastStepKind = "answer";
             setState(AgentState.FINISHED);
             log.info("{} needs user clarification: {}", getName(), askHumanQuestion);
-            return askHumanQuestion;
+            return List.of(new AgentEvent.Answer(askHumanQuestion));
         }
         // 判断是否调用了终止工具
         if (toolResponseMessage.getResponses().stream()
                 .anyMatch(toolResponse -> "doTerminate".equals(toolResponse.name()))) {
-            this.lastStepKind = "answer";
             setState(AgentState.FINISHED);
-            if (StrUtil.isNotBlank(assistantText)) {
-                return assistantText;
-            }
-            return "任务结束";
+            return List.of(new AgentEvent.Answer(
+                    StrUtil.isNotBlank(assistantText) ? assistantText : "任务结束"));
         }
         log.info(getName() + "的输出：" + results);
-        return results;
+        // 模型在发起工具调用前的自然语言推理：前端折叠区作为"思考"步骤展示，空则不发这一帧
+        List<AgentEvent> events = new ArrayList<>(2);
+        if (StrUtil.isNotBlank(assistantText)) {
+            events.add(AgentEvent.Step.think(assistantText));
+        }
+        events.add(AgentEvent.Step.tool(String.join("、", toolNames), results));
+        return events;
     }
 
     /**
@@ -250,7 +253,7 @@ public class ToolCallAgent extends ReActAgent {
     /**
      * 清理资源方法
      * <p>
-     * 在run()或runStream()方法执行完成后清理运行时状态。
+     * 在runLoop()方法执行完成后清理运行时状态。
      * 该方法可能被多次调用（正常完成、超时、完成回调），因此实现具有幂等性。
      * 保留消息历史以支持多轮对话，仅重置执行控制相关的临时状态。
      * </p>

@@ -1,7 +1,9 @@
 package com.lcl.myaiagent.agent;
 
 import cn.hutool.core.util.StrUtil;
-import com.alibaba.dashscope.common.Role;
+import com.lcl.myaiagent.agent.event.AgentEvent;
+import com.lcl.myaiagent.agent.event.AgentEventListener;
+import com.lcl.myaiagent.agent.event.SseAgentEventListener;
 import com.lcl.myaiagent.agent.model.AgentState;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -9,12 +11,9 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -29,6 +28,10 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 @Data
 public abstract class BaseAgent {
+
+    /** SSE 连接超时（与后端代理 AiAssistantProxyManager.EMITTER_TIMEOUT_MS 对齐） */
+    private static final long SSE_TIMEOUT_MS = 300_000L;
+
     // 智能体名称
     private String name;
 
@@ -56,13 +59,6 @@ public abstract class BaseAgent {
     // 会话 ID：Advisor 读写外部 ChatMemory 时用它定位会话
     private String conversationId;
 
-    // 最近一步的分类与明细，runStream 据此选择 SSE 事件类型：
-    // lastStepKind = "tool"（调用了工具的过程步，进前端折叠区）
-    //               或 "answer"（面向用户的最终回答，进气泡）
-    protected String lastStepKind = "answer";
-    protected String lastThinkText;
-    protected List<String> lastToolNames = new ArrayList<>();
-
     // 添加重复内容阈值
     private int duplicateThreshold = 2;
 
@@ -75,179 +71,19 @@ public abstract class BaseAgent {
     public static final String STUCK_PROMPT_PREFIX = "观察到重复响应";
 
     /**
-     * 运行智能体，处理用户输入并返回执行结果
-     * <p>
-     * 该方法执行以下流程：
-     * 1. 校验当前状态和用户输入
-     * 2. 设置运行状态并记录用户消息
-     * 3. 循环执行智能体步骤直到完成或达到最大步数
-     * 4. 处理异常并清理资源
-     * </p>
-     *
-     * @param userPrompt 用户输入的提示信息，不能为空
-     * @return 执行结果字符串，包含各步骤的执行结果或错误信息
-     * @throws RuntimeException 当智能体状态不为IDLE或用户输入为空时抛出
-     */
-    public String run(String userPrompt) {
-        // 校验
-        if (this.state != AgentState.IDLE) {
-            throw new RuntimeException("Can not run agent from state: " + this.state);
-        }
-        if (StrUtil.isBlank(userPrompt)) {
-            throw new RuntimeException("User prompt can not be empty.");
-        }
-        // 更改状态
-        this.state = AgentState.RUNNING;
-        // 重置循环计数器
-        this.stuckCount = 0;
-        // 记录上下文
-        this.messageList.add(new UserMessage(userPrompt));
-        // 保存结果列表
-        List<String> results = new ArrayList<>();
-        try {
-            int stepNumber = 0;
-            // 执行
-            while (this.currentStep < this.maxSteps && this.state != AgentState.FINISHED) {
-                stepNumber++;
-                this.currentStep = stepNumber;
-                log.info("Executing step: {}/{}", stepNumber, this.maxSteps);
-                // 单步执行
-                String stepResult = this.step();
-                // 检查是否陷入循环
-                if (isStuck()) {
-                    handleStuckState();
-                    if (this.state == AgentState.FINISHED) {
-                        results.add("Terminated: Agent stuck in a loop");
-                        break;
-                    }
-                }
-                String result = "Step " + stepNumber + ": " + stepResult;
-                results.add(result);
-            }
-            // 检查是否超出步骤限制
-            if (this.currentStep >= this.maxSteps) {
-                this.state = AgentState.FINISHED;
-                results.add("Terminated: Reached max steps (" + this.maxSteps + ")");
-            }
-            return String.join("\n", results);
-        } catch (Exception e) {
-            this.state = AgentState.ERROR;
-            log.error("Error executing agent: ", e);
-            return "执行错误，Error: " + e.getMessage();
-        } finally {
-            // 清理资源
-            this.cleanUp();
-        }
-    }
-
-    /**
      * 以流式方式运行智能体，通过SSE（Server-Sent Events）实时返回执行结果
      * <p>
-     * 该方法使用异步执行和SSE技术，将智能体的每一步执行结果实时推送给客户端。
-     * 主要流程包括：
-     * 1. 创建SseEmitter对象并设置5分钟超时
-     * 2. 在异步线程中校验状态和输入参数
-     * 3. 循环执行智能体步骤，每步完成后立即发送结果
-     * 4. 处理异常、超时和完成事件，确保资源正确清理
+     * 运行本身收敛在 {@link #runLoop(String, AgentEventListener)}：本方法只负责备好事件流载体、
+     * 挂上连接生命周期回调，再把循环交给异步线程。循环产出的每一步都经
+     * {@link SseAgentEventListener} 翻成帧（step/answer/metrics/[DONE]）。
      * </p>
      *
      * @param userPrompt 用户输入的提示信息，不能为空
      * @return SseEmitter SSE发射器对象，用于向客户端推送流式响应
      */
     public SseEmitter runStream(String userPrompt) {
-        // 创建 SseEmitter 对象，超时设置为 5 分钟
-        SseEmitter emitter = new SseEmitter(300000L);
-        // 校验（sendEvent 自身会吞掉断连 IOException 并置停止标记，
-        // 内层已用 catch(Exception) 兜底，外层不再需要 try/catch）
-        CompletableFuture.runAsync(() -> {
-            {
-                if (this.state != AgentState.IDLE) {
-                    sendEvent(emitter, "answer", Map.of("content", "错误：无法从该状态运行代理：" + this.state));
-                    emitter.complete();
-                    return;
-                }
-                if (StrUtil.isBlank(userPrompt)) {
-                    sendEvent(emitter, "answer", Map.of("content", "错误：用户提示不能为空。"));
-                    emitter.complete();
-                    return;
-                }
-                // 更改状态
-                this.state = AgentState.RUNNING;
-                // 重置循环计数器
-                this.stuckCount = 0;
-                // 记录上下文
-                this.messageList.add(new UserMessage(userPrompt));
-
-                try {
-                    int stepNumber = 0;
-                    // 执行
-                    while (this.currentStep < this.maxSteps && this.state != AgentState.FINISHED && !this.stopped) {
-                        stepNumber++;
-                        this.currentStep = stepNumber;
-                        log.info("Executing step: {}/{}", stepNumber, this.maxSteps);
-                        // 单步执行
-                        String stepResult = this.step();
-                        // 按步骤类型分流：工具调用/思考进前端折叠区，最终回答进气泡
-                        if ("tool".equals(this.lastStepKind)) {
-                            if (this.lastThinkText != null) {
-                                sendEvent(emitter, "step", Map.of(
-                                        "kind", "think", "name", "思考", "content", this.lastThinkText));
-                            }
-                            sendEvent(emitter, "step", Map.of(
-                                    "kind", "tool",
-                                    "name", String.join("、", this.lastToolNames),
-                                    "content", stepResult));
-                        } else {
-                            sendEvent(emitter, "answer", Map.of("content", stepResult));
-                        }
-                        // 每一步 step 执行完都要检查是否陷入循环
-                        if (isStuck()) {
-                            handleStuckState();
-                            if (this.state == AgentState.FINISHED) {
-                                sendEvent(emitter, "answer", Map.of("content", "检测到循环，智能体已终止"));
-                                emitter.send("[DONE]");
-                                break;
-                            }
-                        }
-                    }
-                    if (this.stopped) {
-                        // 用户点了"停止生成"：连接已断开，不再向它写数据，
-                        // 终止执行（当前这步的 LLM 调用无法中断，但后续步骤不再执行）
-                        this.state = AgentState.FINISHED;
-                        log.info("用户停止生成，Agent 提前终止, steps={}", this.currentStep);
-                        emitter.complete();
-                    } else {
-                        // 检查是否超出步骤限制
-                        if (this.currentStep >= this.maxSteps) {
-                            this.state = AgentState.FINISHED;
-                            sendEvent(emitter, "answer", Map.of("content", "执行结束：达到最大步骤 (" + this.maxSteps + ")"));
-                        }
-                        // 运行级指标：子类可提供（event=metrics，前端折叠条尾部展示），默认不发
-                        Map<String, Object> summary = runSummary();
-                        if (summary != null) {
-                            sendEvent(emitter, "metrics", summary);
-                        }
-                        // 正常完成
-                        emitter.send("[DONE]");
-                        emitter.complete();
-                    }
-                } catch (Exception e) {
-                    this.state = AgentState.ERROR;
-                    log.error("Error executing agent: ", e);
-                    try {
-                        sendEvent(emitter, "answer", Map.of("content", "执行错误，Error: " + e.getMessage()));
-                        emitter.send("[DONE]");
-                        emitter.complete();
-                    } catch (IOException ex) {
-                        emitter.completeWithError(ex);
-                    }
-                } finally {
-                    // 清理资源
-                    this.cleanUp();
-                }
-            }
-        });
-        // 设置超时和完成回调
+        SseEmitter emitter = createEmitter();
+        // 回调只改状态与停止标记，不直接向 emitter 写数据——收尾统一由 SseAgentEventListener 负责
         emitter.onError(e -> {
             // 前端"停止生成"会断开连接，容器在下一次写入失败时触发此回调：
             // 置停止标记，让执行循环在当前步结束后立即退出，不再发起后续 LLM 调用
@@ -260,7 +96,6 @@ public abstract class BaseAgent {
             this.cleanUp();
             log.warn("SSE connection timed out.");
         });
-
         emitter.onCompletion(() -> {
             if (this.state == AgentState.RUNNING) {
                 this.state = AgentState.FINISHED;
@@ -268,49 +103,125 @@ public abstract class BaseAgent {
             this.cleanUp();
             log.info("SSE connection completed.");
         });
+        CompletableFuture.runAsync(() -> runLoop(userPrompt,
+                new SseAgentEventListener(emitter, () -> this.stopped = true)));
         return emitter;
     }
 
     /**
-     * 运行结束时的指标汇总（runStream 正常结束路径、[DONE] 之前以 event=metrics 发出）。
-     * 默认返回 null 不发事件；子类按需提供（如 DeepResearch 的检索/来源计数）。
+     * 事件流载体：单点定义，便于测试覆写为记录型 emitter 断言帧序列
+     * （与后端 AiAssistantProxyManager.createEmitter() 同一手法）。
+     */
+    protected SseEmitter createEmitter() {
+        return new SseEmitter(SSE_TIMEOUT_MS);
+    }
+
+    /**
+     * 唯一的运行循环——T8-hard 之前 run() 与 runStream() 各有一份，现已收敛到这里。
+     * <p>
+     * 不变量：**每条流以恰好一个 Done 事件收尾**（校验失败、达最大步数、卡死终止、用户停止、
+     * 异常终止都走同一处收尾），消费端据此确认流正常结束；除 Done 外的事件由子类
+     * {@link #step()} 产出。
+     * <p>
+     * 可在测试中同步驱动（配收集型监听器）；生产路径由 {@link #runStream(String)} 异步驱动。
+     */
+    protected void runLoop(String userPrompt, AgentEventListener listener) {
+        // 校验：不抛异常，失败以事件告知消费端（端点是 SSE，客户端读不到 HTTP 错误体）
+        if (this.state != AgentState.IDLE) {
+            listener.onEvent(new AgentEvent.Answer("错误：无法从该状态运行代理：" + this.state));
+            listener.onEvent(new AgentEvent.Done());
+            return;
+        }
+        if (StrUtil.isBlank(userPrompt)) {
+            listener.onEvent(new AgentEvent.Answer("错误：用户提示不能为空。"));
+            listener.onEvent(new AgentEvent.Done());
+            return;
+        }
+        // 更改状态
+        this.state = AgentState.RUNNING;
+        // 重置循环计数器
+        this.stuckCount = 0;
+        // 记录上下文
+        this.messageList.add(new UserMessage(userPrompt));
+
+        try {
+            // 执行
+            while (this.currentStep < this.maxSteps && this.state != AgentState.FINISHED && !this.stopped) {
+                int stepNumber = ++this.currentStep;
+                log.info("Executing step: {}/{}", stepNumber, this.maxSteps);
+                // 单步执行，逐条事件发给消费端
+                for (AgentEvent event : this.step()) {
+                    listener.onEvent(event);
+                }
+                // 每一步 step 执行完都要检查是否陷入循环
+                if (isStuck()) {
+                    handleStuckState();
+                    if (this.state == AgentState.FINISHED) {
+                        listener.onEvent(new AgentEvent.Answer("检测到循环，智能体已终止"));
+                        break;
+                    }
+                }
+            }
+            if (this.stopped) {
+                // 用户点了"停止生成"：连接已断开，不再向它写数据，
+                // 终止执行（当前这步的 LLM 调用无法中断，但后续步骤不再执行）
+                this.state = AgentState.FINISHED;
+                log.info("用户停止生成，Agent 提前终止, steps={}", this.currentStep);
+            } else {
+                // 检查是否超出步骤限制
+                if (this.currentStep >= this.maxSteps) {
+                    this.state = AgentState.FINISHED;
+                    listener.onEvent(new AgentEvent.Answer("执行结束：达到最大步骤 (" + this.maxSteps + ")"));
+                }
+                emitMetrics(listener);
+            }
+        } catch (Exception e) {
+            this.state = AgentState.ERROR;
+            log.error("Error executing agent: ", e);
+            listener.onEvent(new AgentEvent.Answer("执行错误，Error: " + e.getMessage()));
+        } finally {
+            // 收尾：恰好一个 Done（缺口"卡死路径双发 [DONE]""校验失败流不以 [DONE] 收尾"在此修正）
+            listener.onEvent(new AgentEvent.Done());
+            // 清理资源
+            this.cleanUp();
+        }
+    }
+
+    /**
+     * 运行结束时的指标汇总（正常收尾路径、Done 之前以 event=metrics 发出）。
+     * 默认返回 null 不发事件；子类按需提供（如检索/来源计数）。
      * 用户主动停止、SSE 超时、异常结束不发——指标只描述完整跑完的运行。
+     * <p>
+     * 注意：返回值的键会平铺进帧里，键名不得取 event/kind/name/content。
      */
     protected Map<String, Object> runSummary() {
         return null;
     }
 
-    /**
-     * 向 SSE 发送一个 JSON 事件。Spring 按 APPLICATION_JSON 序列化 Map，
-     * 内容中的换行会被转义，不会撕裂 SSE 帧，前端 JSON.parse 后按 event 字段分流。
-     * 连接已断（如用户点了停止生成）时置停止标记，执行循环下一轮退出。
-     */
-    private void sendEvent(SseEmitter emitter, String event, Map<String, Object> data) {
-        try {
-            Map<String, Object> payload = new HashMap<>(data);
-            payload.put("event", event);
-            emitter.send(payload, MediaType.APPLICATION_JSON);
-        } catch (IOException e) {
-            this.stopped = true;
+    private void emitMetrics(AgentEventListener listener) {
+        Map<String, Object> summary = runSummary();
+        if (summary != null) {
+            listener.onEvent(new AgentEvent.Metrics(summary));
         }
     }
 
     /**
      * 执行智能体的单步操作
      * <p>
-     * 子类必须实现此方法来定义具体的单步执行逻辑。
-     * 该方法会在run()方法的循环中被调用，每次执行代表智能体的一个推理或行动步骤。
+     * 子类必须实现此方法来定义具体的单步执行逻辑。返回本步要发给消费端的事件（通常 1-2 条：
+     * 工具步是"思考 + 工具结果"两条，回答步是 1 条），循环按序发出——T8-hard 之前靠
+     * lastStepKind/lastThinkText/lastToolNames 三个受保护字段旁路给循环传分类与明细，现已收编。
      * </p>
      *
-     * @return 当前步骤的执行结果描述
+     * @return 本步产出的事件，可为空列表（不发任何帧）
      */
-    public abstract String step();
+    public abstract List<AgentEvent> step();
 
     /**
      * 清理智能体占用的资源
      * <p>
-     * 在run()方法执行完成后（无论正常结束还是异常）都会被调用，
-     * 子类应在此方法中实现必要的资源清理逻辑，如关闭连接、释放内存等。
+     * 在runLoop()执行完成后（无论正常结束还是异常）都会被调用，
+     * 子类应在此方法中实现必要的资源清理逻辑。实现须幂等：循环收尾与 SSE 完成回调都会调用它。
      * </p>
      */
     protected abstract void cleanUp();

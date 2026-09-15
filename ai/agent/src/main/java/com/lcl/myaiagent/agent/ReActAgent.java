@@ -1,10 +1,11 @@
 package com.lcl.myaiagent.agent;
 
+import com.lcl.myaiagent.agent.event.AgentEvent;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
+import java.util.List;
 
 /**
  * ReAct智能体抽象基类，继承自BaseAgent
@@ -31,46 +32,41 @@ public abstract class ReActAgent extends BaseAgent {
     public abstract boolean think();
 
     /**
-     * 执行具体行动并返回结果
+     * 执行具体行动并返回本步要发出的事件
      * <p>
      * 该方法实现智能体的行动逻辑，在think()返回true后被调用，
      * 执行具体的操作或任务。
      * </p>
      *
-     * @return 行动的执行结果描述
+     * @return 本步产出的事件（工具步：思考 + 工具结果；以用户提问收尾的步：一条回答）
      */
-    public abstract String act();
+    public abstract List<AgentEvent> act();
 
     /**
      * 执行ReAct模式的单步操作，包含思考和行动两个阶段
      * <p>
      * 该方法重写了父类的step()方法，实现了ReAct模式的核心逻辑：
      * 1. 首先调用think()进行思考判断
-     * 2. 如果think()返回false，则直接返回"思考完成 - 无需行动"
+     * 2. 如果think()返回false，则以最后一条助手消息作为回答事件（该消息通常已由 think() 写入）
      * 3. 如果think()返回true，则调用act()执行具体行动
      * 4. 捕获并处理执行过程中的异常
      * </p>
      *
-     * @return 执行结果，可能是"思考完成 - 无需行动"、行动结果或错误信息
+     * @return 本步产出的事件
      */
     @Override
-    public String step() {
-        // 每步重置分类：think() 返回 false 走 answer（最终回答），act() 走 tool（过程步）
-        this.lastStepKind = "answer";
-        this.lastThinkText = null;
-        this.lastToolNames = new ArrayList<>();
+    public List<AgentEvent> step() {
         try {
             boolean shouldAct = this.think();
             if (!shouldAct) {
-                // 如果不需要执行行动，则返回最后一条助手消息
-                return getMessageList().getLast().getText();
+                // 如果不需要执行行动，则以最后一条助手消息作为最终回答
+                return List.of(new AgentEvent.Answer(getMessageList().getLast().getText()));
             }
-            this.lastStepKind = "tool";
             return this.act();
         } catch (Exception e) {
             // 记录异常日志
             log.error("执行错误：{}", e.getMessage());
-            return "步骤执行失败：" + e.getMessage();
+            return List.of(new AgentEvent.Answer("步骤执行失败：" + e.getMessage()));
         }
     }
 }

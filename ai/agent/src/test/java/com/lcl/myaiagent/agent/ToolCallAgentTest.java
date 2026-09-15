@@ -1,5 +1,6 @@
 package com.lcl.myaiagent.agent;
 
+import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.model.AgentState;
 import com.lcl.myaiagent.tools.AskHumanTool;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,8 +39,12 @@ class ToolCallAgentTest {
     }
 
     void setUpAgent(List<AssistantMessage.ToolCall> toolCalls) {
+        setUpAgent(toolCalls, "assistant-text");
+    }
+
+    void setUpAgent(List<AssistantMessage.ToolCall> toolCalls, String assistantText) {
         AssistantMessage msg = mock(AssistantMessage.class);
-        when(msg.getText()).thenReturn("assistant-text");
+        when(msg.getText()).thenReturn(assistantText);
         when(msg.getToolCalls()).thenReturn(toolCalls);
 
         Generation generation = mock(Generation.class);
@@ -121,7 +126,7 @@ class ToolCallAgentTest {
     class ActPhase {
 
         @Test
-        @DisplayName("普通工具 → 返回执行结果")
+        @DisplayName("普通工具 → 产出「思考 + 工具结果」两条事件（受保护字段收编的落点）")
         void shouldExecuteTool() {
             setUpAgent(List.of(toolCall("webSearch", "{}")));
             agent.think();
@@ -130,12 +135,38 @@ class ToolCallAgentTest {
                     .responses(List.of(toolResponse("webSearch", "搜索完成")))
                     .build());
 
-            String result = agent.act();
-            assertThat(result).contains("webSearch").contains("搜索完成");
+            List<AgentEvent> events = agent.act();
+
+            assertThat(events).hasSize(2);
+            AgentEvent.Step think = (AgentEvent.Step) events.get(0);
+            assertThat(think.kind()).isEqualTo(AgentEvent.Step.KIND_THINK);
+            assertThat(think.name()).isEqualTo(AgentEvent.Step.NAME_THINK);
+            assertThat(think.content()).isEqualTo("assistant-text");
+
+            AgentEvent.Step tool = (AgentEvent.Step) events.get(1);
+            assertThat(tool.kind()).isEqualTo(AgentEvent.Step.KIND_TOOL);
+            assertThat(tool.name()).isEqualTo("webSearch");
+            assertThat(tool.content()).contains("webSearch").contains("搜索完成");
         }
 
         @Test
-        @DisplayName("askHuman → FINISHED + 返回剥掉前缀的裸问题")
+        @DisplayName("模型没留自然语言推理 → 只发工具帧，不发空思考帧")
+        void shouldSkipThinkFrameWhenModelSaidNothing() {
+            setUpAgent(List.of(toolCall("webSearch", "{}")), "   ");
+            agent.think();
+
+            mockToolExecution(ToolResponseMessage.builder()
+                    .responses(List.of(toolResponse("webSearch", "搜索完成")))
+                    .build());
+
+            List<AgentEvent> events = agent.act();
+
+            assertThat(events).hasSize(1);
+            assertThat(((AgentEvent.Step) events.get(0)).kind()).isEqualTo(AgentEvent.Step.KIND_TOOL);
+        }
+
+        @Test
+        @DisplayName("askHuman → FINISHED + 一条回答事件，内容是剥掉前缀的裸问题")
         void shouldHandleAskHuman() {
             setUpAgent(List.of(toolCall("askHuman", "{}")));
             agent.think();
@@ -145,16 +176,19 @@ class ToolCallAgentTest {
                             AskHumanTool.ASK_HUMAN_PREFIX + "你的名字？")))
                     .build());
 
-            String result = agent.act();
+            List<AgentEvent> events = agent.act();
+
             assertThat(agent.getState()).isEqualTo(AgentState.FINISHED);
+            assertThat(events).hasSize(1);
             // 既定行为（与 ChatHistoryAssembler 还原逻辑、前端渲染一致）：
-            // askHuman 的提问面向用户，作为最终回答返回，不得带内部前缀
-            assertThat(result).isEqualTo("你的名字？");
-            assertThat(result).doesNotContain(AskHumanTool.ASK_HUMAN_PREFIX);
+            // askHuman 的提问面向用户，作为最终回答发出，不得带内部前缀
+            String answer = ((AgentEvent.Answer) events.get(0)).content();
+            assertThat(answer).isEqualTo("你的名字？");
+            assertThat(answer).doesNotContain(AskHumanTool.ASK_HUMAN_PREFIX);
         }
 
         @Test
-        @DisplayName("doTerminate → FINISHED")
+        @DisplayName("doTerminate → FINISHED + 以模型的自然语言收尾")
         void shouldHandleTerminate() {
             setUpAgent(List.of(toolCall("doTerminate", "{}")));
             agent.think();
@@ -163,8 +197,11 @@ class ToolCallAgentTest {
                     .responses(List.of(toolResponse("doTerminate", "done")))
                     .build());
 
-            String result = agent.act();
+            List<AgentEvent> events = agent.act();
+
             assertThat(agent.getState()).isEqualTo(AgentState.FINISHED);
+            assertThat(events).hasSize(1);
+            assertThat(((AgentEvent.Answer) events.get(0)).content()).isEqualTo("assistant-text");
         }
     }
 
