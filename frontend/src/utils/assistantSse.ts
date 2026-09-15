@@ -9,10 +9,12 @@ export interface AssistantStreamHandlers {
   onStep: (step: AssistantStep) => void
   onAnswer: (content: string) => void
   onError: (messageText: string) => void
+  /** 引擎侧的能力降级提示（T22，如"搜图服务暂不可用"）：可选实现，没实现就静默忽略 */
+  onNotice?: (messageText: string) => void
   onDone: () => void
 }
 
-/** 引擎事件协议里 data 帧的 JSON 形状（event 字段区分 step/answer/metrics） */
+/** 引擎事件协议里 data 帧的 JSON 形状（event 字段区分 step/answer/metrics/error/notice） */
 interface AssistantEventPayload {
   event?: string
   kind?: string
@@ -66,6 +68,9 @@ export class AssistantStream {
         // 引擎侧的失败收尾（超时/调用失败）：content 是给用户看的固定文案，原文只在引擎日志里
         this.serverErrorReported = true
         handlers.onError(payload.content ?? '助手出错了，请重试')
+      } else if (payload.event === 'notice') {
+        // 能力降级提示（T22）：不是失败，只是"本轮环境与往常不同"，照常继续
+        handlers.onNotice?.(payload.content ?? '')
       }
       // metrics：图库助手当前不发（引擎侧未覆盖 runSummary），真发了也不渲染
     }

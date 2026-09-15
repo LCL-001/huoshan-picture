@@ -96,6 +96,16 @@ public abstract class BaseAgent {
      * @return SseEmitter SSE发射器对象，用于向客户端推送流式响应
      */
     public SseEmitter runStream(String userPrompt) {
+        return runStream(userPrompt, List.of());
+    }
+
+    /**
+     * 带"开场事件"的流式运行（T22）：开场事件在**循环之前**按序发出（例：搜图 MCP 降级提示），
+     * 校验失败（非 IDLE / 空提示词）时**不发**——那两条路径只回一条错误回答。
+     *
+     * @param openingEvents 本轮开头要发的事件，可为空列表；不得包含 Done（收尾由循环负责）
+     */
+    public SseEmitter runStream(String userPrompt, List<AgentEvent> openingEvents) {
         SseEmitter emitter = createEmitter();
         // 回调只改状态与停止标记，不直接向 emitter 写数据——收尾统一由 SseAgentEventListener 负责
         emitter.onError(e -> {
@@ -118,7 +128,7 @@ public abstract class BaseAgent {
             log.info("SSE connection completed.");
         });
         CompletableFuture.runAsync(() -> runLoop(userPrompt,
-                new SseAgentEventListener(emitter, () -> this.stopped = true)));
+                new SseAgentEventListener(emitter, () -> this.stopped = true), openingEvents));
         return emitter;
     }
 
@@ -140,6 +150,19 @@ public abstract class BaseAgent {
      * 可在测试中同步驱动（配收集型监听器）；生产路径由 {@link #runStream(String)} 异步驱动。
      */
     protected void runLoop(String userPrompt, AgentEventListener listener) {
+        runLoop(userPrompt, listener, List.of());
+    }
+
+    /**
+     * 唯一的运行循环的重载形态：多一个"开场事件"列表（T22），在进入循环前按序发出。
+     * <p>
+     * 只在校验通过后发——非 IDLE / 空提示词两条路径直接返回，不发开场事件（那两条只回一条错误回答）。
+     * 放在 loop 的 try 里发，保证"发出即收尾"的语义与其它路径一致（异常照样以 error + Done 收尾）。
+     * </p>
+     *
+     * @param openingEvents 本轮开头要发的事件（如降级提示），不得包含 Done
+     */
+    protected void runLoop(String userPrompt, AgentEventListener listener, List<AgentEvent> openingEvents) {
         // 校验：不抛异常，失败以事件告知消费端（端点是 SSE，客户端读不到 HTTP 错误体）
         if (this.state != AgentState.IDLE) {
             listener.onEvent(new AgentEvent.Answer("错误：无法从该状态运行代理：" + this.state));
@@ -159,6 +182,10 @@ public abstract class BaseAgent {
         this.messageList.add(new UserMessage(userPrompt));
 
         try {
+            // 开场事件（T22）：本轮的环境说明先于循环产出，例如"搜图服务暂不可用"
+            for (AgentEvent opening : openingEvents) {
+                listener.onEvent(opening);
+            }
             // 执行
             while (this.currentStep < this.maxSteps && this.state != AgentState.FINISHED && !this.stopped) {
                 int stepNumber = ++this.currentStep;

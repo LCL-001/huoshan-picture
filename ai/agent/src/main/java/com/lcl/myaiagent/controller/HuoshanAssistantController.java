@@ -3,6 +3,7 @@ package com.lcl.myaiagent.controller;
 import cn.hutool.core.util.StrUtil;
 import com.lcl.myaiagent.agent.HuoshanAssistantAgent;
 import com.lcl.myaiagent.agent.HuoshanAssistantSession;
+import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.chatmemory.FlowWindowBasedChatMemory;
 import com.lcl.myaiagent.common.ErrorCode;
 import com.lcl.myaiagent.config.HuoshanAssistantProperties;
@@ -25,6 +26,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.List;
+
 /**
  * 图库助手 headless 端点（T8 档 1）：服务间 API key 鉴权 + 外部用户标识映射 + 用户真实 satoken 透传，
  * SSE 事件协议复用现有 step/answer/metrics/[DONE]（循环未改，前端折叠条按同一语义渲染）。
@@ -38,6 +41,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RestController
 @RequestMapping("/ai/huoshan")
 public class HuoshanAssistantController {
+
+    /**
+     * 搜图 MCP 降级时的用户可见提示（T22）：只说"能力暂时少了哪一个 + 其余照常"，
+     * 不带失败原因与地址（那是日志的事），也不提"服务名"——用户认不出"MCP"这个词。
+     */
+    static final String MCP_DEGRADED_NOTICE = "图片搜索服务暂时不可用，本轮对话无法帮你搜图（其它能力不受影响）";
 
     @Resource
     private OpenAiChatModels openAiChatModels;
@@ -108,12 +117,15 @@ public class HuoshanAssistantController {
                     conversationId);
         }
         // 搜图 MCP 工具（T9）：只挂给图库助手，MyManus 的工具表（ToolRegistration）不动。
-        // MCP 服务不可达时这里降级为空数组（T19：少一个工具照常开对话，不再让整条对话失败）
-        ToolCallback[] mcpTools = mcpToolCallbackResolver.resolve(mcpToolCallbackProvider::getIfAvailable);
+        // MCP 服务不可达时这里降级为空数组（T19：少一个工具照常开对话，不再让整条对话失败）；
+        // T22：降级时在**本轮开头**给用户一条可见提示——原先只有日志，用户会以为是"助手搜不了"这件事本身
+        McpToolCallbackResolver.McpTools mcp = mcpToolCallbackResolver.resolve(mcpToolCallbackProvider::getIfAvailable);
         ToolCallback[] tools = HuoshanToolFactory.assistantTools(
-                huoshanProperties.apiClient(satoken, sessionId), visionModel, canTagPictures, mcpTools);
+                huoshanProperties.apiClient(satoken, sessionId), visionModel, canTagPictures, mcp.callbacks());
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),
                 conversationId, flowWindowBasedChatMemory);
-        return agent.runStream(message);
+        return mcp.degraded()
+                ? agent.runStream(message, List.of(new AgentEvent.Notice(MCP_DEGRADED_NOTICE)))
+                : agent.runStream(message);
     }
 }

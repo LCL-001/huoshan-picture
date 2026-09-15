@@ -29,6 +29,7 @@
 
         <div v-for="(turn, index) in turns" :key="index" class="assistant-turn">
           <div class="assistant-bubble assistant-bubble--user">{{ turn.question }}</div>
+          <div v-if="turn.notice" class="assistant-notice">{{ turn.notice }}</div>
           <StepTimeline :steps="turn.steps" :running="turn.running" />
           <div v-if="turn.answer" class="assistant-bubble assistant-bubble--assistant">
             <AssistantText :text="turn.answer" />
@@ -67,6 +68,8 @@ interface AssistantTurn {
   question: string
   answer: string
   steps: AssistantStep[]
+  /** 引擎侧的能力降级提示（T22，如"图片搜索服务暂时不可用"）：本轮环境与往常不同时才有 */
+  notice?: string
   running: boolean
 }
 
@@ -139,6 +142,11 @@ const send = async () => {
       // 已有回答时把原因追加在后面，避免用户只看到半截回答却不知道出了什么事
       turn.running = false
       turn.answer = turn.answer ? `${turn.answer}\n\n${text}` : text
+      scrollToBottom()
+    },
+    onNotice: (text) => {
+      // 能力降级提示（T22）：单独一行，不混进回答里——它不是模型说的话
+      turn.notice = text
       scrollToBottom()
     },
     onDone: () => {
@@ -257,6 +265,17 @@ onUnmounted(() => stream.stop())
   background: var(--app-surface);
   /* 助手回答交给 AssistantText 按块渲染（Markdown 子集），不再原样保留换行 */
   white-space: normal;
+}
+
+/* 引擎侧的能力降级提示（T22）：不是错误、也不是模型说的话，单独一行弱化展示 */
+.assistant-notice {
+  align-self: flex-start;
+  max-width: 82%;
+  padding: 6px 10px;
+  border: 1px dashed var(--app-border-soft);
+  border-radius: var(--app-radius-md);
+  font-size: 12px;
+  opacity: 0.85;
 }
 
 /* ---------- 空状态 ---------- */

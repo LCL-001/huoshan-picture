@@ -13,7 +13,7 @@ import java.util.Map;
  * {@code BaseAgent.lastStepKind} / {@code lastThinkText} / {@code lastToolNames} 三个受保护字段
  * 在"子类 → 循环"之间传递分类与明细的旁路，已由本接口取代。
  */
-public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, AgentEvent.Metrics, AgentEvent.Error, AgentEvent.Done {
+public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, AgentEvent.Metrics, AgentEvent.Error, AgentEvent.Notice, AgentEvent.Done {
 
     /**
      * 过程步（进前端折叠区）。
@@ -62,6 +62,18 @@ public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, A
      * 前端按 {@code event=error} 分流到错误提示，代理 {@code relay()} 原样透传。
      */
     record Error(String content) implements AgentEvent {
+    }
+
+    /**
+     * 运行期提示（T22）：**引擎侧**的能力降级说明，与 step/answer 一样进对话区，但它不是模型产出、
+     * 也不代表失败——它是"这一轮的环境与往常不同"的如实告知。
+     * <p>
+     * 首个用例（T22）：搜图 MCP 服务不可用 ⇒ 本轮不挂搜图工具。原先只有一行日志（静默降级），
+     * 用户看到的是模型答"我搜不了"、无从判断是自己问错了还是服务出了事。现在在**本轮开头**发一条提示。
+     * 产出方是调用方（{@code BaseAgent.runStream} 的 opening 事件），不是循环。
+     * </p>
+     */
+    record Notice(String content) implements AgentEvent {
     }
 
     /** 一条流的终止帧。每条流恰好一个，且必须是最后一帧。 */

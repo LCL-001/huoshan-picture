@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 帧格式（契约见 docs/plans/2026-09-15-T8hard-循环收敛实施计划.md，帧级断言见
  * {@code SseEventProtocolContractTest}）：
  * <ul>
- *   <li>Step / Answer / Metrics → {@code data:{JSON 对象}}，对象里有 {@code event} 字段区分类型；</li>
+ *   <li>Step / Answer / Metrics / Error / Notice → {@code data:{JSON 对象}}，对象里有 {@code event} 字段区分类型；</li>
  *   <li>Done → {@code data:[DONE]}（**原始文本，不是 JSON**——代理按原样识别终止帧），随后 complete()。</li>
  * </ul>
  * 本类不改 agent 状态：写失败（客户端点了"停止生成"或连接已断）时回调 onClientGone，
@@ -92,6 +92,10 @@ public class SseAgentEventListener implements AgentEventListener {
             case AgentEvent.Error error -> {
                 payload.put("content", error.content());
                 payload.put("event", "error");
+            }
+            case AgentEvent.Notice notice -> {
+                payload.put("content", notice.content());
+                payload.put("event", "notice");
             }
             case AgentEvent.Done ignored -> throw new IllegalStateException("Done 不走 JSON 帧");
         }

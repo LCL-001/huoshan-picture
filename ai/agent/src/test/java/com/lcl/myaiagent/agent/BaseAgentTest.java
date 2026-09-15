@@ -128,6 +128,40 @@ class BaseAgentTest {
         }
     }
 
+    // ==================== 开场事件（T22） ====================
+
+    @Nested
+    @DisplayName("开场事件")
+    class OpeningEvents {
+
+        @Test
+        @DisplayName("开场事件先于循环产出发出（降级提示靠它就位）")
+        void openingEventsAreEmittedBeforeLoopEvents() {
+            TestAgent agent = new TestAgent("final-answer");
+            agent.setFinishOnStep(true);
+            RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+            agent.runLoop("test", listener, List.of(new AgentEvent.Notice("图片搜索服务暂时不可用")));
+
+            assertThat(listener.events()).hasSize(3);
+            assertThat(listener.events().get(0)).isInstanceOf(AgentEvent.Notice.class);
+            assertThat(listener.events().get(1)).isInstanceOf(AgentEvent.Answer.class);
+            assertThat(listener.events().get(2)).isInstanceOf(AgentEvent.Done.class);
+        }
+
+        @Test
+        @DisplayName("校验失败时不发开场事件（那两条路径只回一条错误回答 + Done）")
+        void openingEventsAreSkippedWhenValidationFails() {
+            TestAgent agent = new TestAgent("final-answer");
+            RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+            agent.runLoop("", listener, List.of(new AgentEvent.Notice("图片搜索服务暂时不可用")));
+
+            assertThat(listener.events()).noneMatch(AgentEvent.Notice.class::isInstance);
+            assertThat(listener.joinedAnswers()).contains("用户提示不能为空");
+        }
+    }
+
     // ==================== 输入校验 ====================
 
     @Nested

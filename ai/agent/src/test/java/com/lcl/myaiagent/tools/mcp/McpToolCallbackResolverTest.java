@@ -64,7 +64,7 @@ class McpToolCallbackResolverTest {
     void returnsTheProviderToolsWhenMcpIsReachable() {
         AtomicInteger lookups = new AtomicInteger();
 
-        ToolCallback[] tools = resolver.resolve(counting(lookups, () -> searchTools()));
+        ToolCallback[] tools = toolsOf(counting(lookups, () -> searchTools()));
 
         assertThat(namesOf(tools)).containsExactly("searchImage");
         assertThat(lookups).as("正常路径不改行为：照常解析一次").hasValue(1);
@@ -74,8 +74,8 @@ class McpToolCallbackResolverTest {
     void missingProviderBeanYieldsNoToolsAndDoesNotEnterCooldown() {
         AtomicInteger lookups = new AtomicInteger();
 
-        assertThat(resolver.resolve(counting(lookups, () -> null))).isEmpty();
-        assertThat(resolver.resolve(counting(lookups, () -> null))).isEmpty();
+        assertThat(toolsOf(counting(lookups, () -> null))).isEmpty();
+        assertThat(toolsOf(counting(lookups, () -> null))).isEmpty();
 
         assertThat(lookups)
                 .as("Bean 不存在（AI_MCP_CLIENT_ENABLED=false 或没配连接）是配置选择、不是失败，不该进冷却")
@@ -84,7 +84,7 @@ class McpToolCallbackResolverTest {
 
     @Test
     void beanLookupFailureIsDegradedInsteadOfFailingTheDialog() {
-        ToolCallback[] tools = resolver.resolve(() -> {
+        ToolCallback[] tools = toolsOf(() -> {
             throw new IllegalStateException("MCP client bean 创建失败（桩）");
         });
 
@@ -100,7 +100,7 @@ class McpToolCallbackResolverTest {
             throw new CompletionException(new ConnectException("Connection refused: localhost/127.0.0.1:8127"));
         };
 
-        assertThat(resolver.resolve(() -> broken))
+        assertThat(toolsOf(() -> broken))
                 .as("复现基线的失败形态：过去它让整条对话回 50000，现在只少一个工具")
                 .isEmpty();
     }
@@ -112,8 +112,8 @@ class McpToolCallbackResolverTest {
             throw new CompletionException(new ConnectException("Connection refused"));
         };
 
-        assertThat(resolver.resolve(counting(lookups, () -> broken))).isEmpty();
-        assertThat(resolver.resolve(counting(lookups, () -> broken))).isEmpty();
+        assertThat(toolsOf(counting(lookups, () -> broken))).isEmpty();
+        assertThat(toolsOf(counting(lookups, () -> broken))).isEmpty();
 
         assertThat(lookups)
                 .as("冷却期内不再尝试解析（否则每次对话都要白等一次 request-timeout）")
@@ -126,14 +126,14 @@ class McpToolCallbackResolverTest {
         ToolCallbackProvider broken = () -> {
             throw new CompletionException(new ConnectException("Connection refused"));
         };
-        assertThat(resolver.resolve(counting(lookups, () -> broken))).isEmpty();
+        assertThat(toolsOf(counting(lookups, () -> broken))).isEmpty();
 
         clock.advance(Duration.ofSeconds(60));
-        assertThat(namesOf(resolver.resolve(counting(lookups, () -> searchTools()))))
+        assertThat(namesOf(toolsOf(counting(lookups, () -> searchTools()))))
                 .as("冷却到期自动重试，服务起来了就自愈")
                 .containsExactly("searchImage");
 
-        assertThat(namesOf(resolver.resolve(counting(lookups, () -> searchTools()))))
+        assertThat(namesOf(toolsOf(counting(lookups, () -> searchTools()))))
                 .as("成功后冷却被清除：下一次直接走解析")
                 .containsExactly("searchImage");
         assertThat(lookups).hasValue(3);
@@ -160,12 +160,12 @@ class McpToolCallbackResolverTest {
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<ToolCallback[]> first = executor.submit(() -> resolver.resolve(blockingFailure));
+            Future<ToolCallback[]> first = executor.submit(() -> toolsOf(blockingFailure));
             assertThat(firstLookupStarted.await(5, TimeUnit.SECONDS))
                     .as("首个会话已经取得 MCP 探测资格并处于在途状态")
                     .isTrue();
 
-            Future<ToolCallback[]> concurrent = executor.submit(() -> resolver.resolve(blockingFailure));
+            Future<ToolCallback[]> concurrent = executor.submit(() -> toolsOf(blockingFailure));
             assertThat(concurrent.get(5, TimeUnit.SECONDS))
                     .as("已有探测在途时，并发会话应立即按少一个工具降级")
                     .isEmpty();
@@ -186,7 +186,48 @@ class McpToolCallbackResolverTest {
     void nullToolArrayIsTreatedAsNoTools() {
         ToolCallbackProvider emptyProvider = () -> null;
 
-        assertThat(resolver.resolve(() -> emptyProvider)).isEmpty();
+        assertThat(toolsOf(() -> emptyProvider)).isEmpty();
+    }
+
+    /** 只取工具数组（既有断言的读法）：T22 起 resolve 返回"工具 + 是否降级" */
+    private ToolCallback[] toolsOf(Supplier<ToolCallbackProvider> supplier) {
+        return resolver.resolve(supplier).callbacks();
+    }
+
+    // ---------- T22：降级要给用户一句可见提示，这里钉住"哪些情况算降级" ----------
+
+    @Test
+    void reachableMcpIsNotReportedAsDegraded() {
+        assertThat(resolver.resolve(() -> searchTools()).degraded())
+                .as("正常路径不该给用户任何提示")
+                .isFalse();
+    }
+
+    @Test
+    void missingBeanIsNotReportedAsDegraded() {
+        assertThat(resolver.resolve(() -> null).degraded())
+                .as("Bean 不存在是配置选择（没启用 MCP），不是故障，不提示用户")
+                .isFalse();
+    }
+
+    @Test
+    void failureAndCooldownWindowAreReportedAsDegradedAndRecoveryClearsIt() {
+        ToolCallbackProvider broken = () -> {
+            throw new CompletionException(new ConnectException("Connection refused"));
+        };
+
+        assertThat(resolver.resolve(() -> broken).degraded())
+                .as("服务不可达 ⇒ 降级（用户要看到提示）")
+                .isTrue();
+        assertThat(resolver.resolve(() -> searchTools()).degraded())
+                .as("冷却期内（连探测都不做）同样是降级")
+                .isTrue();
+
+        clock.advance(Duration.ofSeconds(60));
+
+        assertThat(resolver.resolve(() -> searchTools()).degraded())
+                .as("服务恢复、冷却被清除后不再降级")
+                .isFalse();
     }
 
     private static ToolCallbackProvider searchTools() {
