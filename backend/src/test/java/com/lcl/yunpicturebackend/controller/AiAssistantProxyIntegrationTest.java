@@ -68,6 +68,8 @@ class AiAssistantProxyIntegrationTest {
     private static volatile String receivedApiKey;
     private static volatile String receivedSatoken;
     private static volatile String receivedCookie;
+    /** T17：透传给引擎的调用者角色（引擎按它裁剪工具集） */
+    private static volatile String receivedUserRole;
 
     @Autowired
     private IUserService userService;
@@ -107,6 +109,7 @@ class AiAssistantProxyIntegrationTest {
         receivedApiKey = exchange.getRequestHeaders().getFirst("X-Internal-Api-Key");
         receivedSatoken = exchange.getRequestHeaders().getFirst("satoken");
         receivedCookie = exchange.getRequestHeaders().getFirst("Cookie");
+        receivedUserRole = exchange.getRequestHeaders().getFirst("X-User-Role");
         // 记录完再自增，测试侧以 REQUESTS>0 作为"记录已就绪"的信号
         REQUESTS.incrementAndGet();
         byte[] body = "data:[DONE]\n\n".getBytes(StandardCharsets.UTF_8);
@@ -181,6 +184,9 @@ class AiAssistantProxyIntegrationTest {
         assertThat(receivedApiKey).isEqualTo(INTERNAL_API_KEY);
         assertThat(receivedSatoken).isEqualTo(satokenCookie.getValue());
         assertThat(receivedCookie).isEqualTo("SESSION=" + RAW_SESSION_COOKIE);
+        assertThat(receivedUserRole)
+                .as("T17：真实登录用户的角色（夹具是普通用户）也要原样到引擎，引擎据此决定挂不挂看图打标工具")
+                .isEqualTo(UserConstant.DEFAULT_ROLE);
     }
 
     /** 只带 satoken、不带会话 Cookie：代理入口即拒，不把请求打到引擎（plan T10 负向验收） */

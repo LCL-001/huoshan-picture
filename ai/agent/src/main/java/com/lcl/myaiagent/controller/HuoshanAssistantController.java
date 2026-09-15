@@ -89,16 +89,24 @@ public class HuoshanAssistantController {
         String conversationId = HuoshanAssistantSession.conversationId(owner, chatId);
         log.info("图库助手会话开始, owner={}, conversationId={}", owner, conversationId);
 
+        // T17：看图打标是管理员能力（用户 2026-09-15 拍板，普通用户的助手摘掉只读打标）。
+        // 角色头缺失/未知一律按普通用户处理（fail-closed，见 HuoshanAssistantSession.isAdmin）；
+        // 这里刻意不把角色原文写进日志——它来自请求头，与 chatId 同属"可换行注入"的那一类输入。
+        boolean canTagPictures = HuoshanAssistantSession.isAdmin(
+                request.getHeader(HuoshanAssistantSession.USER_ROLE_HEADER));
         // 视觉模型没配就不挂 visionTagger：宁可让模型看见"手上没有这个工具"，也不给它一个每次都报错的工具
         ChatModel visionModel = openAiChatModels.hasVision() ? openAiChatModels.vision() : null;
         if (visionModel == null) {
             log.warn("视觉模型未配置（app.ai.openai.vision.*），本次会话不挂 visionTagger：看图打标不可用");
+        } else if (!canTagPictures) {
+            log.info("调用者非管理员，本次会话不挂 visionTagger（看图打标仅管理员可用）, conversationId={}",
+                    conversationId);
         }
         // 搜图 MCP 工具（T9）：只挂给图库助手，MyManus 的工具表（ToolRegistration）不动
         ToolCallbackProvider mcpProvider = mcpToolCallbackProvider.getIfAvailable();
         ToolCallback[] mcpTools = mcpProvider == null ? new ToolCallback[0] : mcpProvider.getToolCallbacks();
         ToolCallback[] tools = HuoshanToolFactory.assistantTools(
-                huoshanProperties.apiClient(satoken, sessionId), visionModel, mcpTools);
+                huoshanProperties.apiClient(satoken, sessionId), visionModel, canTagPictures, mcpTools);
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),
                 conversationId, flowWindowBasedChatMemory);
         return agent.runStream(message);

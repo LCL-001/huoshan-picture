@@ -51,6 +51,8 @@ public class AiAssistantProxyManager {
     private static final String INTERNAL_API_KEY_HEADER = "X-Internal-Api-Key";
     private static final String SATOKEN_HEADER = "satoken";
     private static final String SESSION_COOKIE_NAME = "SESSION";
+    /** T17：调用者角色，引擎按它决定本次会话挂不挂看图打标工具（缺省即非管理员） */
+    private static final String USER_ROLE_HEADER = "X-User-Role";
     private static final String DATA_PREFIX = "data:";
     private static final String DONE_FLAG = "[DONE]";
     private static final int ERROR_BODY_MAX_CHARS = 2048;
@@ -85,12 +87,15 @@ public class AiAssistantProxyManager {
      * @param satoken       调用者 sa-token（原样透传，由图库服务端判 RBAC）
      * @param sessionCookie 调用者 Spring Session 会话 Cookie 的**原始值**（空间接口需要它；
      *                      注意是 Cookie 值本身，不是 session.getId()——两者在 Base64 编码下不等价）
+     * @param userRole      调用者角色（T17：引擎按它裁剪工具集，只有管理员挂看图打标工具）。
+     *                      这只影响"引擎给模型看哪些工具"，权限判定仍全部落在图库服务端
      */
-    public SseEmitter chat(String message, Long userId, String chatId, String satoken, String sessionCookie) {
+    public SseEmitter chat(String message, Long userId, String chatId, String satoken, String sessionCookie,
+                           String userRole) {
         ForwardRequest request = new ForwardRequest(
                 requireConfigured(properties.getEngineBaseUrl(), "图库助手引擎地址未配置"),
                 requireConfigured(properties.getInternalApiKey(), "图库助手引擎密钥未配置"),
-                message, userId, chatId, satoken, sessionCookie);
+                message, userId, chatId, satoken, sessionCookie, userRole);
 
         SseEmitter emitter = createEmitter();
         AtomicReference<HttpURLConnection> upstream = new AtomicReference<>();
@@ -136,6 +141,10 @@ public class AiAssistantProxyManager {
         connection.setRequestProperty(INTERNAL_API_KEY_HEADER, request.apiKey());
         connection.setRequestProperty(SATOKEN_HEADER, request.satoken());
         connection.setRequestProperty("Cookie", SESSION_COOKIE_NAME + "=" + request.sessionCookie());
+        // 角色为空时干脆不发这个头：引擎按"非管理员"处理（fail-closed）比发一个空值更明确
+        if (StrUtil.isNotBlank(request.userRole())) {
+            connection.setRequestProperty(USER_ROLE_HEADER, request.userRole());
+        }
         connection.setRequestProperty("Accept", SSE_CONTENT_TYPE);
         connection.setConnectTimeout(toMillis(properties.getConnectTimeout()));
         connection.setReadTimeout(toMillis(properties.getReadTimeout()));
@@ -285,6 +294,6 @@ public class AiAssistantProxyManager {
 
     /** 一次转发所需的全部入参（凭据只在请求生命周期内存流转，不落库、不进日志） */
     private record ForwardRequest(String baseUrl, String apiKey, String message, Long userId,
-                                  String chatId, String satoken, String sessionCookie) {
+                                  String chatId, String satoken, String sessionCookie, String userRole) {
     }
 }

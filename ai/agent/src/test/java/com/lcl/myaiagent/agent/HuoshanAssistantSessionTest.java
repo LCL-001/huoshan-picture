@@ -9,6 +9,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * T8-lite 身份映射单测（docs/plan.md T8 档 1）：外部用户标识 → 会话归属前缀；
  * 会话 id 由归属 + chatId 确定性派生（同一用户同一会话稳定续聊），且**跨用户不可读**
  * （换个 userId 就落到另一个会话 id），长度稳定落在 conversation.id varchar(64) 内。
+ * <p>
+ * T17 起还钉住调用者角色的判定（{@link HuoshanAssistantSession#isAdmin(String)}）：只有 admin 算管理员、
+ * 其余一律 fail-closed——这个判定直接决定普通用户的助手挂不挂看图打标工具。
+ * </p>
  */
 class HuoshanAssistantSessionTest {
 
@@ -61,5 +65,22 @@ class HuoshanAssistantSessionTest {
 
         assertThat(first).hasSize(36);
         assertThat(first).isNotEqualTo(second).as("没有 chatId 时每次是独立新会话");
+    }
+
+    @Test
+    void treatsOnlyTheAdminRoleAsAdmin() {
+        assertThat(HuoshanAssistantSession.isAdmin("admin")).isTrue();
+        assertThat(HuoshanAssistantSession.isAdmin(" ADMIN ")).as("大小写与两侧空白不该改变判定").isTrue();
+        assertThat(HuoshanAssistantSession.isAdmin("user")).isFalse();
+        assertThat(HuoshanAssistantSession.isAdmin("administrator")).as("只认全等，不做前缀匹配").isFalse();
+    }
+
+    /** T17 fail-closed：角色头缺失/空/异常值一律按普通用户——少挂一个工具，而不是默认多给一个 */
+    @Test
+    void treatsMissingOrBlankRoleAsNonAdmin() {
+        assertThat(HuoshanAssistantSession.isAdmin(null)).as("头缺失（调用方没透传）").isFalse();
+        assertThat(HuoshanAssistantSession.isAdmin("")).isFalse();
+        assertThat(HuoshanAssistantSession.isAdmin("   ")).isFalse();
+        assertThat(HuoshanAssistantSession.isAdmin("root")).isFalse();
     }
 }

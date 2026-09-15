@@ -15,6 +15,11 @@ import java.util.List;
  * （{@link VisionTaggerTool}）；一期**不注册**删除类工具（整理只增改不删，设计文档 L97），
  * 也不挂文件/终端类工具（图库助手只挂图库工具集 + MCP 搜图，设计文档 L69）。
  * </p>
+ * <p>
+ * T17 起**看图打标只挂给管理员会话**（用户 2026-09-15 拍板：普通用户的助手摘掉只读打标，
+ * 打标是管理员能力）：其余五个工具不分角色——它们以调用者自己的凭据打图库 API，
+ * 能改到什么由图库服务端判 RBAC。
+ * </p>
  */
 public final class HuoshanToolFactory {
 
@@ -22,12 +27,14 @@ public final class HuoshanToolFactory {
     }
 
     /**
-     * @param visionModel 多模态模型（见 OpenAiChatModels.vision()）；**为 null 时不挂 visionTagger**——
-     *                    没配视觉模型就该让模型看到"手上没有这个工具"，而不是给它一个每次都报错的工具
-     * @param extraTools  额外工具（T9：搜图 MCP 服务的工具回调）；MCP 没配就是空数组
+     * @param visionModel     多模态模型（见 OpenAiChatModels.vision()）；**为 null 时不挂 visionTagger**——
+     *                        没配视觉模型就该让模型看到"手上没有这个工具"，而不是给它一个每次都报错的工具
+     * @param canTagPictures  调用者是否管理员（见 {@code HuoshanAssistantSession.isAdmin}）：为 false 时不挂
+     *                        visionTagger——普通用户的助手看不到、也调不到看图打标（T17）
+     * @param extraTools      额外工具（T9：搜图 MCP 服务的工具回调）；MCP 没配就是空数组
      */
     public static ToolCallback[] assistantTools(HuoshanApiClient client, ChatModel visionModel,
-                                                ToolCallback... extraTools) {
+                                                boolean canTagPictures, ToolCallback... extraTools) {
         List<Object> tools = new ArrayList<>(List.of(
                 new ListSpacesTool(client),
                 new ListPicturesTool(client),
@@ -35,7 +42,7 @@ public final class HuoshanToolFactory {
                 new BatchEditPicturesTool(client),
                 new BatchUploadByUrlTool(client)
         ));
-        if (visionModel != null) {
+        if (visionModel != null && canTagPictures) {
             tools.add(new VisionTaggerTool(client, visionModel));
         }
         List<ToolCallback> callbacks = new ArrayList<>(List.of(ToolCallbacks.from(tools.toArray())));

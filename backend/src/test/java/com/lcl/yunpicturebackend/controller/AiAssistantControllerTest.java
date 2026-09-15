@@ -2,6 +2,7 @@ package com.lcl.yunpicturebackend.controller;
 
 import cn.dev33.satoken.SaManager;
 import com.lcl.yunpicturebackend.common.BaseResponse;
+import com.lcl.yunpicturebackend.constant.UserConstant;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
@@ -60,7 +61,7 @@ class AiAssistantControllerTest {
         proxyManager = mock(AiAssistantProxyManager.class);
         ticketManager = mock(AiAssistantTicketManager.class);
         controller = new AiAssistantController(userService, proxyManager, ticketManager, "satoken", "SESSION");
-        when(proxyManager.chat(any(), any(), any(), any(), any())).thenReturn(new SseEmitter());
+        when(proxyManager.chat(any(), any(), any(), any(), any(), any())).thenReturn(new SseEmitter());
         // 常规用例里 TOKEN 就是 USER_ID 真实登录产出的那把，TICKET 就是发给 USER_ID 的那张票
         seedSpaceToken(TOKEN, USER_ID);
         when(ticketManager.consume(TICKET)).thenReturn(USER_ID);
@@ -103,7 +104,41 @@ class AiAssistantControllerTest {
         SseEmitter emitter = controller.chat(MESSAGE, "chat-1", TICKET, request);
 
         assertThat(emitter).isNotNull();
-        verify(proxyManager).chat(MESSAGE, USER_ID, "chat-1", TOKEN, SESSION_COOKIE_VALUE);
+        verify(proxyManager).chat(MESSAGE, USER_ID, "chat-1", TOKEN, SESSION_COOKIE_VALUE,
+                UserConstant.DEFAULT_ROLE);
+    }
+
+    /**
+     * T17：管理员会话必须把角色如实透传给引擎——引擎按它决定挂不挂看图打标工具
+     * （角色是"引擎给模型看哪些工具"的输入，权限判定仍全在图库服务端）。
+     */
+    @Test
+    void forwardsAdminRoleWhenCallerIsAdmin() {
+        MockHttpServletRequest request = loggedInRequest();
+        request.addHeader("satoken", TOKEN);
+        User admin = new User();
+        admin.setId(USER_ID);
+        admin.setUserRole(UserConstant.ADMIN_ROLE);
+        when(userService.getLoginUser(any())).thenReturn(admin);
+
+        controller.chat(MESSAGE, null, TICKET, request);
+
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.ADMIN_ROLE);
+    }
+
+    /** 角色为空（存量数据）按最低角色发：不默认给管理员，与引擎侧"只认正面匹配"同口径 */
+    @Test
+    void forwardsDefaultRoleWhenCallerRoleIsBlank() {
+        MockHttpServletRequest request = loggedInRequest();
+        request.addHeader("satoken", TOKEN);
+        User legacy = new User();
+        legacy.setId(USER_ID);
+        legacy.setUserRole("   ");
+        when(userService.getLoginUser(any())).thenReturn(legacy);
+
+        controller.chat(MESSAGE, null, TICKET, request);
+
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.DEFAULT_ROLE);
     }
 
     /**
@@ -120,7 +155,7 @@ class AiAssistantControllerTest {
 
         controller.chat(MESSAGE, null, TICKET, request);
 
-        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE);
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.DEFAULT_ROLE);
     }
 
     @Test
@@ -129,7 +164,7 @@ class AiAssistantControllerTest {
 
         controller.chat(MESSAGE, null, TICKET, request);
 
-        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE);
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.DEFAULT_ROLE);
     }
 
     @Test
@@ -139,7 +174,7 @@ class AiAssistantControllerTest {
 
         controller.chat(MESSAGE, null, TICKET, request);
 
-        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE);
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.DEFAULT_ROLE);
     }
 
     @Test
@@ -150,7 +185,8 @@ class AiAssistantControllerTest {
 
         controller.chat(MESSAGE, null, TICKET, request);
 
-        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN + "-header", SESSION_COOKIE_VALUE);
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN + "-header", SESSION_COOKIE_VALUE,
+                UserConstant.DEFAULT_ROLE);
     }
 
     @Test
@@ -160,7 +196,7 @@ class AiAssistantControllerTest {
 
         controller.chat(MESSAGE, null, TICKET, request);
 
-        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE);
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.DEFAULT_ROLE);
     }
 
     @Test
@@ -299,7 +335,7 @@ class AiAssistantControllerTest {
         when(ticketManager.consume("single-use-ticket")).thenReturn(USER_ID, null);
 
         controller.chat(MESSAGE, null, "single-use-ticket", loggedInRequestWithSatokenCookie());
-        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE);
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.DEFAULT_ROLE);
 
         MockHttpServletRequest replay = loggedInRequestWithSatokenCookie();
         assertThatThrownBy(() -> controller.chat(MESSAGE, null, "single-use-ticket", replay))
@@ -316,7 +352,7 @@ class AiAssistantControllerTest {
         SseEmitter emitter = controller.chat(MESSAGE, null, TICKET, request);
 
         assertThat(emitter).isNotNull();
-        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE);
+        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.DEFAULT_ROLE);
     }
 
     // ---------- 签发端点（POST /ai/assistant/ticket） ----------

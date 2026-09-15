@@ -2,6 +2,7 @@ package com.lcl.yunpicturebackend.manager.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lcl.yunpicturebackend.config.AiAssistantProperties;
+import com.lcl.yunpicturebackend.constant.UserConstant;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.sun.net.httpserver.HttpExchange;
@@ -55,6 +56,8 @@ class AiAssistantProxyManagerTest {
     private static volatile String stubSatoken;
     private static volatile String stubCookie;
     private static volatile String stubAccept;
+    /** T17：透传给引擎的调用者角色（引擎按它裁剪工具集） */
+    private static volatile String stubUserRole;
     private static volatile int stubStatus;
     private static volatile String stubContentType;
     private static volatile String stubBody;
@@ -92,6 +95,7 @@ class AiAssistantProxyManagerTest {
         stubSatoken = null;
         stubCookie = null;
         stubAccept = null;
+        stubUserRole = null;
         stubStatus = 200;
         stubContentType = "text/event-stream; charset=utf-8";
         stubBody = "";
@@ -105,6 +109,7 @@ class AiAssistantProxyManagerTest {
         stubSatoken = exchange.getRequestHeaders().getFirst("satoken");
         stubCookie = exchange.getRequestHeaders().getFirst("Cookie");
         stubAccept = exchange.getRequestHeaders().getFirst("Accept");
+        stubUserRole = exchange.getRequestHeaders().getFirst("X-User-Role");
         byte[] body = stubBody.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", stubContentType);
         // 0 = chunked：SSE 的真实形态（不定长、写完即关）
@@ -148,7 +153,7 @@ class AiAssistantProxyManagerTest {
                 + "data:[DONE]\n\n";
 
         RecordingManager manager = manager();
-        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID);
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).containsExactly(
@@ -166,6 +171,32 @@ class AiAssistantProxyManagerTest {
         assertThat(stubSatoken).isEqualTo(SATOKEN);
         assertThat(stubCookie).isEqualTo("SESSION=" + SESSION_ID);
         assertThat(stubAccept).contains("text/event-stream");
+        assertThat(stubUserRole).as("T17：角色随凭据一起透传，引擎按它裁剪工具集")
+                .isEqualTo(UserConstant.DEFAULT_ROLE);
+    }
+
+    /** T17：管理员角色也要如实到引擎——引擎据此才挂得上看图打标工具 */
+    @Test
+    void forwardsAdminRoleHeaderSoEngineCanMountTaggingTool() {
+        stubBody = "data:[DONE]\n\n";
+
+        RecordingManager manager = manager();
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.ADMIN_ROLE);
+        manager.emitter.awaitFrames();
+
+        assertThat(stubUserRole).isEqualTo(UserConstant.ADMIN_ROLE);
+    }
+
+    /** 角色为空时不发这个头：引擎按"非管理员"处理（fail-closed），比发一个空值更明确 */
+    @Test
+    void omitsRoleHeaderWhenRoleIsBlank() {
+        stubBody = "data:[DONE]\n\n";
+
+        RecordingManager manager = manager();
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, "   ");
+        manager.emitter.awaitFrames();
+
+        assertThat(stubUserRole).isNull();
     }
 
     @Test
@@ -176,7 +207,7 @@ class AiAssistantProxyManagerTest {
                 + "data:[DONE]\n\n";
 
         RecordingManager manager = manager();
-        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID);
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).containsExactly(
@@ -190,7 +221,7 @@ class AiAssistantProxyManagerTest {
         stubBody = "data:[DONE]\n\n";
 
         RecordingManager manager = manager();
-        manager.chat(MESSAGE, 123L, null, SATOKEN, SESSION_ID);
+        manager.chat(MESSAGE, 123L, null, SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
         manager.emitter.awaitFrames();
 
         assertThat(queryOf(stubUri)).doesNotContainKey("chatId");
@@ -206,7 +237,7 @@ class AiAssistantProxyManagerTest {
                 + "data:[DONE]\n\n";
 
         RecordingManager manager = manager();
-        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID);
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).containsExactly(
@@ -222,7 +253,7 @@ class AiAssistantProxyManagerTest {
         stubBody = "{\"code\":40100,\"data\":null,\"message\":\"内部接口未授权：缺少或错误的 X-Internal-Api-Key\"}";
 
         RecordingManager manager = manager();
-        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID);
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).hasSize(2);
@@ -237,7 +268,7 @@ class AiAssistantProxyManagerTest {
         stubBody = "{\"code\":50000,\"data\":null,\"message\":\"图库助手模型未配置：请设置 app.ai.openai.assistant.api-key 与 model\"}";
 
         RecordingManager manager = manager();
-        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID);
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).hasSize(2);
@@ -254,7 +285,7 @@ class AiAssistantProxyManagerTest {
 
         RecordingManager manager = new RecordingManager(
                 properties("http://127.0.0.1:" + closedPort + "/api", API_KEY), executor);
-        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID);
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).hasSize(2);
@@ -266,7 +297,8 @@ class AiAssistantProxyManagerTest {
     void failsClosedWhenEngineKeyMissing() {
         RecordingManager manager = new RecordingManager(properties(engineBaseUrl, " "), executor);
 
-        assertThatThrownBy(() -> manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID))
+        assertThatThrownBy(() -> manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID,
+                UserConstant.DEFAULT_ROLE))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("引擎密钥未配置")
                 .extracting(e -> ((BusinessException) e).getCode())
@@ -278,7 +310,8 @@ class AiAssistantProxyManagerTest {
     void failsClosedWhenEngineUrlMissing() {
         RecordingManager manager = new RecordingManager(properties("", API_KEY), executor);
 
-        assertThatThrownBy(() -> manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID))
+        assertThatThrownBy(() -> manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID,
+                UserConstant.DEFAULT_ROLE))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("引擎地址未配置");
         assertThat(REQUESTS.get()).isZero();
@@ -288,7 +321,7 @@ class AiAssistantProxyManagerTest {
     void reportsFailureLoudlyWhenExecutorIsSaturated() {
         RecordingManager manager = new RecordingManager(properties(engineBaseUrl, API_KEY), new RejectingExecutor());
 
-        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID);
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
 
         assertThat(manager.emitter.awaitFrames()).isEmpty();
         assertThat(manager.emitter.failed).isTrue();

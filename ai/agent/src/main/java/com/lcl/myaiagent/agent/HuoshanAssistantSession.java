@@ -14,15 +14,38 @@ import java.util.regex.Pattern;
  * ② 分布式 UUID 天然按图库用户隔离——调用方即便拿到别人的 chatId，也算不出同一个会话 id，
  * 读不到别人的记忆。
  * </p>
+ * <p>
+ * T17 起这里还承载**调用者角色**（见 {@link #isAdmin(String)}）：角色决定本次会话挂不挂看图打标工具，
+ * 与"归属"同属"这次调用是谁"的一部分。
+ * </p>
  */
 public final class HuoshanAssistantSession {
 
     /** 外部标识前缀：图库用户与引擎自身用户 id 不会互相串台 */
     public static final String OWNER_PREFIX = "huoshan:";
 
+    /** 调用者角色请求头（图库代理透传，与 satoken 同走服务间密钥那条信道） */
+    public static final String USER_ROLE_HEADER = "X-User-Role";
+
+    /** 与图库 {@code UserConstant.ADMIN_ROLE} 同值：看图为管理员能力（T17） */
+    public static final String ADMIN_ROLE = "admin";
+
     private static final Pattern EXTERNAL_USER_ID = Pattern.compile("\\d{1,32}");
 
     private HuoshanAssistantSession() {
+    }
+
+    /**
+     * 调用者是否管理员（T17）。
+     * <p>
+     * **fail-closed**：头缺失、空串、未知值一律按普通用户处理——少挂一个工具，而不是默认多给一个。
+     * 之所以只认正面匹配：这个头由图库代理由服务间密钥那条信道透传，引擎校验不了它的真伪
+     * （能作假的调用方本来也持有服务间密钥，而该工具只读、且以调用者自己的凭据打图库 API，
+     * 能力边界仍由图库服务端判 RBAC），所以这里不做"猜"。
+     * </p>
+     */
+    public static boolean isAdmin(String role) {
+        return ADMIN_ROLE.equalsIgnoreCase(StrUtil.trimToEmpty(role));
     }
 
     /**

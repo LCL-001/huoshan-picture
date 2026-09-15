@@ -3,6 +3,7 @@ package com.lcl.yunpicturebackend.controller;
 import cn.hutool.core.util.StrUtil;
 import com.lcl.yunpicturebackend.common.BaseResponse;
 import com.lcl.yunpicturebackend.common.ResultUtils;
+import com.lcl.yunpicturebackend.constant.UserConstant;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
@@ -89,7 +90,20 @@ public class AiAssistantController {
         checkTicket(ticket, caller.user());
 
         log.info("AI 助手对话开始, userId={}, chatId={}", caller.user().getId(), chatId);
-        return proxyManager.chat(message, caller.user().getId(), chatId, caller.satoken(), caller.sessionCookie());
+        return proxyManager.chat(message, caller.user().getId(), chatId, caller.satoken(),
+                caller.sessionCookie(), callerRole(caller.user()));
+    }
+
+    /**
+     * 调用者角色（T17）：透传给引擎裁剪工具集（只有管理员挂看图打标工具）。
+     * <p>
+     * 代理在这里只是**如实转述**登录用户的角色，不据此判权限——打标能力本身就是管理员权限，
+     * 且引擎那个工具只读、以调用者自己的凭据打图库 API，RBAC 仍由图库服务端判。
+     * 角色为空的存量数据按最低角色发，不默认给管理员。
+     * </p>
+     */
+    private String callerRole(User user) {
+        return StrUtil.blankToDefault(user.getUserRole(), UserConstant.DEFAULT_ROLE);
     }
 
     /**
