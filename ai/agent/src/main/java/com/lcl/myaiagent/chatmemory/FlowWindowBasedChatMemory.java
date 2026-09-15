@@ -38,6 +38,7 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
 
     @Override
     public void add(String conversationId, List<Message> messages) {
+        Set<String> stored = storedFingerprints(conversationId);
         for (Message message : messages) {
             // 系统提示词全局只保留一份：新增 system 前先删旧的（对应官方"换人设清旧提示词"的逻辑）
             if (message instanceof SystemMessage) {
@@ -45,9 +46,28 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
                         .eq(ChatMessage::getConversationId, conversationId)
                         .eq(ChatMessage::getMessageType, MessageType.SYSTEM)
                         .remove();
+                // 旧行刚刚被删掉了，它的指纹不该再挡住这一条（否则系统提示词会整条丢掉）
+                stored.remove(MessageConverter.fingerprint(message));
+            }
+            // 只写一次：MessageChatMemoryAdvisor 每轮都会把"请求里最后一条用户消息"再写一遍
+            // （原因见 MessageConverter.fingerprint 的注释），这里按指纹回绝重复写入
+            if (!stored.add(MessageConverter.fingerprint(message))) {
+                log.debug("跳过已存过的消息, conversationId={}, type={}", conversationId, message.getMessageType());
+                continue;
             }
             chatMessageRepository.save(MessageConverter.toChatMessage(message, conversationId));          // 全量入库：这里绝不裁剪
         }
+    }
+
+    /** 该会话已存消息的指纹集合（"同一会话里一模一样的消息只写一次"的判据） */
+    private Set<String> storedFingerprints(String conversationId) {
+        Set<String> fingerprints = new HashSet<>();
+        for (ChatMessage row : chatMessageRepository.lambdaQuery()
+                .eq(ChatMessage::getConversationId, conversationId)
+                .list()) {
+            fingerprints.add(MessageConverter.fingerprint(MessageConverter.toMessage(row)));
+        }
+        return fingerprints;
     }
 
     @NotNull

@@ -156,6 +156,35 @@ public class MessageConverter {
     }
 
     /**
+     * 消息指纹（**会话记忆去重**用）：类型 + 文本 + 工具调用 id + 工具响应 id。
+     * <p>
+     * 为什么需要它（2026-09-14 T12 后续修复）：写记忆的是 Spring AI 的 {@code MessageChatMemoryAdvisor}，
+     * 它在 {@code before()} 里每次调用都执行一次
+     * {@code chatMemory.add(conversationId, prompt.getUserMessage())}——而 {@code getUserMessage()}
+     * 取的是"请求里最后一条用户消息"。本引擎的 ReAct 循环每轮都把整段 messageList 重新提交，
+     * 最后一条用户消息长期就是那条原始提问（下一步提示第一轮用掉后即被置空），于是**每调一次模型
+     * 就把同一条用户消息再写一遍**（实测同一条被写了 3 次）。记忆层按指纹回绝重复，把这件事收敛成"只写一次"。
+     * </p>
+     * <p>
+     * 指纹带上工具调用/响应 id 是必须的：工具决策行的文本常常是空的，只有 metadata 不同——
+     * 只按"类型 + 文本"判重会把两步不同的工具调用误合并成一步（折叠条会丢步骤）。
+     * </p>
+     */
+    public static String fingerprint(Message message) {
+        StringBuilder builder = new StringBuilder(64)
+                .append(message.getMessageType().name())
+                .append('|')
+                .append(message.getText() == null ? "" : message.getText());
+        if (message instanceof AssistantMessage assistantMessage) {
+            assistantMessage.getToolCalls().forEach(toolCall -> builder.append("|tc:").append(toolCall.id()));
+        }
+        if (message instanceof ToolResponseMessage toolMessage) {
+            toolMessage.getResponses().forEach(response -> builder.append("|tr:").append(response.id()));
+        }
+        return builder.toString();
+    }
+
+    /**
      * 从 metadata 中反序列化 ToolCall 列表
      */
     @SuppressWarnings("unchecked")
