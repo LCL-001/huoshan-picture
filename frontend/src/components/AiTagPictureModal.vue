@@ -86,6 +86,7 @@ import {
   suggestAiTagsUsingPost,
 } from '@/api/pictureController.ts'
 import { message } from 'ant-design-vue'
+import { isPictureIdList } from '@/utils/pictureSelection.ts'
 
 /** 单次上限与后端 app.ai.vision.max-per-request 同口径；超过了先在页面上拦住，别白等一轮 */
 const MAX_PER_REQUEST = 8
@@ -126,8 +127,10 @@ const columns = [
 
 const openModal = async () => {
   const ids = props.pictureIds ?? []
-  if (!ids.length) {
-    message.warning('请先勾选要打标的图片')
+  if (!isPictureIdList(ids)) {
+    // 拿不到合法 id 就绝不发请求：2026-09-15 现场踩过——表格没配 row-key 时会发出 "undefined"，
+    // 后端反序列化失败只回一句「系统错误」，现场极难定位
+    message.warning('没有拿到有效的图片 id，请重新勾选图片')
     return
   }
   if (ids.length > MAX_PER_REQUEST) {

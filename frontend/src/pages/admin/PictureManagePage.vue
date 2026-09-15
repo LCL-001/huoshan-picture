@@ -59,6 +59,7 @@
       :columns="columns"
       :data-source="dataList"
       :pagination="pagination"
+      row-key="id"
       :row-selection="{ selectedRowKeys: selectedIds, onChange: onSelectChange }"
       @change="doTableChange"
     >
@@ -154,6 +155,7 @@ import {
   listPictureByPageUsingPost,
 } from '@/api/pictureController.ts'
 import AiTagPictureModal from '@/components/AiTagPictureModal.vue'
+import { toPictureIdList } from '@/utils/pictureSelection.ts'
 import { message, Modal } from 'ant-design-vue'
 import {
   PIC_REVIEW_STATUS_ENUM,
@@ -300,11 +302,12 @@ const doDelete = (id: string) => {
 }
 
 // AI 打标：勾选的图片 id（雪花 id 由后端序列化成字符串，按字符串回传防精度丢失）
+// 表格必须配 row-key="id"——否则 rowSelection 给出的 key 是 undefined，会被认成字面量 "undefined"
 const selectedIds = ref<string[]>([])
 const aiTagModalRef = ref<InstanceType<typeof AiTagPictureModal>>()
 
 const onSelectChange = (keys: (string | number)[]) => {
-  selectedIds.value = keys.map((key) => String(key))
+  selectedIds.value = toPictureIdList(keys)
 }
 
 // 打标写入成功后刷新列表（后端已清列表缓存），并清空勾选
