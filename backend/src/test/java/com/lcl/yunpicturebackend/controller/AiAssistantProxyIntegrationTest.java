@@ -282,7 +282,14 @@ class AiAssistantProxyIntegrationTest {
         assertThat(REQUESTS.get()).as("无票请求必须在代理入口拦住，不能打到引擎").isZero();
     }
 
-    /** 单次使用：真票用第二次必被拒（`getAndDelete` 取用即删，Redis 侧而非内存替身） */
+    /**
+     * 单次使用：真票用第二次必被拒（取用即删在 Redis 侧完成，不是内存替身）。
+     * <p>
+     * 口径订正（2026-09-15，R5 review 的 P3 ④）：实现用的是 **Lua 脚本 GET+DEL**，不是
+     * {@code ValueOperations.getAndDelete}——后者下发 Redis 6.2 才有的 {@code GETDEL}，
+     * 本机 Redis **5.0.14.1** 会直接报未知命令（集成测试抓到、替身单测抓不到）。
+     * </p>
+     */
     @Test
     void ticketIsSingleUseWithRealRedis() {
         Cookie satokenCookie = login(user);
