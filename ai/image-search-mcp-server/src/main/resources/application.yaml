@@ -5,6 +5,10 @@ spring:
     active: sse
 server:
   port: 8127
+  # 只监听回环（D1 收口，2026-09-15）：本服务只被同机的引擎调用（spring.ai.mcp.client 的
+  # sse.connections.image-search.url 默认 http://localhost:8127），没有对外提供服务的需要。
+  # 它内部握着 Pexels API key，公网可达即等于把配额开放给任何人。
+  address: 127.0.0.1
 pexels:
   api:
     key: ${PEXELS_API_KEY:pexels-your-key-here}

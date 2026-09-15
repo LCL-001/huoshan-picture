@@ -16,3 +16,7 @@ ai/**/.env
 ai/**/application-local.yaml
 ai/**/application-prod.yaml
 ai/**/application-test.yaml
+
+# 引擎工具运行时目录：FileOperationTool/PDFGenerationTool 等会往 <user.dir>/tmp 写文件，
+# 跑全模块测试或真机时会产生，属产物而非源码（2026-09-15 补）
+ai/**/tmp/

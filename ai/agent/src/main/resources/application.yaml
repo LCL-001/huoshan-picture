@@ -134,6 +134,14 @@ knife4j:
           - com.lcl.myaiagent.controller
 server:
   port: 8124
+  # 只监听回环（D1 收口，2026-09-15，见 docs/decisions/2026-09-15-D1-loopback.md）。
+  # 引擎只服务同机的图库后端代理（AiAssistantProxyManager 打 http://localhost:8124/api），
+  # 不需要从主机外可达。这一行让 /ai/manus/** 一族**零鉴权**的旧端点对外不可达——用网络隔离
+  # 代替给它们补鉴权：那个端点服务的是冻结的 MyManus 前端，浏览器发不了自定义头，加 key 会把前端打死。
+  # 注意：这是"没有攻击面"，不是"修好了鉴权"；CorsConfig 的通配 Origin 与抓取类工具的 SSRF
+  # 都只是被缓解（本机进程仍可利用），未修。
+  # 例外：若将来容器化，容器内 127.0.0.1 不可被端口映射访问，需显式覆盖本项。
+  address: 127.0.0.1
   servlet:
     context-path: /api
     session:
