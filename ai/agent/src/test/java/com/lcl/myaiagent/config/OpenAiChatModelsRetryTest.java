@@ -57,18 +57,25 @@ class OpenAiChatModelsRetryTest {
     }
 
     /**
-     * 总预算真的会截断，而且截断它的是**时间**不是次数：尝试上限放到 10、预算 800ms、退避 500ms→1s
-     * ⇒ 只跑 2 次就停（若靠次数上限，会跑满 10 次）。
+     * 总预算真的会截断，而且截断它的是**时间**不是次数：尝试上限放到 10、预算 2500ms、退避 1000ms→2s
+     * ⇒ 只跑 2 次就停（若靠次数上限，会跑满 10 次，约 31s）。
      * <p>
      * 实测口径（本条先红后改的产物）：`RetryTemplate` 是在**退避之后**才咨询策略的，所以预算的
-     * 实际效果是"最多多花一次退避"——生产值下即 45s + 至多 4s，不会失控。预算若小于首次退避，
-     * 结果是一次都不重试（只白睡一次退避）。
+     * 实际效果是"最多多花一次退避"；预算若小于首次退避，结果是一次都不重试（只白睡一次退避）。
+     * </p>
+     * <p>
+     * 参数按"退避只会更长"这个方向挑（2026-09-15 复核，见 docs/plan.md T18 补记）：`TimeoutRetryPolicy`
+     * 从 `open()` 起用墙钟计时，而 `Thread.sleep` 只会比请求的更晚返回，所以**唯一脆弱的判断是"必须通过"
+     * 的那次**（第 2 次尝试前仍在预算内）——这里留 1500ms 余量（2500ms 预算 vs 1000ms 累计退避）；
+     * "必须在预算外"的那次天生有 500ms 余量（3000ms 累计退避 vs 2500ms 预算），延迟只会让它更超。
+     * 旧参数（预算 800ms + 首次退避 500ms）只有 300ms 余量，塞 400ms 延迟即退化成 1 次（无负载即可复现；
+     * 满载实测 48 次里 10 次），故弃用。
      * </p>
      */
     @Test
     void totalBudgetTruncatesRetriesEvenWhenAttemptsRemain() {
         RetryTemplate template = OpenAiChatModels.boundedRetryTemplate(
-                Duration.ofMillis(800), 10, Duration.ofMillis(500), Duration.ofSeconds(4));
+                Duration.ofMillis(2500), 10, Duration.ofMillis(1000), Duration.ofSeconds(4));
         AtomicInteger attempts = new AtomicInteger();
         long start = System.nanoTime();
 
@@ -79,11 +86,11 @@ class OpenAiChatModelsRetryTest {
 
         Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
         assertThat(attempts.get())
-                .as("800ms 预算下：首次 + 一次重试（第二次退避时已过期），而不是 10 次")
+                .as("2500ms 预算下：首次 + 一次重试（第三次尝试前已过期），而不是 10 次")
                 .isEqualTo(2);
         assertThat(elapsed)
-                .as("两次退避合计约 1.5s，远小于 10 次尝试会花的十几分钟")
-                .isLessThan(Duration.ofSeconds(6));
+                .as("两次退避合计约 3s；靠次数上限跑满 10 次要约 31s，生产默认模板约 19 分钟")
+                .isLessThan(Duration.ofSeconds(20));
     }
 
     /** 不在可重试集合里的错误（如请求本身非法）只试一次：不该白等三倍时间 */
