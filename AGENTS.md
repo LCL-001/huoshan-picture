@@ -47,7 +47,7 @@
 - 测试：
   - 后端单测（不依赖 MySQL/Redis，与 CI 同口径）：`cd backend && mvn -B test -Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests' -DfailIfNoTests=false`
   - 约定：需要 MySQL/Redis 的测试类以 `IntegrationTest` 结尾；新增纯单测会被 CI 自动纳入，无需改 workflow
-  - 前端：无测试脚本。`npm run type-check`（vue-tsc）有**存量错误基线**（记在 `frontend/type-check-baseline.txt`，2026-09-15 实测 124 例），口径是"**改动不得净增**"而**不是**"必须全绿"；`npm run lint` 同理只约束改动文件。基线由规则 17 的门禁核对，所以"净增 0"这句话从 2026-09-15 起可以被独立复核
+  - 前端：`npm run type-check`（vue-tsc）有**存量错误基线**（记在 `frontend/type-check-baseline.txt`，2026-09-15 实测 124 例），口径是"**改动不得净增**"而**不是**"必须全绿"；`npm run lint` 同理只约束改动文件。基线由规则 17 的门禁核对，所以"净增 0"这句话从 2026-09-15 起可以被独立复核。另有 `npm run check:assistant-format`——助手呈现层纯函数的常驻断言（脚本在 `frontend/scripts/`，用例取自真机报文），是本仓前端第一个入库的自动化检查；**新增前端纯函数时优先给它加断言**，别再依赖"净增 0"这一条
 - 部署：部署文档与 nginx 配置在 backend/docs/deploy——**注意该目录被 `backend/.gitignore` 的 `docs/` 规则排除，不在版本控制内**，新克隆的仓库里没有这些文件（2026-09-15 复核发现）。CI（.github/workflows/ci.yml）跑编译与无 MySQL/Redis 单测
 - 线上验证：https://www.lincode.online
 - 前端 OpenAPI 代码生成：`cd frontend && npm run openapi`
