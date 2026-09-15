@@ -131,6 +131,16 @@
   - **新发现（同批实测，2026-09-15，挂账不修，超出 T18 文件范围）**：**MCP 服务（8127）不可达时，图库助手的每一次对话都会在"装配工具"这一步整条失败**——栈顶为 `McpSyncClient.listTools` ← `HuoshanAssistantController.chat:107`（`mcpToolCallbackProvider.getToolCallbacks()` 的首次连接），实测 **20.1s** 后回 HTTP `50000 系统内部异常`（JSON，**连 SSE 流都没有**），前端只能看到"助手连接中断"。T9 的设计（"服务没起也不该拖垮引擎启动，首次调用时才连"）只覆盖了 **Bean 不存在**（`AI_MCP_CLIENT_ENABLED=false`）这一种；Bean 在、服务不可达时没有降级路径。对照实测：同一镜像下加 `--spring.ai.mcp.client.enabled=false` 起，同一次对话 3.95s 正常出 `error` 帧 ⇒ 变量只有这一个。日志 `%TEMP%\t18-mcp-on.log`。**收口方向**（未拍板）：把 `getToolCallbacks()` 的结果按"失败即空数组"降级（沿用既有"少一个工具照常开对话"口径），或把 MCP 初始化改成显式健康探测后再挂。
 - **已拍板（2026-09-15）**：① 结果**两步式**（先建议、管理员确认后落库）——公共图库是访客门面，写错影响面比空间图大，且与设计文档 L58 的"建议-确认"口径一致，不改既有口径；② 普通用户助手里的只读 `visionTagger` **摘掉**（对齐"只有管理员能调用"），落地在 T17。**默认参数**（已在 T15 落地）：单次上限 8 张、并发 4、单张超时 45s、模型复用 vision 那组（当前 MiMo `mimo-v2.5`）。
 
+- [ ] T19（2026-09-15 用户拍板"做 MCP 降级"）**搜图 MCP 不可达时的降级**：把"8127 没起 ⇒ 每次对话在装配工具那步整条抛、HTTP 50000（JSON、无 SSE 流）、前端只看到连接中断"改成"少一个工具照常开对话"，并且不让服务长时间不可用时每次对话都白等一次连接超时。
+  - **背景与证据**：`HuoshanAssistantController.chat:107` 的 `mcpToolCallbackProvider.getToolCallbacks()` 在 MCP 服务不可达时抛异常（栈顶 `McpSyncClient.listTools`，T18 会话实测 20.1s 后回 50000）；20.1s ≈ `spring.ai.mcp.client.request-timeout` 的默认值 20s（已从 spring-ai-autoconfigure-mcp-client-common **1.1.2** 的 `spring-configuration-metadata.json` 核实）。T9 的 `initialized: false` 只覆盖"MCP 没起不拖垮引擎**启动**"，没覆盖"Bean 在、服务不可达"这一形态。
+  - ① **失败即降级**：解析 MCP 工具回调失败（含 `getIfAvailable()` 阶段）⇒ `warn` 一条 + 本次会话不挂搜图工具，对话照常进行——沿用 T9 既有口径"少一个工具照常开对话"，做法与"没配视觉模型就不挂 visionTagger"同款。
+  - ② **失败后冷却 60s（fail-fast）**：冷却期内不再尝试解析，直接按"本次不挂"处理；到期自动重试一次，成功即清除冷却。理由是服务可能长时间不可用，而每次失败要付 ≤20s 的连接超时。**参数 60s**（一个常量，与 T18 同款"有界失败窗口"口径）。
+  - ③ **不动 `request-timeout`（默认 20s）**：这把尺同时约束真实的 `searchImage` 调用，压小会误伤正常路径 ⇒ 保留 20s，代价是"每个故障窗口第一次尝试仍要 ≤20s"（只付一次，冷却期内不再付）。
+  - **口径不变 ⇒ spec 关键三行无需改动**：搜图仍是可选工具、MCP 仍可整体关掉（`AI_MCP_CLIENT_ENABLED=false`），本任务只补"服务不可达"这一形态的降级。
+  - 文件范围：ai/agent 新增 `tools/mcp/McpToolCallbackResolver.java`；改 `controller/HuoshanAssistantController.java`（第 106-107 行的解析改为走 resolver）；新增 `tools/mcp/McpToolCallbackResolverTest.java`；`application.yaml` 仅补注释（写明 request-timeout 的实际作用），不动键值
+  - 验收：单测——provider 抛异常 ⇒ 空数组且不抛出；冷却期内不重复尝试（provider 调用计数不再增长）；冷却到期重试，成功即清冷却；provider 为 null 时不进冷却（T9 口径不变）；正常路径原样返回工具。**先红后绿**（规则 12：先跑一次现状基线取证）＋门禁绿＋负向控制（摘 try/catch ⇒ 降级断言红；冷却置 0 ⇒"不重复尝试"红）＋**真机复跑**：不启 8127、且**不带** `--spring.ai.mcp.client.enabled=false` 打 headless 端点，期望不再 50000、对话正常出事件流，且第二次对话明显快于第一次（冷却生效）；反向对照：起 8127 后搜图工具仍能挂上（降级不误伤正常路径）。
+  - 不做：不做"显式健康探测后再挂"（plan 上一轮列的另一方向：它自带一把超时尺、且要在装配前多打一次网络往返，行为不如"失败即降级 + 冷却"可预测）；不做把降级原因推给前端/用户的独立事件（保持静默降级 + 日志，用户可见性记入已知限制）；不动 MyManus（它不挂 MCP 工具）；不改 `request-timeout`。
+
 ## 存量遗留（未做，未拍板）
 
 - **前端社交模块残留**（2026-09-15 排查 `frontend/src/api/` 时发现）：后端 `Post` / `PostInteraction` / `UserFollow` 相关 controller 的类注解已注释、Spring 不加载（见 spec 的 F7），但**前端还在用**——路由里 `/square`、`/post/:id`、`/user/:id` 三个页面照旧注册着，`SquarePage.vue` / `PostDetailPage.vue` / `UserProfilePage.vue` / `GlobalHeader.vue` 四个文件引用 `@/api/postController.ts`，其中帖子/点赞/关注那批函数打的是**已停用**的 `/post/**`（用户点进去大概率失败）。
