@@ -9,7 +9,9 @@
 
 ## 怎么用
 
-前端入口还没做（T16），当前只有两个接口（都要求管理员登录，普通用户 `40300`）：
+**入口**：管理员进 `/admin/pictureManage`（图片管理）→ **勾选**要打标的图片 → 右上角「**AI 打标**」按钮 → 弹窗里逐张看图出建议 → 标签/分类都可改（下拉选项是当前词表）→「**确认写入**」。失败的张会标红并给出原因，**不会被提交**；一次最多 8 张，选多了页面会拦住并提示分批。
+
+也可以直接调接口（都要求管理员登录，普通用户 `40300`）：
 
 | 接口 | 入参 | 作用 |
 |---|---|---|
@@ -30,6 +32,8 @@
 | `manager/ai/PictureAiTagManager` | 提示词、**有界并发（层次一）**、单张独立计时、容错解析、输入清洗、以及"只改标签与分类"的更新条件组装 |
 | `service/impl/PictureServiceImpl#suggestAiTags/#applyAiTags` | 取图与词表、落库、词表 `usageCount`、清列表缓存 |
 | `controller/PictureController#suggestAiTags/#applyAiTags` | 两个 `@AuthCheck(mustRole = ADMIN_ROLE)` 端点 |
+| `frontend/src/components/AiTagPictureModal.vue` | 管理端弹窗（T16）：勾选 → 出建议（可编辑）→ 确认写入；单独放宽超时、超 8 张拦住 |
+| `frontend/src/pages/admin/PictureManagePage.vue` | 管理页接入（T16）：勾选列 + 「AI 打标（n）」按钮 + 成功后刷新 |
 | `domain/vo/PictureAiTagSuggestionVO` | 逐张结果（出建议与应用复用同一结构） |
 | `domain/dto/picture/PictureAiTagRequest`、`PictureAiTagApplyRequest` | 两个入参 DTO |
 
@@ -63,12 +67,13 @@ apply  ：校验 → 载入图片（按 id）→ 逐条清洗（转义 HTML / �
 - **并发的四条契约**（`PictureAiTagManagerTest$Concurrency`）：有界并发（6 张 / 并发 3 ⇒ 峰值并发**恰为 3**）、结果保序（第 1 张最慢也仍在第 1 位）、单张超时只降级该张、单张失败不连坐；另有"没有图片地址的图不发模型调用"。
 - **请求形态**（`AiVisionTagApiTest`，进程内 JDK HttpServer 桩）：路径 `/v1/chat/completions`、`Bearer`、`model`、`content=[text, image_url]`；非 2xx 抛业务异常且**文案里不含厂商响应体原文**；未配置时一个请求都不发。
 - **审核字段不变量**：单测断言 SET 子句（见上）；**集成测试**（`PictureAiTagIntegrationTest`，本机 MySQL + 桩模型）用真库核对——① 出建议零写库；② 应用后 `tags`/`category` 已写；③ `reviewStatus`/`reviewerId`/`reviewMessage`/`reviewTime` **逐字段与写入前相同**；④ 词表 `usageCount` 各 +1。测试自建唯一词条并**硬删**收尾（`picture` 有 `@TableLogic`，用 SQL 物理删），不留探针数据。
-- **管理员限定**：两个端点带 `@AuthCheck(mustRole = ADMIN_ROLE)`，并有反射守护测试钉住"注解在、角色对、路径对"（防止有人删了注解没人发现）。**证据边界**：运行期的拒绝走的是仓内既有的 `AuthInterceptor` AOP（`/picture/review`、`/picture/upload/batch` 等 6 个管理员端点同款），本轮**没有**额外跑"普通用户调用 → 40300"的端到端用例——留给 T16 做管理页时自然覆盖（那时会有真实的前端调用链）。
+- **管理员限定**：两个端点带 `@AuthCheck(mustRole = ADMIN_ROLE)`，并有反射守护测试钉住"注解在、角色对、路径对"（防止有人删了注解没人发现）。**证据边界**：运行期的拒绝走的是仓内既有的 `AuthInterceptor` AOP（`/picture/review`、`/picture/upload/batch` 等 6 个管理员端点同款），本轮**没有**额外跑"普通用户调用 → 40300"的端到端用例；前端入口侧由既有全局守卫保证（`access.ts:22-28`：`/admin/**` 非 admin 跳登录页）。
+- **前端（T16）**：`type-check` **138 → 138（净增 0）**——改动文件里出现的 4 处命中经 **stash 基线对比**确认为既有错误（行号只是被新增代码位移）；新组件 eslint 干净；vite HMR 编译无报错。**未做**：浏览器人工点选验收（需要管理员登录态，本轮未持有）。
 - **负向控制**（规则 12）：把并发池临时改成 1 → "峰值并发恰为 3"**红**（`expected: 3`）；摘掉 `applyAiTags` 的 `@AuthCheck` → 守护测试**红**。两者改回后全绿。
 
 ## 已知限制
 
-1. **前端入口未做（T16）**：管理页还没有"AI 打标"按钮与建议确认弹窗，当前只能用接口。
+1. **前端入口已做（T16）**：`/admin/pictureManage` 勾选 → 「AI 打标」→ 建议可编辑 → 确认写入。**仍未做**：浏览器人工点选验收（需要管理员登录态）。
 2. **助手侧未收口（T17）**：普通用户的助手仍挂着只读 `visionTagger`——2026-09-15 已定"只管理员可用"，实现落在 T17。
 3. **提示词有两份**（引擎 `VisionTaggerTool.PROMPT_TEMPLATE` 与 `PictureAiTagManager.PROMPT_TEMPLATE`）：刻意如此——本功能不依赖引擎进程与用户凭据；若 T17 把助手工具改为调本接口，引擎那份即可删除。
 4. **接口不限定 `spaceId`**：管理员对空间图同样有编辑权，故未加"只允许公共图库"的硬校验；"只对公共图库用"由管理页入口与筛选保证（若产品上要收紧，加一条 `spaceId IS NULL` 校验即可）。
