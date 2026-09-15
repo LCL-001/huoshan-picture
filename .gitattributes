@@ -1,1 +1,4 @@
 .githooks/pre-commit text eol=lf
+# 门禁脚本与白名单：保持 LF（规则 10）
+.githooks/*.mjs text eol=lf
+.githooks/*.txt text eol=lf

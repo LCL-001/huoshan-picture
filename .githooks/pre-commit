@@ -17,10 +17,19 @@ if git diff --cached --no-color | grep -Ein '^\+(BEGIN [A-Z ]*PRIVATE KEY|.*sk-[
   exit 1
 fi
 
+# --- 2. docs consistency (always, even docs-only) ----------------------------
+# Rule 17: catch "the same fact lives in two files and only one was updated" drift.
+# Cheap (no Maven); it runs type-check only when frontend/ files are staged.
+if command -v node >/dev/null 2>&1; then
+  node .githooks/check-docs-consistency.mjs || fail
+else
+  echo "[vibe-gate] WARN: node not found, docs consistency check skipped."
+fi
+
 # Docs-only commits (AGENTS.md / NOTES.md / docs/** / .gitattributes / .githooks/**)
 # skip the test gate: no code changed, nothing to verify.
 # -c core.quotePath=false: 中文文件名默认被八进制转义并加引号，会让 docs/ 前缀匹配失效
-non_docs=$(git -c core.quotePath=false diff --cached --name-only | grep -Ev '^(docs/|AGENTS\.md$|NOTES\.md$|\.gitattributes$|\.githooks/)' || true)
+non_docs=$(git -c core.quotePath=false diff --cached --name-only | grep -Ev '^(docs/|AGENTS\.md$|NOTES\.md$|\.gitattributes$|\.githooks/|frontend/type-check-baseline\.txt$)' || true)
 if [ -z "$non_docs" ]; then
   echo "[vibe-gate] PASS: docs-only commit, tests skipped."
   exit 0

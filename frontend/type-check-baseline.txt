@@ -1,0 +1,10 @@
+# frontend type-check 存量错误基线 —— 由 .githooks/check-docs-consistency.mjs 核对（AGENTS.md 规则 17）
+#
+# 口径：改动**不得使错误数超过本值**；下调只允许在确实清理了存量错误之后（同时同步本文件与 AGENTS.md）。
+# 为什么需要它：本仓前端的 type-check 不是绿的，而多条任务记录都写"净增 0"——
+# 没有基线文件时那句话无法被任何人独立复核（2026-09-15 复核指出的问题）。
+#
+# 取值方式：cd frontend && npm run type-check 2>&1 | grep -c "error TS"
+errors=124
+updated=2026-09-15
+note=Vue3 + Vite + TS 存量债；T22 删除三个停用的帖子/社交页面后由 138 降至 124
