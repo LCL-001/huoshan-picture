@@ -122,6 +122,20 @@ app:
       connect-timeout: 5s
       # 读取超时（含流空闲）：引擎 SseEmitter 超时 300s，故留出余量
       read-timeout: 6m
+    # AI 打标（T15）：图库侧自己调多模态模型，不依赖引擎进程，也不需要用户凭据
+    vision:
+      # **协议根**（不要带 /v1）：代码拼 /v1/chat/completions，与引擎 T6 同口径；配错是 404
+      base-url: ${AI_VISION_BASE_URL:}
+      # 密钥不入库，走环境变量；三项缺一即视为未配置，两个打标接口直接拒绝（fail-closed）
+      api-key: ${AI_VISION_API_KEY:}
+      # 例：mimo-v2.5（该厂商当前唯一支持图片输入的型号）
+      model: ${AI_VISION_MODEL:}
+      # 单张看图的连接/读取超时（毫秒）：单张耗时上界，也是"一张挂死不拖垮整批"的兜底
+      timeout-ms: 45000
+      # 单次请求内的并发看图张数（每请求独立有界池，不用公共 ForkJoinPool）
+      concurrency: 4
+      # 单次最多几张：与引擎 visionTagger 的 8 张同口径，免得单请求拖过网关超时
+      max-per-request: 8
   websocket:
     # 编辑锁空闲多久后强制释放（毫秒，默认 5 分钟）：
     # 客户端异常断开不会触发关闭回调，靠这个上界兜底，避免图片被永久锁定

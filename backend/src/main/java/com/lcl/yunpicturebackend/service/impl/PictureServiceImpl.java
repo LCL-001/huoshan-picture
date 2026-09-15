@@ -8,7 +8,9 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.lcl.yunpicturebackend.api.aliyunai.AliYunAiApi;
@@ -21,6 +23,7 @@ import com.lcl.yunpicturebackend.domain.dto.picture.*;
 import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.lcl.yunpicturebackend.domain.po.Space;
 import com.lcl.yunpicturebackend.domain.po.User;
+import com.lcl.yunpicturebackend.domain.vo.PictureAiTagSuggestionVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.domain.vo.UserVO;
 import com.lcl.yunpicturebackend.enums.PictureReviewStatusEnum;
@@ -30,6 +33,7 @@ import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import com.lcl.yunpicturebackend.config.CosClientConfig;
 import com.lcl.yunpicturebackend.manager.CosManager;
+import com.lcl.yunpicturebackend.manager.ai.PictureAiTagManager;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
@@ -192,6 +196,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private final CosClientConfig cosClientConfig;
 
     private final AliYunAiApi aliYunAiApi;
+
+    private final PictureAiTagManager pictureAiTagManager;
 
     private final PictureFileCleanupService pictureFileCleanupService;
 
@@ -1311,5 +1317,144 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         ThrowUtils.throwIf(owner == null, ErrorCode.NOT_FOUND_ERROR, "任务不存在或归属记录已过期");
         ThrowUtils.throwIf(!owner.equals(String.valueOf(loginUser.getId())), ErrorCode.NO_AUTH_ERROR, "无权查看该任务");
         return aliYunAiApi.getOutPaintingTask(taskId);
+    }
+
+    // ==================== AI 打标（仅管理员，见 docs/plan.md T15） ====================
+
+    /**
+     * 出建议：**不写库**，只把逐张看图的结果返回给管理员确认。
+     * <p>
+     * 管理端入口（公共图库管理页）与助手侧若将来复用同一实现，都走这里——提示词与词表注入只有一份。
+     * </p>
+     */
+    @Override
+    public List<PictureAiTagSuggestionVO> suggestAiTags(PictureAiTagRequest pictureAiTagRequest, User loginUser) {
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NO_AUTH_ERROR);
+        List<Picture> pictures = loadPicturesForAiTag(
+                pictureAiTagRequest == null ? null : pictureAiTagRequest.getPictureIdList());
+        // 模型没配就提前给一句能照做的文案，而不是发满 N 次注定失败的请求
+        ThrowUtils.throwIf(!pictureAiTagManager.isConfigured(), ErrorCode.SYSTEM_ERROR,
+                "AI 打标模型未配置：请设置 app.ai.vision 下的 base-url / api-key / model");
+        List<PictureAiTagSuggestionVO> suggestions = pictureAiTagManager.suggest(pictures,
+                tagService.listNamesByType(TagTypeEnum.TAG),
+                tagService.listNamesByType(TagTypeEnum.CATEGORY));
+        long okCount = suggestions.stream().filter(PictureAiTagSuggestionVO::isOk).count();
+        log.info("AI 打标出建议：adminId={}, requested={}, suggested={}", loginUser.getId(), pictures.size(), okCount);
+        return suggestions;
+    }
+
+    /**
+     * 应用建议：把管理员确认过的标签/分类写进图库。
+     * <p>
+     * 三条口径：① **只写 tags 与 category**（更新条件里没有审核字段，见 {@link PictureAiTagManager#applyTo}）；
+     * ② 空值不写（"这次不改"）；③ 词表 usageCount 按**本批去重后各计一次**，与
+     * {@code editPictureByBatch} 的"不随图片数放大"同口径。
+     * </p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<PictureAiTagSuggestionVO> applyAiTags(PictureAiTagApplyRequest pictureAiTagApplyRequest,
+                                                      User loginUser) {
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NO_AUTH_ERROR);
+        ThrowUtils.throwIf(pictureAiTagApplyRequest == null || CollUtil.isEmpty(pictureAiTagApplyRequest.getItems()),
+                ErrorCode.PARAMS_ERROR, "请先选择要写入的图片");
+        List<PictureAiTagApplyRequest.Item> items = pictureAiTagApplyRequest.getItems();
+        ThrowUtils.throwIf(items.size() > pictureAiTagManager.getMaxPerRequest(), ErrorCode.PARAMS_ERROR,
+                "单次最多写入 " + pictureAiTagManager.getMaxPerRequest() + " 张，请分批");
+        Map<Long, Picture> pictureMap = new HashMap<>();
+        List<Long> ids = items.stream()
+                .map(PictureAiTagApplyRequest.Item::getPictureId)
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .collect(Collectors.toList());
+        if (CollUtil.isNotEmpty(ids)) {
+            this.listByIds(ids).forEach(picture -> pictureMap.put(picture.getId(), picture));
+        }
+        List<PictureAiTagSuggestionVO> results = new ArrayList<>(items.size());
+        Set<String> vocabularyTags = new LinkedHashSet<>();
+        Set<String> vocabularyCategories = new LinkedHashSet<>();
+        for (PictureAiTagApplyRequest.Item item : items) {
+            Picture picture = item.getPictureId() == null ? null : pictureMap.get(item.getPictureId());
+            if (picture == null) {
+                results.add(applyFailed(item.getPictureId(), "图片不存在或已删除，请刷新后重试"));
+                continue;
+            }
+            List<String> tags = PictureAiTagManager.sanitizeTags(item.getTags());
+            String category = PictureAiTagManager.sanitizeCategory(item.getCategory());
+            if (CollUtil.isEmpty(tags) && StrUtil.isBlank(category)) {
+                results.add(applyFailed(picture.getId(), "没有要写入的标签或分类"));
+                continue;
+            }
+            LambdaUpdateWrapper<Picture> update = Wrappers.<Picture>lambdaUpdate()
+                    .eq(Picture::getId, picture.getId());
+            PictureAiTagManager.applyTo(update, tags, category);
+            boolean updated = this.update(update);
+            if (!updated) {
+                results.add(applyFailed(picture.getId(), "写入失败，请重试"));
+                continue;
+            }
+            vocabularyTags.addAll(tags);
+            if (StrUtil.isNotBlank(category)) {
+                vocabularyCategories.add(category);
+            }
+            PictureAiTagSuggestionVO result = new PictureAiTagSuggestionVO();
+            result.setPictureId(picture.getId());
+            result.setUrl(picture.getUrl());
+            result.setOk(true);
+            // 回显**实际写入**的内容（写与不写由 applyTo 的"空值不写"规则决定）
+            result.setTags(CollUtil.isEmpty(tags) ? parseTags(picture.getTags()) : tags);
+            result.setCategory(StrUtil.isBlank(category) ? StrUtil.blankToDefault(picture.getCategory(), "") : category);
+            result.setMessage("已写入图库");
+            results.add(result);
+        }
+        // 词表同事务 upsert：本批实际写入的词各计一次（与 editPictureByBatch 同口径）
+        if (CollUtil.isNotEmpty(vocabularyTags)) {
+            tagService.upsertVocabulary(new ArrayList<>(vocabularyTags), TagTypeEnum.TAG);
+        }
+        if (CollUtil.isNotEmpty(vocabularyCategories)) {
+            tagService.upsertVocabulary(new ArrayList<>(vocabularyCategories), TagTypeEnum.CATEGORY);
+        }
+        clearPictureListCache();
+        long written = results.stream().filter(PictureAiTagSuggestionVO::isOk).count();
+        log.info("AI 打标落库：adminId={}, requested={}, written={}", loginUser.getId(), items.size(), written);
+        return results;
+    }
+
+    /** 取待打标的图片：按请求顺序返回（管理页要逐条对应），有 id 不存在即拒 */
+    private List<Picture> loadPicturesForAiTag(List<Long> pictureIdList) {
+        ThrowUtils.throwIf(CollUtil.isEmpty(pictureIdList), ErrorCode.PARAMS_ERROR, "请先选择要打标的图片");
+        List<Long> ids = pictureIdList.stream()
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .collect(Collectors.toList());
+        ThrowUtils.throwIf(CollUtil.isEmpty(ids), ErrorCode.PARAMS_ERROR, "请先选择要打标的图片");
+        ThrowUtils.throwIf(ids.size() > pictureAiTagManager.getMaxPerRequest(), ErrorCode.PARAMS_ERROR,
+                "单次最多 " + pictureAiTagManager.getMaxPerRequest() + " 张，请分批");
+        Map<Long, Picture> pictureMap = new HashMap<>();
+        this.listByIds(ids).forEach(picture -> pictureMap.put(picture.getId(), picture));
+        ThrowUtils.throwIf(pictureMap.size() != ids.size(), ErrorCode.NOT_FOUND_ERROR,
+                "部分图片不存在或已删除，请刷新后重试");
+        return ids.stream().map(pictureMap::get).collect(Collectors.toList());
+    }
+
+    /** 打标结果里的失败条目 */
+    private PictureAiTagSuggestionVO applyFailed(Long pictureId, String message) {
+        PictureAiTagSuggestionVO result = new PictureAiTagSuggestionVO();
+        result.setPictureId(pictureId);
+        result.setOk(false);
+        result.setMessage(message);
+        return result;
+    }
+
+    /** 库里存的 tags 是 JSON 数组字符串，回显时转回列表 */
+    private List<String> parseTags(String tagsJson) {
+        if (StrUtil.isBlank(tagsJson)) {
+            return new ArrayList<>();
+        }
+        try {
+            return JSONUtil.toList(tagsJson, String.class);
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
     }
 }

@@ -9,6 +9,7 @@ import com.lcl.yunpicturebackend.domain.dto.picture.*;
 import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.lcl.yunpicturebackend.domain.po.User;
+import com.lcl.yunpicturebackend.domain.vo.PictureAiTagSuggestionVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 
 import javax.servlet.http.HttpServletRequest;
@@ -194,4 +195,23 @@ public interface IPictureService extends IService<Picture> {
      * @return 外画任务结果
      */
     GetOutPaintingTaskResponse getOutPaintingTask(String taskId, User loginUser);
+
+    /**
+     * AI 打标：逐张看图给出标签/分类建议（**仅管理员**，只读——不写库、不动审核状态）。
+     *
+     * @param pictureAiTagRequest 要打标的图片 id 列表（单次上限见 app.ai.vision.max-per-request）
+     * @param loginUser           调用者（控制器已用 @AuthCheck 限定管理员）
+     * @return 每张一条建议，单张失败/超时只降级该条
+     */
+    List<PictureAiTagSuggestionVO> suggestAiTags(PictureAiTagRequest pictureAiTagRequest, User loginUser);
+
+    /**
+     * AI 打标：应用（管理员确认后的）建议——**只写 tags 与 category**，
+     * 审核状态与 reviewerId/reviewMessage/reviewTime 一律不动（公共图库的图不能被"打回待审核"）。
+     *
+     * @param pictureAiTagApplyRequest 逐张要写入的标签/分类（空值表示该项不改）
+     * @param loginUser                调用者（控制器已用 @AuthCheck 限定管理员）
+     * @return 每张一条写入结果
+     */
+    List<PictureAiTagSuggestionVO> applyAiTags(PictureAiTagApplyRequest pictureAiTagApplyRequest, User loginUser);
 }

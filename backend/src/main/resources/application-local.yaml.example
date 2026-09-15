@@ -36,6 +36,13 @@ app:
   ai:
     assistant:
       internal-api-key: ${AI_ENGINE_INTERNAL_API_KEY:replace-me-internal-only-key}
+    # AI 打标（仅管理员可用）用的多模态模型，OpenAI 兼容协议
+    # base-url 是**协议根**（例 https://api.xiaomimimo.com，不要带 /v1）；model 举例 mimo-v2.5
+    # 三项不填只影响打标功能（接口直接拒绝并给出提示），不影响应用启动
+    vision:
+      base-url: ${AI_VISION_BASE_URL:replace-me-vision-base-url}
+      api-key: ${AI_VISION_API_KEY:replace-me-vision-api-key}
+      model: ${AI_VISION_MODEL:replace-me-vision-model}
 
 spring:
   # MySQL 连接地址/用户名/库名见 application.yaml（默认 root@localhost:3306/yu_picture）

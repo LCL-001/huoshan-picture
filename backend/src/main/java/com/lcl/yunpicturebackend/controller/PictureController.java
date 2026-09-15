@@ -14,6 +14,7 @@ import com.lcl.yunpicturebackend.constant.UserConstant;
 import com.lcl.yunpicturebackend.domain.dto.picture.*;
 import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.lcl.yunpicturebackend.domain.po.Space;
+import com.lcl.yunpicturebackend.domain.vo.PictureAiTagSuggestionVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureTagCategory;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
@@ -349,6 +350,32 @@ public class PictureController {
         User loginUser = userService.getLoginUser(request);
         GetOutPaintingTaskResponse task = pictureService.getOutPaintingTask(taskId, loginUser);
         return ResultUtils.success(task);
+    }
+
+    /**
+     * AI 打标：出建议（仅管理员，只读不写库）
+     */
+    @ApiOperation("AI 打标-出建议（仅管理员）")
+    @PostMapping("/ai_tag/suggest")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<List<PictureAiTagSuggestionVO>> suggestAiTags(@RequestBody PictureAiTagRequest pictureAiTagRequest,
+                                                                     HttpServletRequest request) {
+        ThrowUtils.throwIf(pictureAiTagRequest == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(pictureService.suggestAiTags(pictureAiTagRequest, loginUser));
+    }
+
+    /**
+     * AI 打标：应用建议（仅管理员）——只写 tags/category，不动审核状态
+     */
+    @ApiOperation("AI 打标-应用建议（仅管理员）")
+    @PostMapping("/ai_tag/apply")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<List<PictureAiTagSuggestionVO>> applyAiTags(@RequestBody PictureAiTagApplyRequest pictureAiTagApplyRequest,
+                                                                    HttpServletRequest request) {
+        ThrowUtils.throwIf(pictureAiTagApplyRequest == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(pictureService.applyAiTags(pictureAiTagApplyRequest, loginUser));
     }
 
 }
