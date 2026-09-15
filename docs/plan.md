@@ -87,6 +87,7 @@
     **② 选图入库（场景二）实测通过**（9.3s）：`listSpaces`+**`searchImage`**（MCP 返回 15 条 mountain 图地址）→ **`batchUploadByUrl`**（提交 3 条、成功 3、失败 0、跳过 0）→ 回读 `listPictures` 确认 → 汇总回答。落库核对：空间图片 3→**6** 张、`space.totalCount=6` / `totalSize=87108`（额度记账正确）。
     **③ 联调抓到 1 个真 bug 并修复**（详见 decisions 同日两条）：**记忆回放里"未配对的工具调用痕迹"让 DeepSeek 直接 400**——第一次工具调用成功后，第二次模型调用就炸（`assistant message with 'tool_calls' must be followed by tool messages`），根因是本引擎记忆只存 assistant 的 toolCall 决策行、不存工具响应行；修复 = 回放路径剥掉工具痕迹（`MessageConverter.toReplayMessages` + 门禁守护测试）。同批还做了"工具入参剥包裹引号"的加固（MCP 返回是带引号的字符串字面量）。**两条场景的复跑是在修复后引擎上完成的**。讲解文档：`docs/features/F12-图库助手档3工具与联调.md`
   - **前置（2026-09-14）**：图库助手模型已按用户指定接入 **DeepSeek 官方（`deepseek-flash`，主脑与 visionTagger 共用）**——口径见 docs/decisions.md 同日行；**密钥已提供，真机冒烟三项全通**：`/v1/chat/completions` 路径可用、带工具的多轮调用通过（模型确实调用了工具）、图像输入对**图库 COS 图**可用（Pexels CDN 地址被 DeepSeek 拒，但不影响本链路——它只是入库的输入，入库后 url 即 COS）
+  - **2026-09-15 模型切换（用户指定）**：主脑与 visionTagger 换成**小米 MiMo `mimo-v2.5`**（`https://api.xiaomimimo.com`，仍需 Bearer 鉴权由 Spring AI 默认发出、`thinking` 顶层参数由 `extra-body` 直通），**零代码改动**、只改那份不入库的 `application-local.yaml`；口径见 docs/decisions.md 2026-09-15 行。**三项冒烟与两条业务场景全部在 MiMo 上复跑通过**：搜图入库 18.6s（入库 3/3）、智能整理 53.4s（3 张无标图 → 看图建议 → 逐张打标，落库核对 tags/category 正确）。**观察**：MiMo 单次调用比 deepseek-flash 慢（同一场景 53.4s vs 12.6s），如需提速可考虑 `mimo-v2.5-pro` 或并发看图（见 F12 已知限制 3）
 - [x] T13 引擎教学遗留清理（承接原 yu-ai-agent T1）（2026-09-14 完成）：AuthAdvisor 假实现、demo 包、空壳控制器（ChatMessage/ChatSummary）、FileBasedChatMemory 死代码、空目录
   - 文件范围：ai/agent 内上述文件与目录
   - 验收：编译 + 门禁绿
