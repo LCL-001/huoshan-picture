@@ -20,7 +20,7 @@
 - [x] F4 图片列表多级缓存：Caffeine + Redis、跨实例失效广播、命中率埋点、缓存重建锁预算化
 - [x] F5 AI 扩图（阿里百炼）：任务幂等 + 每日配额
 - [x] F6 多人协同编辑：WebSocket + Disruptor，编辑锁 + 空闲超时兜底
-- [x] F7 帖子与社交（部分停用）：Post/PostInteraction/UserFollow 控制器类注解已注释、不被 Spring 加载；SocialController 在服务但仅保留 /notification/* 通知接口（前端 GlobalHeader 铃铛正在调用，用户 2026-09-13 拍板保留），/timeline 已注释停用
+- [x] F7 帖子与社交（部分停用）：Post/PostInteraction/UserFollow 控制器类注解已注释、不被 Spring 加载；SocialController 在服务但仅保留 /notification/* 通知接口（前端 GlobalHeader 铃铛正在调用，用户 2026-09-13 拍板保留），/timeline 已注释停用。**前端残留（2026-09-15 排查）**：frontend 仍注册 `/square`、`/post/:id`、`/user/:id` 三个路由并引用已停用的 `/post/**`；`@/api/postController.ts` 里混着**仍在服务**的手写通知函数，**不可整文件删**（见 docs/plan.md「存量遗留」）
 - [x] F8 可观测性：traceId 全链路日志（异步透传）、Actuator/Prometheus 指标
 - [x] F9 工程化：GitHub Actions CI（编译 + 无 MySQL/Redis 单测）、JMeter 压测资产（本地，不入库）
 - [x] F10 标签词表（2026-09-14 T5 完成）：新表 `tag`（id/name/type(tag|category)/usageCount/审计字段，全局词表；列名随库内 camelCase 约定，设计文档速写 usage_count）；/tag_category 查表动态化（返回结构 PictureTagCategory 逐字段不变，9 标签 + 5 分类种子迁移）；编辑接口（单编/批编）同事务 upsert 词表并累加 usageCount（一次编辑调用计 1，不随图片数放大）；picture.tags JSON 列与 LIKE 查询逻辑不动
