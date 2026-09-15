@@ -88,6 +88,26 @@ function checkCheckboxes() {
   }
 }
 
+// ---------- check 2b: the spec's 边界 (contract) line must reference real paths ----------
+// The 边界 line is the user-confirmed contract for the app boundary (AGENTS.md rule 3 category ②).
+// If a top-level app dir is renamed or removed, this line must be updated - catch it mechanically.
+function checkContractBoundary() {
+  const p = path.join(ROOT, 'docs/spec.md')
+  if (!fs.existsSync(p)) return
+  const line = fs.readFileSync(p, 'utf8').split(/\r?\n/).find((l) => l.startsWith('- **边界'))
+  if (!line) { fail('docs/spec.md', 'the 边界 (boundary) bullet is missing from the 关键三行'); return }
+  for (const m of line.matchAll(/`([^`]+)`/g)) {
+    const token = m[1]
+    let target = null
+    if (token.endsWith('/')) target = token.slice(0, -1)
+    else if (/^(backend|frontend|ai|docs)\/[\w./-]+$/.test(token)) target = token
+    if (!target) continue
+    if (!fs.existsSync(path.join(ROOT, target))) {
+      fail('docs/spec.md', `边界 line references a path that does not exist: ${token}`)
+    }
+  }
+}
+
 // ---------- check 3: pointers resolve ----------
 function checkPointers() {
   const p = path.join(ROOT, 'docs/plan.md')
@@ -139,6 +159,7 @@ function checkFrontendBaseline() {
 
 // ---------- run ----------
 checkPaths()
+checkContractBoundary()
 checkCheckboxes()
 checkPointers()
 checkFrontendBaseline()
