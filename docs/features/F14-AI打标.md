@@ -69,6 +69,7 @@ apply  ：校验 → 载入图片（按 id）→ 逐条清洗（转义 HTML / �
 - **审核字段不变量**：单测断言 SET 子句（见上）；**集成测试**（`PictureAiTagIntegrationTest`，本机 MySQL + 桩模型）用真库核对——① 出建议零写库；② 应用后 `tags`/`category` 已写；③ `reviewStatus`/`reviewerId`/`reviewMessage`/`reviewTime` **逐字段与写入前相同**；④ 词表 `usageCount` 各 +1。测试自建唯一词条并**硬删**收尾（`picture` 有 `@TableLogic`，用 SQL 物理删），不留探针数据。
 - **管理员限定**：两个端点带 `@AuthCheck(mustRole = ADMIN_ROLE)`，并有反射守护测试钉住"注解在、角色对、路径对"（防止有人删了注解没人发现）。**证据边界**：运行期的拒绝走的是仓内既有的 `AuthInterceptor` AOP（`/picture/review`、`/picture/upload/batch` 等 6 个管理员端点同款），本轮**没有**额外跑"普通用户调用 → 40300"的端到端用例；前端入口侧由既有全局守卫保证（`access.ts:22-28`：`/admin/**` 非 admin 跳登录页）。
 - **前端（T16）**：`type-check` **138 → 138（净增 0）**——改动文件里出现的 4 处命中经 **stash 基线对比**确认为既有错误（行号只是被新增代码位移）；新组件 eslint 干净；vite HMR 编译无报错。**未做**：浏览器人工点选验收（需要管理员登录态，本轮未持有）。
+- **现场 bug 的回归守护（2026-09-15）**：`frontend/src/utils/pictureSelection.ts` 的 `toPictureIdList` / `isPictureIdList` 有 **10 例仓外断言脚本**（`%TEMP%\t16-selection\check.mjs`，用 esbuild 转译**真实纯函数**后 node 跑，同 F11 那次的先例），覆盖"勾选 key 是 `undefined` 时绝不能发出 `"undefined"`""超出安全整数范围的 number 宁可丢弃也不能送一个被截断的 id""字面量 `undefined`/非数字串校验不通过"等；修复前**红**、修复后 **10/10 绿**。**后端契约双向实测**（无需登录态）：数字字符串 id → `40100 未登录`（解析通过、走到鉴权），字面量 `"undefined"` → `50000 系统错误`（解析即失败）。
 - **负向控制**（规则 12）：把并发池临时改成 1 → "峰值并发恰为 3"**红**（`expected: 3`）；摘掉 `applyAiTags` 的 `@AuthCheck` → 守护测试**红**。两者改回后全绿。
 
 ## 已知限制
@@ -81,3 +82,4 @@ apply  ：校验 → 载入图片（按 id）→ 逐条清洗（转义 HTML / �
 6. **并发度是每请求的**：多个管理员同时打标时总并发 = 4 × 请求数；厂商侧的并发限流未知，真撞上表现为该批大量失败（本功能**没有接重试**，引擎侧那套重试模板不在本链路）。
 7. **没有每日配额**（扩图有 `app.outpainting.daily-quota`）：管理员手动触发天然低频 + 单次上限已拦；将来调用量变大再补。
 8. **图片地址必须厂商可抓取**：图库 COS 地址实测可用；第三方 CDN 曾被 DeepSeek 拒（同类问题见 F12 已知限制 7），换厂商/换图源要重测。
+9. **请求体解析失败与真正的服务端故障，现场是同一句"系统错误"**：`GlobalExceptionHandler` 把 `HttpMessageNotReadableException`（如前端发了非法 id）也交给泛 `RuntimeException` 兜底（`GlobalExceptionHandler.java:41-44`，固定文案"系统错误"），排查只能翻后端日志。2026-09-15 那个"表格没配 `row-key` ⇒ 勾选 key 是 `undefined` ⇒ 发出字面量 `"undefined"`"的 bug 就是这样被放大的（前端现在会在发请求前拦住非法 id，见「怎么验证」）。**建议**把该异常单独映射成 `PARAMS_ERROR`（"请求体格式错误"）——属全局行为、影响面大，另立项。
