@@ -51,7 +51,11 @@ public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, A
     }
 
     /**
-     * 失败收尾（T8-c）：provider 超时或调用失败时**替代回答帧**，且是本轮唯一的事件。
+     * 失败收尾（T8-c）：provider 超时或调用失败时**替代回答帧**，是本轮**最后**一条业务事件（其后只有 Done）。
+     * <p>
+     * 措辞边界：只有"第一步就失败"时它才是本轮**唯一**的事件——中途失败（如第 3 步 provider 挂了）
+     * 此前已经发过 step/answer 帧，消费端本就要处理"有过程/有回答、随后报错"的形态（{@code AgentFailureEventTest}
+     * 两种形态各一例）。全仓产出点仅一处：{@code BaseAgent.runLoop} 的 catch。
      * <p>
      * 面向用户的文案固定（原文只在日志里）：原先把原始异常文本当回答发出去，用户在气泡里读到的是
      * 厂商报错原文，而且因为循环不终止，同一段文本会重复 2-3 轮。

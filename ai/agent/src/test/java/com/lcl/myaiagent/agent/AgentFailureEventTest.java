@@ -132,6 +132,20 @@ class AgentFailureEventTest {
     }
 
     @Test
+    @DisplayName("中途失败：此前已有回答帧，error 只是本轮最后一条业务事件（不是唯一事件）")
+    void failureAfterEarlierFramesIsNotTheOnlyEventOfTheRun() {
+        FailOnSecondStepAgent agent = new FailOnSecondStepAgent();
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+        agent.runLoop("问一句", listener);
+
+        assertThat(listener.joinedAnswers()).as("失败前那一步的回答已经发出去了").isEqualTo("第一步的回答");
+        assertThat(errorTexts(listener)).containsExactly(FAILURE_TEXT);
+        assertThat(listener.events().get(listener.events().size() - 1)).isInstanceOf(AgentEvent.Done.class);
+        assertThat(listener.count(AgentEvent.Done.class)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("原始异常文本不进事件流（只在日志里），messageList 也不记录异常")
     void originalExceptionTextNeverReachesTheEvents() {
         CountingAssistantAgent agent = new CountingAssistantAgent(
@@ -175,6 +189,31 @@ class AgentFailureEventTest {
         @Override
         public List<AgentEvent> step() {
             throw new IllegalStateException("unexpected internal failure");
+        }
+
+        @Override
+        protected void cleanUp() {
+            setCurrentStep(0);
+            if (getState() != AgentState.ERROR) {
+                setState(AgentState.IDLE);
+            }
+        }
+    }
+
+    /**
+     * 第 2 步才抛异常的 agent：钉住"中途失败"的形态——error 之前已经有一条回答帧，
+     * 所以它不满足 {@code AgentEvent.Error} javadoc 里"本轮唯一的事件"这种说法。
+     */
+    private static final class FailOnSecondStepAgent extends BaseAgent {
+
+        private int calls;
+
+        @Override
+        public List<AgentEvent> step() {
+            if (++calls == 1) {
+                return List.of(new AgentEvent.Answer("第一步的回答"));
+            }
+            throw new IllegalStateException("第二步才失败");
         }
 
         @Override

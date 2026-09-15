@@ -109,6 +109,23 @@ class BaseAgentTest {
             assertThat(listener.joinedAnswers()).isEqualTo("final-answer");
             assertThat(listener.joinedAnswers()).doesNotContain("达到最大步骤");
         }
+
+        /**
+         * 上一个用例用的是 maxSteps=10，正好绕开了这个边界：最终回答**恰好落在第 maxSteps 步**时，
+         * {@code step()} 已把状态置成 FINISHED，但 {@code currentStep >= maxSteps} 同时成立，
+         * 于是回答气泡里会多一句"执行结束：达到最大步骤 (N)"。
+         */
+        @Test
+        @DisplayName("最终回答恰好落在第 maxSteps 步时，不再多补一条上限提示")
+        void shouldNotAppendMaxStepsNoticeWhenAnswerLandsOnTheLastStep() {
+            TestAgent agent = new TestAgent("final-answer");
+            agent.setFinishOnStep(true);
+            agent.setMaxSteps(1);
+
+            RecordingAgentEventListener listener = runLoop(agent, "test");
+
+            assertThat(listener.joinedAnswers()).isEqualTo("final-answer");
+        }
     }
 
     // ==================== 输入校验 ====================
@@ -226,6 +243,29 @@ class BaseAgentTest {
             runLoop(agent, "single-message");
 
             assertThat(agent.getState()).isEqualTo(AgentState.IDLE);
+        }
+
+        /**
+         * 与 {@code shouldDetectStuckAndTerminate} 同形，但把 maxSteps 压到"卡死终止恰好落在最后一步"：
+         * 旧代码会在"检测到循环，智能体已终止"之后再补一条上限提示（同源，非卡死本身的问题）。
+         */
+        @Test
+        @DisplayName("卡死终止恰好落在第 maxSteps 步时，不再多补一条上限提示")
+        void shouldNotAppendMaxStepsNoticeWhenStuckTerminationLandsOnTheLastStep() {
+            TestAgent agent = new TestAgent("ok");
+            agent.setName("StuckAgent");
+            agent.setMaxSteps(3);
+            for (int i = 0; i < 4; i++) {
+                agent.getMessageList().add(
+                        new org.springframework.ai.chat.messages.UserMessage("next-step"));
+                agent.getMessageList().add(
+                        new org.springframework.ai.chat.messages.AssistantMessage("repeated-text"));
+            }
+
+            RecordingAgentEventListener listener = runLoop(agent, "test");
+
+            assertThat(listener.joinedAnswers()).contains("检测到循环，智能体已终止");
+            assertThat(listener.joinedAnswers()).doesNotContain("达到最大步骤");
         }
     }
 

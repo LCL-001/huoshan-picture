@@ -12,7 +12,8 @@ import org.springframework.ai.tool.ToolCallback;
  * <p>
  * 与 MyManus 的差异只有三处——名字、系统提示词、工具集（图库工具集，不含文件/终端类）；
  * 结构上刻意与 MyManus 同构，不抽公共父类（避免动存量代码，规则 1）。
- * Agent 是有状态对象（messageList/state 每轮独立），由控制器按请求新建，不能做单例 Bean。
+ * Agent 是有状态对象，由控制器按请求新建、不能做单例 Bean（"一个实例只跑一次"的完整不变量见
+ * {@link BaseAgent}）。
  * </p>
  */
 public class HuoshanAssistantAgent extends ToolCallAgent {

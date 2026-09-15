@@ -26,6 +26,14 @@ import java.util.concurrent.TimeoutException;
  * 该抽象类定义了智能体的核心运行逻辑，包括状态管理、步骤控制、记忆系统等功能。
  * 子类需要实现step()方法定义单步执行逻辑，以及cleanUp()方法进行资源清理。
  * </p>
+ * <p>
+ * <b>实例生命周期不变量：一个 agent 实例只跑一次</b>——要再跑请新建实例。生产路径由控制器按请求新建
+ * （{@code HuoshanAssistantAgent} 因此不能做单例 Bean）。这条不被入口守卫强制：{@code runLoop}
+ * 只要求进入时状态为 {@code IDLE}，所以"正常跑完一次"的实例技术上能再跑，只是 {@code messageList}
+ * 会把上一轮会话带进来。真正让实例不可复用的是两处状态粘连——{@code cleanUp()} 故意不把
+ * {@code ERROR} 复位成 {@code IDLE}（见 {@code ToolCallAgent.cleanUp()}），以及用户"停止生成"置位的
+ * {@code stopped} 不复位。
+ * </p>
  */
 @Slf4j
 @Data
@@ -174,8 +182,9 @@ public abstract class BaseAgent {
                 this.state = AgentState.FINISHED;
                 log.info("用户停止生成，Agent 提前终止, steps={}", this.currentStep);
             } else {
-                // 检查是否超出步骤限制
-                if (this.currentStep >= this.maxSteps) {
+                // 检查是否超出步骤限制：只在"仍在运行"时才算真撞上限——最终回答恰好落在第 maxSteps 步时
+                // state 已是 FINISHED，不该再补一条上限提示（卡死终止落在同一步时同理）
+                if (this.state == AgentState.RUNNING && this.currentStep >= this.maxSteps) {
                     this.state = AgentState.FINISHED;
                     listener.onEvent(new AgentEvent.Answer("执行结束：达到最大步骤 (" + this.maxSteps + ")"));
                 }
