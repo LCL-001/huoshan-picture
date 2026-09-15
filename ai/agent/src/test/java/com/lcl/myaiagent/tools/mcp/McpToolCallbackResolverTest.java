@@ -12,6 +12,11 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -132,6 +137,49 @@ class McpToolCallbackResolverTest {
                 .as("成功后冷却被清除：下一次直接走解析")
                 .containsExactly("searchImage");
         assertThat(lookups).hasValue(3);
+    }
+
+    @Test
+    void concurrentDialogFallsBackImmediatelyWhileFirstProbeIsInFlight() throws Exception {
+        AtomicInteger lookups = new AtomicInteger();
+        CountDownLatch firstLookupStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirstLookup = new CountDownLatch(1);
+        Supplier<ToolCallbackProvider> blockingFailure = () -> {
+            int attempt = lookups.incrementAndGet();
+            if (attempt == 1) {
+                firstLookupStarted.countDown();
+                try {
+                    releaseFirstLookup.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("首个 MCP 探测被中断（桩）", e);
+                }
+            }
+            throw new IllegalStateException("MCP client 初始化失败（桩）");
+        };
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<ToolCallback[]> first = executor.submit(() -> resolver.resolve(blockingFailure));
+            assertThat(firstLookupStarted.await(5, TimeUnit.SECONDS))
+                    .as("首个会话已经取得 MCP 探测资格并处于在途状态")
+                    .isTrue();
+
+            Future<ToolCallback[]> concurrent = executor.submit(() -> resolver.resolve(blockingFailure));
+            assertThat(concurrent.get(5, TimeUnit.SECONDS))
+                    .as("已有探测在途时，并发会话应立即按少一个工具降级")
+                    .isEmpty();
+            assertThat(lookups)
+                    .as("同一时刻只允许一个会话调用 provider，不能排队重复支付连接超时")
+                    .hasValue(1);
+
+            releaseFirstLookup.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS)).isEmpty();
+        } finally {
+            releaseFirstLookup.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
     }
 
     @Test
