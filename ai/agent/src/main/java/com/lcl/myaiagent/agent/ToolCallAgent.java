@@ -40,12 +40,6 @@ import java.util.stream.Collectors;
 public class ToolCallAgent extends ReActAgent {
 
     /**
-     * think() 异常时写入消息列表的错误回复前缀。
-     * 声明为常量：DeepResearchAgent 报告兜底逻辑靠它区分"错误收尾"与"报告收尾"。
-     */
-    public static final String STEP_ERROR_PREFIX = "处理时遇到错误：";
-
-    /**
      * 可用的工具回调数组，包含所有可供智能体调用的工具
      */
     private ToolCallback[] availableTools;
@@ -134,35 +128,27 @@ public class ToolCallAgent extends ReActAgent {
             setNextStepPrompt(null);
         }
         Prompt prompt = new Prompt(tempMessages, chatOptions);
-        try {
-            ChatResponse chatResponse = callLlm(prompt);
-            // 记录响应，用于 Act
-            this.toolCallChatResponse = chatResponse;
-            AssistantMessage assistantMessage = chatResponse.getResult().getOutput();
-            // 输出提示信息
-            String result = assistantMessage.getText();
+        ChatResponse chatResponse = callLlm(prompt);
+        // 记录响应，用于 Act
+        this.toolCallChatResponse = chatResponse;
+        AssistantMessage assistantMessage = chatResponse.getResult().getOutput();
+        // 输出提示信息
+        String result = assistantMessage.getText();
 //            log.info(getName() + "的思考：" + result);
-            List<AssistantMessage.ToolCall> toolCallList = assistantMessage.getToolCalls();
-//            log.info(getName() + "的思考：" + result);
-            log.info(getName() + "选择了" + toolCallList.size() + "个工具来使用");
-            String toolCallInfo = toolCallList.stream()
-                    .map(toolCall -> String.format("工具名称：%s, 工具参数：%s", toolCall.name(), toolCall.arguments()))
-                    .collect(Collectors.joining("\n"));
-            log.info(toolCallInfo);
-            if (toolCallList.isEmpty()) {
-                // 无工具调用时，表示任务完成，记录助手信息并结束
-                getMessageList().add(assistantMessage);
-                setState(AgentState.FINISHED);
-                return false;
-            } else {
-                // 需要调用工具时，无需记录助手信息，因为调用工具时会自动记录
-                return true;
-            }
-        } catch (Exception e) {
-            log.error(getName() + "的思考过程遇到了问题：" + e.getMessage());
-            getMessageList().add(new AssistantMessage(STEP_ERROR_PREFIX + e.getMessage()));
+        List<AssistantMessage.ToolCall> toolCallList = assistantMessage.getToolCalls();
+        log.info(getName() + "选择了" + toolCallList.size() + "个工具来使用");
+        String toolCallInfo = toolCallList.stream()
+                .map(toolCall -> String.format("工具名称：%s, 工具参数：%s", toolCall.name(), toolCall.arguments()))
+                .collect(Collectors.joining("\n"));
+        log.info(toolCallInfo);
+        if (toolCallList.isEmpty()) {
+            // 无工具调用时，表示任务完成，记录助手信息并结束
+            getMessageList().add(assistantMessage);
+            setState(AgentState.FINISHED);
             return false;
         }
+        // 需要调用工具时，无需记录助手信息，因为调用工具时会自动记录
+        return true;
     }
 
     /**

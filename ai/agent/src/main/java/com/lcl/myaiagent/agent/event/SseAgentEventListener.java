@@ -89,6 +89,10 @@ public class SseAgentEventListener implements AgentEventListener {
                 payload.putAll(metrics.values());
                 payload.put("event", "metrics");
             }
+            case AgentEvent.Error error -> {
+                payload.put("content", error.content());
+                payload.put("event", "error");
+            }
             case AgentEvent.Done ignored -> throw new IllegalStateException("Done 不走 JSON 帧");
         }
         return payload;

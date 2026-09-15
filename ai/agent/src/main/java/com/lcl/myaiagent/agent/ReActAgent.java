@@ -49,24 +49,22 @@ public abstract class ReActAgent extends BaseAgent {
      * 1. 首先调用think()进行思考判断
      * 2. 如果think()返回false，则以最后一条助手消息作为回答事件（该消息通常已由 think() 写入）
      * 3. 如果think()返回true，则调用act()执行具体行动
-     * 4. 捕获并处理执行过程中的异常
+     * </p>
+     * <p>
+     * T8-c 起**不再吞异常**：think()/act() 的失败沿栈上抛给循环，由循环统一以一条 error 收尾并终止本轮
+     * ——旧行为是把异常文本当回答返回、循环继续，同一段原始异常文本会重复多轮（见
+     * {@code AgentFailureEventTest}）。
      * </p>
      *
      * @return 本步产出的事件
      */
     @Override
     public List<AgentEvent> step() {
-        try {
-            boolean shouldAct = this.think();
-            if (!shouldAct) {
-                // 如果不需要执行行动，则以最后一条助手消息作为最终回答
-                return List.of(new AgentEvent.Answer(getMessageList().getLast().getText()));
-            }
-            return this.act();
-        } catch (Exception e) {
-            // 记录异常日志
-            log.error("执行错误：{}", e.getMessage());
-            return List.of(new AgentEvent.Answer("步骤执行失败：" + e.getMessage()));
+        boolean shouldAct = this.think();
+        if (!shouldAct) {
+            // 如果不需要执行行动，则以最后一条助手消息作为最终回答
+            return List.of(new AgentEvent.Answer(getMessageList().getLast().getText()));
         }
+        return this.act();
     }
 }

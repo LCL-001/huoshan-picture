@@ -135,10 +135,10 @@ const send = async () => {
       scrollToBottom()
     },
     onError: (text) => {
+      // 协议保证每条流以 [DONE] 收尾（T8-hard），走到这里就是真出错：
+      // 已有回答时把原因追加在后面，避免用户只看到半截回答却不知道出了什么事
       turn.running = false
-      if (!turn.answer) {
-        turn.answer = text
-      }
+      turn.answer = turn.answer ? `${turn.answer}\n\n${text}` : text
       scrollToBottom()
     },
     onDone: () => {

@@ -13,7 +13,7 @@ import java.util.Map;
  * {@code BaseAgent.lastStepKind} / {@code lastThinkText} / {@code lastToolNames} 三个受保护字段
  * 在"子类 → 循环"之间传递分类与明细的旁路，已由本接口取代。
  */
-public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, AgentEvent.Metrics, AgentEvent.Done {
+public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, AgentEvent.Metrics, AgentEvent.Error, AgentEvent.Done {
 
     /**
      * 过程步（进前端折叠区）。
@@ -48,6 +48,16 @@ public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, A
      * values 会被平铺进帧里，**不要使用 event/kind/name/content 作为键**（会覆盖帧字段）。
      */
     record Metrics(Map<String, Object> values) implements AgentEvent {
+    }
+
+    /**
+     * 失败收尾（T8-c）：provider 超时或调用失败时**替代回答帧**，且是本轮唯一的事件。
+     * <p>
+     * 面向用户的文案固定（原文只在日志里）：原先把原始异常文本当回答发出去，用户在气泡里读到的是
+     * 厂商报错原文，而且因为循环不终止，同一段文本会重复 2-3 轮。
+     * 前端按 {@code event=error} 分流到错误提示，代理 {@code relay()} 原样透传。
+     */
+    record Error(String content) implements AgentEvent {
     }
 
     /** 一条流的终止帧。每条流恰好一个，且必须是最后一帧。 */

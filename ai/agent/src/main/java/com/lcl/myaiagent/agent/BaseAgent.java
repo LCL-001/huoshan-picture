@@ -13,10 +13,12 @@ import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.net.http.HttpTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 智能体基类，提供基础的AI Agent执行框架
@@ -31,6 +33,10 @@ public abstract class BaseAgent {
 
     /** SSE 连接超时（与后端代理 AiAssistantProxyManager.EMITTER_TIMEOUT_MS 对齐） */
     private static final long SSE_TIMEOUT_MS = 300_000L;
+
+    /** 失败文案：超时与一般失败各一句固定文案，原文只进日志（T8-c，见 AgentFailureEventTest） */
+    private static final String TIMEOUT_FAILURE_TEXT = "助手响应超时，请重试";
+    private static final String GENERIC_FAILURE_TEXT = "助手处理失败，请稍后重试";
 
     // 智能体名称
     private String name;
@@ -176,15 +182,42 @@ public abstract class BaseAgent {
                 emitMetrics(listener);
             }
         } catch (Exception e) {
+            // 终止性失败（provider 超时、调用失败、工具或内部异常）：本轮以一条 error 收尾并结束。
+            // 不再把异常文本当回答发出去——原文只进日志（T8-c：原先同样的原始异常文本会重复多轮）
             this.state = AgentState.ERROR;
-            log.error("Error executing agent: ", e);
-            listener.onEvent(new AgentEvent.Answer("执行错误，Error: " + e.getMessage()));
+            log.error("{} 执行失败，本轮终止：{}", getName(), e.getMessage(), e);
+            listener.onEvent(new AgentEvent.Error(failureText(e)));
         } finally {
             // 收尾：恰好一个 Done（缺口"卡死路径双发 [DONE]""校验失败流不以 [DONE] 收尾"在此修正）
             listener.onEvent(new AgentEvent.Done());
             // 清理资源
             this.cleanUp();
         }
+    }
+
+    /**
+     * 失败 → 面向用户的固定文案（T8-c）。原始异常只进日志：用户不需要（也不该）读到厂商报错原文。
+     */
+    private static String failureText(Throwable failure) {
+        return isTimeout(failure) ? TIMEOUT_FAILURE_TEXT : GENERIC_FAILURE_TEXT;
+    }
+
+    /**
+     * 沿 cause 链判超时。两种形态都取自 T6.1 实测（docs/decisions.md 2026-09-14）：
+     * 流空闲超时是 {@link TimeoutException}（外层是状态码 200 的 WebClientResponseException），
+     * 连接/首包超时是 {@link HttpTimeoutException}（外层是 WebClientRequestException）。
+     * 只看 cause 链是因为外层类型由框架决定、随版本变化。
+     */
+    private static boolean isTimeout(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof TimeoutException || current instanceof HttpTimeoutException) {
+                return true;
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+        }
+        return false;
     }
 
     /**

@@ -169,6 +169,23 @@ class AiAssistantProxyManagerTest {
     }
 
     @Test
+    void relaysEngineErrorFrameVerbatimWithoutSynthesizingAnotherOne() {
+        // T8-c：引擎的失败收尾是 event=error 帧（超时/调用失败）。代理不认识它，
+        // 但也绝不改写：原样转发 + [DONE] 收尾，不得再合成一条 answer（否则同一件事说两遍）
+        stubBody = "data:{\"event\":\"error\",\"content\":\"助手响应超时，请重试\"}\n\n"
+                + "data:[DONE]\n\n";
+
+        RecordingManager manager = manager();
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID);
+        List<String> frames = manager.emitter.awaitFrames();
+
+        assertThat(frames).containsExactly(
+                "{\"event\":\"error\",\"content\":\"助手响应超时，请重试\"}",
+                "[DONE]");
+        assertThat(REQUESTS.get()).isEqualTo(1);
+    }
+
+    @Test
     void omitsChatIdWhenBlank() {
         stubBody = "data:[DONE]\n\n";
 

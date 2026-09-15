@@ -35,8 +35,12 @@ const DONE_FLAG = '[DONE]'
 export class AssistantStream {
   private source: EventSource | null = null
 
+  /** 服务端是否已用 error 事件讲清了失败原因（T8-c）：连接随后才断时不再叠加通用提示 */
+  private serverErrorReported = false
+
   start(url: string, handlers: AssistantStreamHandlers) {
     this.stop()
+    this.serverErrorReported = false
     const source = new EventSource(url, { withCredentials: true })
     this.source = source
 
@@ -58,6 +62,10 @@ export class AssistantStream {
         })
       } else if (payload.event === 'answer') {
         handlers.onAnswer(payload.content ?? '')
+      } else if (payload.event === 'error') {
+        // 引擎侧的失败收尾（超时/调用失败）：content 是给用户看的固定文案，原文只在引擎日志里
+        this.serverErrorReported = true
+        handlers.onError(payload.content ?? '助手出错了，请重试')
       }
       // metrics：图库助手当前不发（引擎侧未覆盖 runSummary），真发了也不渲染
     }
@@ -67,7 +75,13 @@ export class AssistantStream {
         return
       }
       this.stop()
-      // EventSource 拿不到 HTTP 状态码与错误响应体；服务端侧的失败会先以 answer 事件到达
+      // [DONE] 是每条流的正常收尾，因此走到这里表示连接被中断；
+      // 若服务端已经报过 error，这里只做收尾（不再补一句通用提示，免得同一件事说两遍）
+      if (this.serverErrorReported) {
+        handlers.onDone()
+        return
+      }
+      // EventSource 拿不到 HTTP 状态码与错误响应体；服务端侧的失败会先以 answer/error 事件到达
       handlers.onError('助手连接中断，请重试')
     }
   }

@@ -12,6 +12,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * ReActAgent 单元测试 — 测试 think→act 流转
@@ -95,24 +96,24 @@ class ReActAgentTest {
         }
 
         @Test
-        @DisplayName("think() 抛异常 → 捕获并以回答事件告知")
-        void shouldCatchThinkException() {
+        @DisplayName("think() 抛异常 → 沿栈上抛给循环（T8-c：不再吞成回答，收尾由循环统一做）")
+        void shouldPropagateThinkException() {
             agent.setThrowInThink(true);
 
-            String result = answerOf(agent.step());
-
-            assertThat(result).contains("步骤执行失败").contains("think failed");
+            assertThatThrownBy(() -> agent.step())
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("think failed");
         }
 
         @Test
-        @DisplayName("act() 抛异常 → 捕获并以回答事件告知")
-        void shouldCatchActException() {
+        @DisplayName("act() 抛异常 → 沿栈上抛给循环")
+        void shouldPropagateActException() {
             agent.setThinkResult(true);
             agent.setThrowInAct(true);
 
-            String result = answerOf(agent.step());
-
-            assertThat(result).contains("步骤执行失败").contains("act failed");
+            assertThatThrownBy(() -> agent.step())
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("act failed");
         }
     }
 

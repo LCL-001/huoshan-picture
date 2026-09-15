@@ -206,6 +206,18 @@ class SseEventProtocolContractTest {
         }
 
         @Test
+        @DisplayName("error 帧：只有 event/content（T8-c 的超时与失败收尾）")
+        void errorFrameFields() throws Exception {
+            RecordingSseEmitter emitter = emit(new AgentEvent.Error("助手响应超时，请重试"));
+
+            JsonNode error = jsonOf(emitter, 0);
+            assertThat(error.get("event").asText()).isEqualTo("error");
+            assertThat(error.get("content").asText()).isEqualTo("助手响应超时，请重试");
+            assertThat(error.has("kind")).isFalse();
+            assertThat(error.has("name")).isFalse();
+        }
+
+        @Test
         @DisplayName("终止帧是原始文本 [DONE]（不是 JSON），并触发 complete()")
         void doneFrameIsRawText() {
             RecordingSseEmitter emitter = emit(new AgentEvent.Answer("完成"), new AgentEvent.Done());
