@@ -11,6 +11,7 @@ import com.lcl.myaiagent.exception.BusinessException;
 import com.lcl.myaiagent.exception.ThrowUtils;
 import com.lcl.myaiagent.tools.huoshan.HuoshanApiClient;
 import com.lcl.myaiagent.tools.huoshan.HuoshanToolFactory;
+import com.lcl.myaiagent.tools.mcp.McpToolCallbackResolver;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +55,10 @@ public class HuoshanAssistantController {
      */
     @Resource
     private ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider;
+
+    /** 搜图 MCP 工具回调的解析与降级（T19）：服务不可达时少一个工具照常开对话，失败后冷却期内不再重试 */
+    @Resource
+    private McpToolCallbackResolver mcpToolCallbackResolver;
 
     /**
      * 图库助手对话（SSE）。
@@ -102,9 +107,9 @@ public class HuoshanAssistantController {
             log.info("调用者非管理员，本次会话不挂 visionTagger（看图打标仅管理员可用）, conversationId={}",
                     conversationId);
         }
-        // 搜图 MCP 工具（T9）：只挂给图库助手，MyManus 的工具表（ToolRegistration）不动
-        ToolCallbackProvider mcpProvider = mcpToolCallbackProvider.getIfAvailable();
-        ToolCallback[] mcpTools = mcpProvider == null ? new ToolCallback[0] : mcpProvider.getToolCallbacks();
+        // 搜图 MCP 工具（T9）：只挂给图库助手，MyManus 的工具表（ToolRegistration）不动。
+        // MCP 服务不可达时这里降级为空数组（T19：少一个工具照常开对话，不再让整条对话失败）
+        ToolCallback[] mcpTools = mcpToolCallbackResolver.resolve(mcpToolCallbackProvider::getIfAvailable);
         ToolCallback[] tools = HuoshanToolFactory.assistantTools(
                 huoshanProperties.apiClient(satoken, sessionId), visionModel, canTagPictures, mcpTools);
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),

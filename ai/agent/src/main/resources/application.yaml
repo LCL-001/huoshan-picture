@@ -35,6 +35,8 @@
         enabled: ${AI_MCP_CLIENT_ENABLED:true}
         # 不在启动时初始化：MCP 服务没起也不该拖垮引擎启动，改成首次调用时再连
         initialized: false
+        # 服务不可达时的感知上限就是 request-timeout 的默认值 20s（T19 实测 20.1s）——这把尺同时约束
+        # 真实的 searchImage 调用，故不压小；失败即降级为空数组并进入 60s 冷却（McpToolCallbackResolver）
         sse:
           connections:
             image-search:
