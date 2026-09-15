@@ -2,7 +2,7 @@
   <div id="assistantPage">
     <header class="page-header animate-fade-in-up">
       <h2 class="page-title">AI 助手</h2>
-      <p class="page-subtitle">用你自己的登录态读取空间 / 图片 / 标签词表——看到的范围与你本人一致，当前只读不改</p>
+      <p class="page-subtitle">用你自己的登录态操作空间 / 图片 / 标签——范围与你本人一致；改动只在你明确要求时发生，删除类操作不支持</p>
     </header>
 
     <a-card class="assistant-card animate-fade-in-up stagger-dyn" style="--stagger-i: 1" :bordered="false">
@@ -24,7 +24,7 @@
           <div class="assistant-empty__samples">
             <span v-for="sample in samples" :key="sample" @click="input = sample">{{ sample }}</span>
           </div>
-          <p class="assistant-empty__hint">当前只能读取（空间 / 图片 / 标签词表），不会改动任何数据。</p>
+          <p class="assistant-empty__hint">可读也可改：看图给建议、批量改标签、按 URL 入库都在能力范围内，但只在你明确要求时才动手，且不支持删除。</p>
         </div>
 
         <div v-for="(turn, index) in turns" :key="index" class="assistant-turn">
