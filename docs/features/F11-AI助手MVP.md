@@ -14,10 +14,12 @@
 > 2026-09-15 追加：**T14** 把本文件与 `/assistant` 页面文案的"只读"口径回填为档 3 的真实能力（可读可改、改动须用户
 > 明确要求、不支持删除）——原口径是档 1/档 2 期的真实描述，档 3 放开写权限后没跟上，属用户可见的错误声明。
 > 见「一句话」「怎么用」第 4 条、核心流程图与「已知限制」12。
+> 2026-09-15 再追加：**T17** 按角色裁剪工具——看图打标（`visionTagger`）**只挂给管理员会话**，
+> 代理新增 `X-User-Role` 透传（见「怎么用」第 4 条、核心流程图与「已知限制」13）。
 
 ## 一句话
 
-登录后在 `/assistant` 页面与内嵌 AI 助手对话：助手**用你自己的登录态**查你的空间、图片与标签词表，也能按你的要求动手整理——看图给建议、批量改标签、把网上搜到的图按 URL 入库（写入消耗空间配额）。改动**只在用户明确要求时发生**，且**不支持删除**；执行步骤以折叠条逐步显示，回答进气泡。
+登录后在 `/assistant` 页面与内嵌 AI 助手对话：助手**用你自己的登录态**查你的空间、图片与标签词表，也能按你的要求动手整理——看图给建议（**仅管理员**，见「已知限制」13）、批量改标签、把网上搜到的图按 URL 入库（写入消耗空间配额）。改动**只在用户明确要求时发生**，且**不支持删除**；执行步骤以折叠条逐步显示，回答进气泡。
 
 ## 怎么用
 
@@ -25,6 +27,7 @@
 2. 空状态给了三个示例问题，点一下即填入输入框；`Enter` 发送、`Shift+Enter` 换行。
 3. 发送后：你自己的消息靠右、下方出现**默认展开的步骤折叠条**。折叠条里两类行：`思考`（模型的自然语言推理）与 `工具 · <中文别名>`——工具行默认只给一句话摘要（如「共 3 个空间」「标签 13 个 · 分类 5 个」「失败：未登录」），原始返回点该行的「详情」才展开。助手回答靠左，按 Markdown 子集渲染（粗体、列表、行内代码、链接、引用）。输入框在回答期间禁用，按钮变成红色「停止」。
 4. **助手能改数据（档 3 起，2026-09-15 补记）**：你明确要求时它会批量改标签、把搜到的图按 URL 入库（**写入会消耗空间配额**）；看图打标是"先给建议、你说要才落库"。它**不支持删除**——任何"已删除"的说法都不成立，也不会替你删。要求说得不清楚时它会先问你，不要指望它猜。
+   **2026-09-15 T17 起看图打标仅管理员可用**：普通用户的助手**没有**这个工具（与"公共图库打标是管理端管理员能力"对齐），你仍然可以让它列空间/图片、批量改标签、按 URL 入库；要看图给建议得用管理员账号，或走管理端的公共图库「AI 打标」入口（见 `F14-AI打标.md`）。
 5. 「停止」= 关闭这条 SSE 流（不是暂停）；「新对话」= 换一条对话串（旧会话记忆仍留在引擎，但不再续聊）。
 6. 未登录点进来会被重定向到登录页（`EventSource` 读不到 HTTP 状态码，登录态必须前置判）。若**登录态在页面里失效**（发送时才发现），会先收到提示并被带去登录页——因为建流前的那次取票走的是 axios，能读到 40100；而流本身是 `EventSource`，读不到错误响应体。
 7. 每次发送前前端会先取一张**一次性凭据**（POST `/api/ai/assistant/ticket`，60 秒有效、用一次即作废），这一步用户无感。取票失败时回答气泡会直接显示「助手暂时不可用（未能取得本次对话凭据），请稍后重试」。
@@ -44,7 +47,7 @@
 | 前端地址 | `frontend/src/api/assistantController.ts` | 取一次性凭据（`fetchAssistantTicket`，POST）+ 拼 GET 流地址（复用 `request.ts` 导出的 `BASE_URL`） |
 | 后端端点 | `backend/.../controller/AiAssistantController.java` | 四道门槛、凭据组取值、`GET /api/ai/assistant/chat` 与签发端点 `POST /api/ai/assistant/ticket` |
 | 后端凭据 | `backend/.../manager/ai/AiAssistantTicketManager.java` | 一次性凭据的签发与"取用即删"（Redis + Lua，单次使用、60 秒过期） |
-| 后端转发 | `backend/.../manager/ai/AiAssistantProxyManager.java` | 打引擎、逐帧中继 SSE、失败合成 answer、断流关上游 |
+| 后端转发 | `backend/.../manager/ai/AiAssistantProxyManager.java` | 打引擎、逐帧中继 SSE、失败合成 answer、断流关上游、透传调用者角色（`X-User-Role`，T17） |
 | 后端配置 | `backend/.../config/AiAssistantProperties.java` + `application.yaml` 的 `app.ai.assistant.*` | 引擎地址、服务间密钥、两个超时 |
 | 后端线程池 | `backend/.../config/ThreadPoolConfig.java` 的 `aiAssistantExecutor` | SSE 转发专用有界守护线程池（上界 64，不排队） |
 
@@ -60,9 +63,9 @@
         ④ 一次性凭据有效且属于会话用户（R5；缺失/已用过/属别人一律 40300；零上游请求）
    ↓ AiAssistantProxyManager（专用线程）：HttpURLConnection GET 引擎
         {engine}/api/ai/huoshan/chat?message=&userId=&chatId=
-        头：X-Internal-Api-Key（配置）、satoken（原样）、Accept: text/event-stream
+        头：X-Internal-Api-Key（配置）、satoken（原样）、X-User-Role（T17：调用者角色，空值不发）、Accept: text/event-stream
         Cookie：SESSION=<浏览器原样值>
-   ↓ 引擎：图库助手会话类型 → 工具集（档 1 的三个只读工具 + 档 3 的 visionTagger / batchEditPictures / batchUploadByUrl / MCP searchImage；各自带这组凭据打图库 API，RBAC 由图库判）
+   ↓ 引擎：图库助手会话类型 → 工具集（档 1 的三个只读工具 + 档 3 的 batchEditPictures / batchUploadByUrl / MCP searchImage，**外加 visionTagger——仅当配置了视觉模型且调用者是管理员**（T17）；各自带这组凭据打图库 API，RBAC 由图库判）
    ↓ SSE 逐帧中继回浏览器（payload 原样，遇 [DONE] 收尾）
 前端按 data 帧里的 event 字段分流：step→折叠条、answer→气泡、[DONE]→关流
 ```
@@ -83,7 +86,7 @@
 
 ## 怎么验证
 
-- **门禁（不依赖 MySQL/Redis）**：`backend` 45 例全绿，其中本档 32 例——`AiAssistantControllerTest` 20 例（登录门槛、satoken 三处取值与优先级、会话 Cookie 缺失拒绝、**会话 Cookie 原样值 vs `session.getId()` 回归**、**R4 两条：假 token 40100 / 别人的真 token 40102 且零上游**、**R5 八条：无票 / 编造的票 / 别人的票 / 用过的票一律 40300 且零上游，有效票正常转发（5 条对话侧），签发端点"未登录不签 / 凭据不同人不签 / 正常签发绑定调用者"（3 条）**）、`AiAssistantProxyManagerTest` 9 例（转发形状与凭据头、SSE 逐帧中继与格式容错、引擎 401/JSON 错误与不可达转可见文案、密钥/地址缺失 fail-closed 且零上游请求、线程池满响亮失败）、`AiPathSaTokenGuardTest` 3 例（R6 守护，见设计理由 7）。R4 的单测用 Sa-Token 内存 DAO 播种真 token（无 Spring 时 `SaManager` 缺省即 `SaTokenDaoDefaultImpl`），验的是真实的 `getLoginIdByToken` 语义而非替身；R5 的门槛用 Mockito 替身（票的 Redis 语义留给集成测试）。
+- **门禁（不依赖 MySQL/Redis）**：`backend` 45 例全绿，其中本档 32 例——`AiAssistantControllerTest` 20 例（登录门槛、satoken 三处取值与优先级、会话 Cookie 缺失拒绝、**会话 Cookie 原样值 vs `session.getId()` 回归**、**R4 两条：假 token 40100 / 别人的真 token 40102 且零上游**、**R5 八条：无票 / 编造的票 / 别人的票 / 用过的票一律 40300 且零上游，有效票正常转发（5 条对话侧），签发端点"未登录不签 / 凭据不同人不签 / 正常签发绑定调用者"（3 条）**）、`AiAssistantProxyManagerTest` 9 例（转发形状与凭据头、SSE 逐帧中继与格式容错、引擎 401/JSON 错误与不可达转可见文案、密钥/地址缺失 fail-closed 且零上游请求、线程池满响亮失败）、`AiPathSaTokenGuardTest` 3 例（R6 守护，见设计理由 7）。R4 的单测用 Sa-Token 内存 DAO 播种真 token（无 Spring 时 `SaManager` 缺省即 `SaTokenDaoDefaultImpl`），验的是真实的 `getLoginIdByToken` 语义而非替身；R5 的门槛用 Mockito 替身（票的 Redis 语义留给集成测试）。**2026-09-15 T17 后的口径**：上述两个类各 +2 例（`AiAssistantControllerTest` **22**、`AiAssistantProxyManagerTest` **12**，新增的都是角色透传断言），backend 门禁总 **74 例**。
 - **R5 先红后绿（规则 12）**：门槛未加时 `AiAssistantControllerTest` 20 跑 **4 失败**，失败原因一律是 `Expecting code to raise a throwable`——即"无票/编造票/别人的票/用过的票"这四种请求都被**照常转发**给了引擎（这就是洞本身）；补上门槛四后 20/20 绿。
 - **集成测试（本地，需 MySQL/Redis）**：`AiAssistantProxyIntegrationTest` 8 例——真实登录产出 `satoken` Cookie 后原样转发（**含真 Redis 上"取票 → 建流"整条路**）、会话 Cookie 原样值转发（不等于 `session.getId()`）、只带 satoken 不带会话 Cookie 在入口即拒且零上游请求、**R4 两条：假 token 在入口即拒（真会话也救不了）、第二个真实账号的 satoken 配本账号会话回 40102 且零上游**、**R5 三条：真凭据但无票 40300 且零上游、真票用第二次被拒（Lua `GET+DEL` 的 Redis 侧单次使用，原子性由独立 review 用 64 路并发实测：恰好 1 个拿到值、事后键不存在）、别人的真票被拒**。本地全量集成套件（14 个类 58 例）实跑绿；独立 review 复跑 `AiAssistantProxyIntegrationTest` 连跑 4 次均 8/8 绿（"`REQUESTS==0` 假红"未复现）。
 - **over-the-wire 复验（R5 accept，2026-09-14；真 HTTP + 桩引擎计数）**：起 backend(`local,test`, 8131) + 桩引擎(8130)，探针账号真登录后：① 带真 Cookie、**无票** → `{"code":40300,...}`，桩引擎**零请求**；② `POST /api/ai/assistant/ticket` → `code=0` 发票；③ 带票对话 → HTTP 200 + `text/event-stream` 事件流（桩引擎记录到 1 次请求，路径 `/api/ai/huoshan/chat`、密钥、satoken、`SESSION` Cookie 全部正确）；④ **同一张票再用** → `40300`，桩引擎仍只有 1 次请求。探针脚本 `%TEMP%\r5-probe.js`（含凭据的日志与 cookie 罐已按惯例删除）。
@@ -108,3 +111,4 @@
 10. **`chatId` 未做净化，可换行注入后端日志**（review 实测：`chatId=inj%0AFORGED-LINE-MARKER` 在日志里伪造出独立一行）。`message` 不进日志、凭据不进日志（三个探针实例日志对真 token/会话值 0 命中，含异常与拒绝路径）。
 11. **`ai/agent` 的门禁口径是 `.githooks` 的排除名单，不是 AGENTS 那条通用过滤命令**：AGENTS/handoff 记的 `-Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests'` 直接套到 `ai/agent` 会红（97 例 1 错误：`MyManusTest` 注入不存在的 `MyManus` bean，遗留教学测试）；`.githooks/pre-commit:54` 那条排除若干类之后才是绿（**2026-09-15 现状**：排除 9 类 ⇒ 143 例；`MyManusTest` 已随 T8-hard 删除）。两者差异未记录在 AGENTS 的测试命令节，容易让下一个人把红当回归。
 12. **"只读"口径已于 2026-09-15 回填（T14）**——本条是 2026-09-15 独立 review 的 **P2**（唯一一条**用户可见的错误声明**），现已收口：档 3 放开写权限后，`/assistant` 页面的 subtitle（原"当前只读不改"）与空状态提示（原"不会改动任何数据"）以及本页「一句话」「怎么用」「核心流程图」都还停留在档 1/档 2 的只读口径；现改为如实描述（可读可改、**改动只在用户明确要求时发生**、不支持删除），并补明"写入会消耗空间配额"。同批 review 顺带订正的另两处陈旧表述：错误事件类型（见限制 2）与门禁排除名单／例数（见限制 11）。**未做（可选增强）**：空状态的三个示例问题仍是只读样例，没有"整理类"入口；前端错误态 UI 与工具摘要增强仍按 `F12` 已知限制挂着。
+13. **看图打标按角色裁剪（T17，2026-09-15）**：`visionTagger` 只挂给管理员会话（普通用户问"看图打标签"时手上没有这个工具），口径与出口见 `F12`「已知限制」9——那里写了三条残留（角色头不是授权、提示词未按角色补话术、未做两种角色的人工会话验收）。前端**没有**与此相关的角色可见性逻辑（页面不区分角色，也不需要区分：工具少了模型自己会少一条路），所以本条纯属引擎与代理侧的口径。
