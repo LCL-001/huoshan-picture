@@ -104,6 +104,18 @@
   - 实施记录（2026-09-15 完成）：提交 `29e8ee6`（前端文案，走 pre-commit：backend 48 例 + ai/agent 137 例双绿）+ 一笔 `docs:`（F11 回填、本条目勾选、decisions 该 P2 状态更新）。文案：subtitle → "用你自己的登录态操作空间 / 图片 / 标签——范围与你本人一致；改动只在你明确要求时发生，删除类操作不支持"；空状态提示 → "可读也可改：看图给建议、批量改标签、按 URL 入库都在能力范围内，但只在你明确要求时才动手，且不支持删除"。F11：`一句话` 与 `怎么用` 补档 3 能力（新增第 4 条，原 4/5/6 顺延）、核心流程图 L61 的"三个只读工具"改为完整工具集、已知限制 12 收口。**前端检查**：`type-check` 138（与基线持平、改动文件 0 命中）、改动文件 `eslint` 干净。**未做**：浏览器端人工看一眼文案排版（纯文本改动，与 F13 已知限制 5 同属"前端改动只过了类型与 lint"这一类）。
 - [ ] **同批 review 的 3 条 P3（未做，可穿插到任何一次会碰这些文件的任务）**：① `BaseAgent.runLoop` 的上限提示未判 `state`——最终回答恰好落在第 `maxSteps` 步时会多补一条"执行结束：达到最大步骤 (N)"回答帧（改成 `if (state == RUNNING && currentStep >= maxSteps)` + 补一例 `maxSteps=1 + finishOnStep` 的契约测试即会先红后绿）；② `AgentEvent.Error` javadoc 的"且是本轮唯一的事件"措辞过强（中途失败时此前已有 step/answer 帧发出）；③ 计划 §5 的设计（新增 `AgentExecutionException`、失败置 `state=FINISHED`）与实现（不新增异常类、置 `state=ERROR`）不一致，"一个 agent 实例只跑一次"的不变量宜从 `HuoshanAssistantAgent` 类注释提到 `BaseAgent`。全文见 `decisions.md` 2026-09-15 review 行与 F13「已知限制」7/8/9。
 
+- [ ] T15（P0，backend）**AI 打标服务（管理员手动触发，2026-09-15 用户拍板：不做定时/阈值自动触发）**：管理员在管理端选图 → 服务端自查词表、调多模态模型出**标签/分类建议** → 管理员确认后落库。**为什么必须在图库侧**：公共图库的图 `spaceId IS NULL`，助手的 `batchEditPictures` 走的 `/picture/edit/batch` 按 `spaceId` 查图且强制空间属主（`PictureServiceImpl.java:1145-1154`）**覆盖不到**；而单张 `editPicture`（`:921`）会调 `fillReviewParams`（`:587-599`）——非管理员打标会把图**打回待审核**、管理员打标会**覆盖 `reviewerId`/`reviewMessage`**，两条都不可接受 ⇒ 需要专用的"只改标签"服务端方法。**打标提示词照抄引擎 `VisionTaggerTool.PROMPT_TEMPLATE`（含词表注入与"优先复用已有词"规则）**，词表直接读本库 `tag`
+  - 文件范围：backend 新增 `manager/ai/PictureAiTagManager.java`（或 `service/impl` 内方法）、`IPictureService`/`PictureServiceImpl` 新增"只改 tags/category"方法（**不碰 reviewStatus 与三个审核字段**）、`PictureController` 新增两个管理员接口（出建议 / 应用建议，均 `@AuthCheck(mustRole=ADMIN)`，先例同 `/picture/review`）、`application.yaml` + `.example` 新增 `app.ai.vision.*`（base-url/model/api-key/timeout，**密钥不入库**）、对应单测
+  - 验收：① 普通用户调用两个接口均被拒（`@AuthCheck` 生效）；② **出建议接口零写库**（断言库内 tags/category 不变）；③ 应用接口只写 tags/category 并累加 `tag.usageCount`（口径同 `editPicture`：每词条每次提交 +1），**`reviewStatus`/`reviewerId`/`reviewMessage`/`reviewTime` 逐字段断言不变**；④ 落库后清公共图库列表缓存（断言 `clearPictureListCache` 被调用）；⑤ **并发=已定的"层次一"**（有界池 3~4 上限、单张超时降级、单张失败只影响该张、结果按输入顺序）——规则 12 先红后绿，桩 `AliYunAiApi` 式 HTTP 桩或 Mockito 计数型多模态桩，不连网、进门禁；⑥ 单次选图上限（建议 20 张）超限即拒；⑦ 门禁绿
+  - 不做：定时任务/阈值扫描；`picture` 表新增 `ai_tag_*` 列（无自动扫描即不需要，将来若要自动跑再迁移）；不做每日配额（管理员手动=天然限流，单次上限已拦）；不动助手侧（见 T17）
+- [ ] T16（frontend）**管理端 AI 打标入口**：公共图库管理页给管理员加"AI 打标"入口——选图 → 跑建议（可编辑，仿 `BatchEditPictureModal` 的形状）→ 确认落库；普通用户完全看不到入口
+  - 文件范围：`frontend/src/pages/admin/PictureManagePage.vue`（或对应管理页）、`frontend/src/api/pictureController.ts`（`npm run openapi` 生成）、必要时复用/仿 `components/BatchEditPictureModal.vue`
+  - 验收：管理员可见可用、非管理员无入口；`type-check` 净增 0（基线 138、改动文件 0 命中）、改动文件 eslint 干净
+- [ ] T17（助手侧收口，待拍板）**按角色裁剪打标工具 + 是否复用 T15 的接口**：普通用户的助手不再挂 `visionTagger`（按用户"只有管理员能调用"的原话）；管理员若保留助手里的打标能力，工具应改为调 T15 的出建议/应用接口，避免提示词与词表注入两处维护
+  - 文件范围：backend 代理（透传调用者角色，如 `X-User-Role`，走服务间密钥那条信道）、`HuoshanAssistantController`、`HuoshanToolFactory`
+  - 验收：普通用户会话的工具集不含打标工具（装配断言）；管理员会话可用；门禁绿
+- **待拍板两项**：① **结果两步式 vs 一步直达**——建议**两步式**（先建议、管理员确认后落库）：公共图库是访客看门面，写错影响面比空间图大，且"建议-确认"本来就是设计文档 L58 的口径，不需要新决策；② **普通用户助手里的只读 `visionTagger`** 是摘掉还是保留（保留则普通用户能看建议但落库仍需管理员；摘掉则完全对齐"只有管理员能调用"）。**默认参数**（可在 T15 字据里改）：单次上限 20 张、并发 3~4、模型复用 vision 那组（当前 MiMo `mimo-v2.5`）、单张超时 30~45s。
+
 ## 任务清单（存量修复，已完成）
 
 以下为 2026-09-12 功能审查（三个只读子代理 + 逐条人工核验，详见 handoff/0002）产出的修复批次，按优先级排列：
