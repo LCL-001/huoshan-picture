@@ -124,10 +124,10 @@
 
 | # | 事项 | 为什么 | 状态 |
 |---|---|---|---|
-| D1 | **引擎旧端点 `/ai/manus/chat` 必须加鉴权或只监听回环** | 它**零鉴权**（引擎只拦 `/ai/huoshan/**`，`HuoshanWebConfig:25`），挂 `ToolRegistration.allTools()`；其中 `FileOperationTool` 的 `fileName` 未做路径清洗（`FILE_DIR + "/" + fileName`），配合"攻击者可控制 `message`=提示词"，构成**未授权的任意文件读写**（受进程权限约束）；另有 `WebScrapingTool`/`ResourceDownloadTool` 的 SSRF 面。删除 `TerminalOperationTool` 拿掉了直接执行 shell，但没消除这条原语 | **硬阻断**（复核升级） |
-| D2 | 引擎 `CorsConfig` 收紧 | `allowCredentials(true)` + `allowedOriginPatterns("*")` 对所有站点反射 Origin 且允许带凭据 | 待办 |
+| ~~D1~~ | ~~引擎旧端点 `/ai/manus/chat` 必须加鉴权或只监听回环~~ | 它**零鉴权**（引擎只拦 `/ai/huoshan/**`），挂 `ToolRegistration.allTools()`；其中 `FileOperationTool` 的 `fileName` 未做路径清洗，配合"攻击者可控制 `message`=提示词"构成**未授权的任意文件读写**；另有抓取类工具的 SSRF 面 | **已收口（2026-09-15）**：引擎与 MCP 只监听回环（`server.address: 127.0.0.1`，在**入库的** `application.yaml` 里）+ `FileOperationTool` 补路径校验。口径见 `docs/decisions/2026-09-15-D1-loopback.md`；实施见 `docs/plans/records/D1.md` |
+| D2 | 引擎 `CorsConfig` 收紧 | `allowCredentials(true)` + `allowedOriginPatterns("*")` 对所有站点反射 Origin 且允许带凭据 | **缓解未修**（D1 的回环绑定后远程浏览器够不到它；但**本机进程仍可利用**，不算已修好） |
 | D3 | nginx SSE 配置入库 | `proxy_buffering off` / `proxy_read_timeout` 是折叠条逐步显示的**前提**；而 `backend/docs/deploy` 被 `backend/.gitignore:23` 排除、**不在版本控制内**（AGENTS.md 已注明） | 待办 |
-| D4 | 引擎与 MCP 的 prod 配置与环境变量 | 两份 prod yaml 均不入库（设计如此），需要一份可执行的部署清单 | 待办 |
+| D4 | 引擎与 MCP 的 prod 配置与环境变量 | 两份 prod yaml 均不入库（设计如此），需要一份可执行的部署清单。**注意 D1 已把"只监听回环"写进入库的 `application.yaml`，故该修复对 prod 自动生效**（prod 那份未覆盖 `server.address`） | 待办 |
 | D5 | 部署后勾 spec 的 F11 | 用户 2026-09-15 拍板"等一期部署上线后再勾" | 待部署 |
 
 ### 待人工验收（非任务；需要真实登录态/浏览器）
