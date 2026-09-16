@@ -68,7 +68,7 @@
 | `AI_MCP_IMAGE_SEARCH_URL` | 部署 MCP 时 | 默认 `http://localhost:8127` |
 | `AI_MCP_CLIENT_ENABLED` | 见右 | **不部署 MCP 就设 `false`**。不设且 MCP 不可达也能用（失败即降级 + 60s 冷却），但每个故障窗口的**第一次对话要白等约 20s** |
 | Redis（`spring.data.redis.host/port` + `spring.session.store-type` / `spring.session.redis.namespace`） | 视需要 | **只配在不入库的 yaml 里**，入库配置没有这组。引擎自身的会话（`YUAI_SESSION` cookie，供其自带前端）用它；助手链路本身不依赖会话 |
-| `AI_DASHSCOPE_API_KEY` | **是（只要非空）** | 入库配置里 `spring.ai.model.chat: dashscope` 是**默认值**，它会**急切创建** `dashScopeChatModel` Bean。**实测两种做法都起不来**：① key 为空 → `DashScope API key must be set`；② 把 `spring.ai.model.chat` 置 `none` 想绕开 → `Parameter 1 of constructor in FlowWindowBasedChatMemory required a bean of type ChatModel that could not be found`。**但值不必真实可用**：2026-09-16 起**摘要压缩已改走主脑（MiMo）**，助手链路（对话 / 看图打标 / 摘要）都不再碰它，随便给个非空占位即可。**仍会真的用到它的只剩冻结的旧链路**：`/ai/manus/chat`（MyManus，零鉴权 + 只监听回环）与它顺带触发的会话标题生成 `ai/agent/src/main/java/com/lcl/myaiagent/service/ConversationTitleService.java`——给假 key 时这两处调用会报错（标题那处已 try/catch，只记 warn，不影响对话）。要把 DashScope 整个摘掉得让这两处也能缺省，属独立改动 |
+| ~~`AI_DASHSCOPE_API_KEY`~~ | **不再需要**（2026-09-16 收口） | 原先必须给一个非空值（`spring.ai.model.chat: dashscope` 会急切建 Bean，缺 key 就起不来）。现在引擎侧**没有任何 DashScope 用法**——对话主脑、看图打标、会话摘要、会话标题全走 `app.ai.openai.*`（MiMo），入库配置里已把 `model.chat` / `model.embedding` 置 `none` 并整体 `dashscope.enabled: false`。**实测三种无 key 形态都能起**（见 `docs/decisions/2026-09-16-dashscope-decoupling.md`）。**注意**：`dashscope.enabled: false` 不能省——`model.chat` 只管得到 chat 那条自动配置，DashScope 的 agent 那条（`dashScopeAgent`）缺 key 时照样让启动失败 |
 | `VECTOR_ENABLED=false` | 是 | 向量库已停用，默认就是 false，别打开 |
 
 启动：`java -jar my-ai-agent-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod`（或全部走环境变量 + 显式覆盖 profile）。
@@ -86,7 +86,7 @@
 1. 建库：`CREATE DATABASE \`yu-ai-agent\` CHARACTER SET utf8mb4;`
 2. 起 MCP（8127）→ 看启动日志无异常
 3. 起引擎（8124）→ 日志里应出现 `OpenAI 协议模型就绪：config=app.ai.openai.assistant, baseUrl=..., model=mimo-v2.5 ... extraBodyKeys=[thinking]`（**`extraBodyKeys=[thinking]` 就是陷阱 2 的验收点**）
-   - **引擎起不来时先看这两条**（2026-09-16 实测都是真实故障形态）：`DashScope API key must be set`（缺 `AI_DASHSCOPE_API_KEY`）；`Parameter 1 of constructor in FlowWindowBasedChatMemory required a bean of type ChatModel`（把 chat 模型关成 `none` 了）。两者都指向同一件事：**`AI_DASHSCOPE_API_KEY` 必须给个非空值**——占位值就行，摘要压缩自 2026-09-16 起走主脑（`docs/decisions/2026-09-16-summary-model.md`）
+   - **引擎起不来时先看这两条**（2026-09-16 实测过，但都已**不再是默认形态的坑**）：`DashScope API key must be set` → 说明有人把入库配置的 `dashscope.enabled: false` 覆盖回 true 了；`Parameter 1 of constructor in FlowWindowBasedChatMemory required a bean of type ChatModel` → 说明 `spring.ai.model.chat` 被从 `none` 改回去了。**这两条都指向"默认配置被动过"，不要靠补一个 key 去绕**
 4. 起后端（8123，**显式 profile**）→ 日志无 fail-closed 警告
 5. 合并 nginx 片段 → `nginx -t` → `reload`
 6. 逐项自检：
@@ -95,7 +95,7 @@
 - [ ] 后端 → 引擎联通：登录后打开 `/assistant` 发一句话，能出步骤条与回答
 - [ ] **SSE 逐步显示**：折叠条是**一步步**出现，不是最后一次性刷出（D3 的验收点）
 - [ ] 登录态透传：助手能列出**你自己的**空间（不是别人的）
-- [ ] **摘要走主脑**：让一条对话够长（历史估算 token 过 4096，通常要几轮长回答），引擎日志出现 `摘要模型调用完成, 模型来源: 图库助手主脑`；若打的是 `模型来源: 容器默认模型`，说明 `AI_OPENAI_*` 三件套没配全，摘要退回了 DashScope
+- [ ] **摘要走主脑**：让一条对话够长（历史估算 token 过 4096，通常要几轮长回答），引擎日志出现 `摘要模型调用完成`；**不应**出现 `会话摘要压缩失败，降级为硬裁剪`（出现即说明主脑没配全，摘要悄悄退化成"丢掉老消息"）
 - [ ] 引擎日志里 `调用者非管理员，本次会话不挂 visionTagger` 只在普通用户会话出现
 - [ ] MCP 通：问"找几张 X 的图"能搜到（`searchImage` 被调用）
 - [ ] AI 打标（管理端公共图库「AI 打标」）能出建议 → 确认入库
