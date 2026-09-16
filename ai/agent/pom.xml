@@ -105,10 +105,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-mysql</artifactId>
-        </dependency>
         <!-- [LOCAL-ONLY-DISABLED] PostgreSQL 驱动：随 pgvector 停用，恢复时取消注释 -->
         <!--
         <dependency>
