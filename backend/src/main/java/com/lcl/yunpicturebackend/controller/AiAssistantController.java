@@ -164,7 +164,7 @@ public class AiAssistantController {
     }
 
     /**
-     * satoken 按声明顺序取三处：请求头 → Cookie → query。
+     * satoken 只从请求头或 HttpOnly Cookie 读取，禁止 query 参数承载长期登录令牌。
      * 浏览器只带 Cookie（sa-token 写的是 HttpOnly Cookie，前端读不到也无需读），
      * 脚本冒烟常直接给头；两处都认，代理就不必关心调用方是哪种姿势。
      */
@@ -174,7 +174,7 @@ public class AiAssistantController {
             return fromHeader;
         }
         String fromCookie = cookieValue(request, tokenName);
-        return StrUtil.isNotBlank(fromCookie) ? fromCookie : request.getParameter(tokenName);
+        return fromCookie;
     }
 
     /**

@@ -28,7 +28,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * T10 代理端点单测（docs/plan.md T10）：登录门槛、凭据组取法（satoken 三处 + Spring Session 会话 Cookie）、
+ * T10 代理端点单测（docs/plan.md T10）：登录门槛、凭据组取法（satoken 请求头/Cookie + Spring Session 会话 Cookie）、
  * "缺任一把在代理入口即拒"（fail-closed，不把请求打到引擎），以及"两把凭据必须同属一人"（review R4）
  * 与"必须带有效的一次性凭据"（review R5）。
  * 纯单测：MockHttpServletRequest + Mockito，不启 Spring、不依赖 MySQL/Redis，进门禁。
@@ -168,15 +168,17 @@ class AiAssistantControllerTest {
     }
 
     @Test
-    void resolvesSatokenFromQueryWhenHeaderAndCookieAbsent() {
+    void rejectsSatokenFromQueryWhenHeaderAndCookieAbsent() {
         MockHttpServletRequest request = loggedInRequest();
         request.setParameter("satoken", TOKEN);
 
-        controller.chat(MESSAGE, null, TICKET, request);
-
-        verify(proxyManager).chat(MESSAGE, USER_ID, null, TOKEN, SESSION_COOKIE_VALUE, UserConstant.DEFAULT_ROLE);
+        assertThatThrownBy(() -> controller.chat(MESSAGE, null, TICKET, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("缺少 satoken")
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
+        verifyNoInteractions(proxyManager);
     }
-
     @Test
     void headerWinsOverCookie() {
         MockHttpServletRequest request = loggedInRequest();

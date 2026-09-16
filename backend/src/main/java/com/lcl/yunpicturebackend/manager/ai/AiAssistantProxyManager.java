@@ -8,6 +8,7 @@ import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -49,8 +50,6 @@ public class AiAssistantProxyManager {
 
     private static final String ENGINE_CHAT_PATH = "/ai/huoshan/chat";
     private static final String INTERNAL_API_KEY_HEADER = "X-Internal-Api-Key";
-    private static final String SATOKEN_HEADER = "satoken";
-    private static final String SESSION_COOKIE_NAME = "SESSION";
     /** T17：调用者角色，引擎按它决定本次会话挂不挂看图打标工具（缺省即非管理员） */
     private static final String USER_ROLE_HEADER = "X-User-Role";
     private static final String DATA_PREFIX = "data:";
@@ -60,13 +59,19 @@ public class AiAssistantProxyManager {
     private final AiAssistantProperties properties;
     private final ObjectMapper objectMapper;
     private final ExecutorService executor;
+    private final String tokenName;
+    private final String sessionCookieName;
 
     public AiAssistantProxyManager(AiAssistantProperties properties,
                                    ObjectMapper objectMapper,
-                                   @Qualifier("aiAssistantExecutor") ExecutorService executor) {
+                                   @Qualifier("aiAssistantExecutor") ExecutorService executor,
+                                   @Value("${sa-token.token-name:satoken}") String tokenName,
+                                   @Value("${server.servlet.session.cookie.name:SESSION}") String sessionCookieName) {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.executor = executor;
+        this.tokenName = tokenName;
+        this.sessionCookieName = sessionCookieName;
     }
 
     /**
@@ -137,9 +142,11 @@ public class AiAssistantProxyManager {
     private HttpURLConnection open(ForwardRequest request) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(chatUrl(request)).openConnection();
         connection.setRequestMethod("GET");
+        // 凭据请求绝不跟随重定向，避免内部密钥与用户令牌被转发到 Location 指向的主机。
+        connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty(INTERNAL_API_KEY_HEADER, request.apiKey());
-        connection.setRequestProperty(SATOKEN_HEADER, request.satoken());
-        connection.setRequestProperty("Cookie", SESSION_COOKIE_NAME + "=" + request.sessionCookie());
+        connection.setRequestProperty(tokenName, request.satoken());
+        connection.setRequestProperty("Cookie", sessionCookieName + "=" + request.sessionCookie());
         // 角色为空时干脆不发这个头：引擎按"非管理员"处理（fail-closed）比发一个空值更明确
         if (StrUtil.isNotBlank(request.userRole())) {
             connection.setRequestProperty(USER_ROLE_HEADER, request.userRole());

@@ -54,6 +54,7 @@ class AiAssistantProxyManagerTest {
     private static volatile String stubUri;
     private static volatile String stubApiKey;
     private static volatile String stubSatoken;
+    private static volatile String stubCustomToken;
     private static volatile String stubCookie;
     private static volatile String stubAccept;
     /** T17：透传给引擎的调用者角色（引擎按它裁剪工具集） */
@@ -61,6 +62,7 @@ class AiAssistantProxyManagerTest {
     private static volatile int stubStatus;
     private static volatile String stubContentType;
     private static volatile String stubBody;
+    private static volatile String stubLocation;
 
     private static HttpServer engine;
     private static String engineBaseUrl;
@@ -93,12 +95,14 @@ class AiAssistantProxyManagerTest {
         stubUri = null;
         stubApiKey = null;
         stubSatoken = null;
+        stubCustomToken = null;
         stubCookie = null;
         stubAccept = null;
         stubUserRole = null;
         stubStatus = 200;
         stubContentType = "text/event-stream; charset=utf-8";
         stubBody = "";
+        stubLocation = null;
     }
 
     private static void handle(HttpExchange exchange) throws IOException {
@@ -107,11 +111,15 @@ class AiAssistantProxyManagerTest {
         stubUri = exchange.getRequestURI().toString();
         stubApiKey = exchange.getRequestHeaders().getFirst("X-Internal-Api-Key");
         stubSatoken = exchange.getRequestHeaders().getFirst("satoken");
+        stubCustomToken = exchange.getRequestHeaders().getFirst("custom-token");
         stubCookie = exchange.getRequestHeaders().getFirst("Cookie");
         stubAccept = exchange.getRequestHeaders().getFirst("Accept");
         stubUserRole = exchange.getRequestHeaders().getFirst("X-User-Role");
         byte[] body = stubBody.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", stubContentType);
+        if (stubLocation != null) {
+            exchange.getResponseHeaders().add("Location", stubLocation);
+        }
         // 0 = chunked：SSE 的真实形态（不定长、写完即关）
         exchange.sendResponseHeaders(stubStatus, stubContentType.contains("text/event-stream") ? 0 : body.length);
         try (OutputStream out = exchange.getResponseBody()) {
@@ -175,6 +183,19 @@ class AiAssistantProxyManagerTest {
                 .isEqualTo(UserConstant.DEFAULT_ROLE);
     }
 
+    @Test
+    void forwardsConfiguredCredentialNamesInsteadOfHardCodedDefaults() {
+        stubBody = "data:[DONE]\n\n";
+        RecordingManager manager = new RecordingManager(
+                properties(engineBaseUrl, API_KEY), executor, "custom-token", "CUSTOM_SESSION");
+
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
+        manager.emitter.awaitFrames();
+
+        assertThat(stubCustomToken).isEqualTo(SATOKEN);
+        assertThat(stubSatoken).isNull();
+        assertThat(stubCookie).isEqualTo("CUSTOM_SESSION=" + SESSION_ID);
+    }
     /** T17：管理员角色也要如实到引擎——引擎据此才挂得上看图打标工具 */
     @Test
     void forwardsAdminRoleHeaderSoEngineCanMountTaggingTool() {
@@ -199,6 +220,21 @@ class AiAssistantProxyManagerTest {
         assertThat(stubUserRole).isNull();
     }
 
+    @Test
+    void refusesUpstreamRedirectInsteadOfForwardingCredentialsAgain() {
+        stubStatus = 302;
+        stubContentType = "text/plain";
+        stubLocation = engineBaseUrl + "/redirect-target";
+
+        RecordingManager manager = manager();
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
+        List<String> frames = manager.emitter.awaitFrames();
+
+        assertThat(REQUESTS.get()).as("代理不得跟随携带内部密钥与用户令牌的重定向").isEqualTo(1);
+        assertThat(frames).hasSize(2);
+        assertThat(frames.get(0)).contains("引擎响应异常");
+        assertThat(frames.get(1)).isEqualTo("[DONE]");
+    }
     @Test
     void relaysEngineErrorFrameVerbatimWithoutSynthesizingAnotherOne() {
         // T8-c：引擎的失败收尾是 event=error 帧（超时/调用失败）。代理不认识它，
@@ -401,7 +437,12 @@ class AiAssistantProxyManagerTest {
         private final RecordingSseEmitter emitter = new RecordingSseEmitter();
 
         RecordingManager(AiAssistantProperties properties, ExecutorService executor) {
-            super(properties, new ObjectMapper(), executor);
+            this(properties, executor, "satoken", "SESSION");
+        }
+
+        RecordingManager(AiAssistantProperties properties, ExecutorService executor,
+                         String tokenName, String sessionCookieName) {
+            super(properties, new ObjectMapper(), executor, tokenName, sessionCookieName);
         }
 
         @Override
