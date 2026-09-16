@@ -20,3 +20,6 @@ ai/**/application-test.yaml
 # 引擎工具运行时目录：FileOperationTool/PDFGenerationTool 等会往 <user.dir>/tmp 写文件，
 # 跑全模块测试或真机时会产生，属产物而非源码（2026-09-15 补）
 ai/**/tmp/
+
+# 浏览器工具（Playwright MCP）的工作目录：页面快照与控制台日志，属产物而非源码（2026-09-16 补）
+.playwright-mcp/
