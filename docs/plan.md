@@ -109,6 +109,11 @@
 - [x] T22（2026-09-15，用户拍板"给用户可见提示"）**MCP 降级可见化 + 前端社交残留清理**：① 搜图 MCP 降级不再是静默的——引擎在本轮开头发一条 `notice` 帧，前端渲染成一行提示；② 删掉停用的帖子/社交前端残留，只保留通知。
   - 验收：① 降级时首帧是 `notice` 且只发一次；正常路径与"Bean 不存在（没启用 MCP）"**都不发**（后者是配置选择，不是故障）；② 前端 `type-check` 错误数与基线持平（124）、改动文件 eslint 0 错；③ `ai/agent` 164 例、backend 74 例绿。
   - **实施记录与证据：见 `docs/plans/records/T22.md`**
+- [ ] T25（2026-09-16 用户要求修复）**约束助手自然语言回答范围**：实现口径见 `docs/spec.md` 关键三行；当前问题与实施证据见 `docs/plans/records/T25.md`。
+  - 文件范围：`ai/agent/src/main/java/com/lcl/myaiagent/agent/HuoshanAssistantAgent.java`、对应 `ai/agent/src/test/` 测试、`docs/features/F11-AI助手MVP.md`、`docs/plans/records/T25.md`。
+  - 验收：① 量子知识、Java 编程、旅游规划等明确无关问题统一简短拒绝，且不调用 `listSpaces` 等图库工具；② 图库空间、图片、标签、搜图入库、整理等范围内请求仍正常；③ 普通用户与管理员的既有工具权限不变；④ 先保留本轮真实模型复现证据，再补自动化回归并跑 `ai/agent` 门禁；⑤ 不新增依赖、进程或数据表。
+  - 状态：**待用户确认 spec 关键三行后实施**。
+
 ## 未决与非任务事项（不建任务）
 
 > 2026-09-15 立此节，取代原来的「存量遗留（未做，未拍板）」——那节的内容（前端社交残留）已由 T22 收口，正文存 `docs/plans/records/section-01.md`。
