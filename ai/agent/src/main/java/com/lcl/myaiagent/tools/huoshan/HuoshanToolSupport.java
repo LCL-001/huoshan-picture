@@ -30,7 +30,7 @@ final class HuoshanToolSupport {
             return errorJson(e.getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("图库工具调用异常", e);
-            return errorJson(-1, "调用图库接口失败：" + e.getMessage());
+            return errorJson(-1, "调用图库接口失败，请稍后重试");
         }
     }
 

@@ -1,12 +1,9 @@
 package com.lcl.myaiagent.advisors;
 
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClientMessageAggregator;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
-import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
@@ -88,7 +85,7 @@ public class MyLoggerAdvisor implements CallAdvisor, StreamAdvisor {
 	 * @return ChatClientRequest 原始请求对象，保持不变
 	 */
 	private ChatClientRequest logRequest(ChatClientRequest request) {
-		log.info("request: {}", request.prompt());
+		log.info("model request started");
 		return request;
 	}
 
@@ -99,7 +96,7 @@ public class MyLoggerAdvisor implements CallAdvisor, StreamAdvisor {
 	 * @param chatClientResponse 聊天客户端响应对象，包含AI的回复内容
 	 */
 	private void logResponse(ChatClientResponse chatClientResponse) {
-		log.info("response: {}", chatClientResponse.chatResponse().getResult().getOutput().getText());
+		log.info("model response received");
 	}
 
 }

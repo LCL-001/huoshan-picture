@@ -136,11 +136,8 @@ public class ToolCallAgent extends ReActAgent {
         String result = assistantMessage.getText();
 //            log.info(getName() + "的思考：" + result);
         List<AssistantMessage.ToolCall> toolCallList = assistantMessage.getToolCalls();
-        log.info(getName() + "选择了" + toolCallList.size() + "个工具来使用");
-        String toolCallInfo = toolCallList.stream()
-                .map(toolCall -> String.format("工具名称：%s, 工具参数：%s", toolCall.name(), toolCall.arguments()))
-                .collect(Collectors.joining("\n"));
-        log.info(toolCallInfo);
+        log.info("{} selected {} tools: {}", getName(), toolCallList.size(),
+                toolCallList.stream().map(AssistantMessage.ToolCall::name).collect(Collectors.joining(",")));
         if (toolCallList.isEmpty()) {
             // 无工具调用时，表示任务完成，记录助手信息并结束
             getMessageList().add(assistantMessage);
@@ -195,7 +192,7 @@ public class ToolCallAgent extends ReActAgent {
         if (askHumanQuestion != null) {
             // askHuman 的提问面向用户，按最终回答渲染而不是过程步骤
             setState(AgentState.FINISHED);
-            log.info("{} needs user clarification: {}", getName(), askHumanQuestion);
+            log.info("{} needs user clarification", getName());
             return List.of(new AgentEvent.Answer(askHumanQuestion));
         }
         // 判断是否调用了终止工具
@@ -205,7 +202,7 @@ public class ToolCallAgent extends ReActAgent {
             return List.of(new AgentEvent.Answer(
                     StrUtil.isNotBlank(assistantText) ? assistantText : "任务结束"));
         }
-        log.info(getName() + "的输出：" + results);
+        log.info("{} completed tools: {}", getName(), String.join(",", toolNames));
         // 模型在发起工具调用前的自然语言推理：前端折叠区作为"思考"步骤展示，空则不发这一帧
         List<AgentEvent> events = new ArrayList<>(2);
         if (StrUtil.isNotBlank(assistantText)) {

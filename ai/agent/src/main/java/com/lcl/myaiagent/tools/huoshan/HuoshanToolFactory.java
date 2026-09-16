@@ -11,14 +11,13 @@ import java.util.List;
  * 图库助手工具集装配（T7）：工具是 prototype——每次请求按调用者凭据组新建实例，
  * 不做单例（凭据只在请求生命周期，不能跨请求复用）。
  * <p>
- * 档 3 起含写类工具（{@link BatchEditPicturesTool} / {@link BatchUploadByUrlTool}）与看图打标
+ * 首次公开部署阶段只装配三个只读工具与看图打标
  * （{@link VisionTaggerTool}）；一期**不注册**删除类工具（整理只增改不删，设计文档 L97），
  * 也不挂文件/终端类工具（图库助手只挂图库工具集 + MCP 搜图，设计文档 L69）。
  * </p>
  * <p>
  * T17 起**看图打标只挂给管理员会话**（用户 2026-09-15 拍板：普通用户的助手摘掉只读打标，
- * 打标是管理员能力）：其余五个工具不分角色——它们以调用者自己的凭据打图库 API，
- * 能改到什么由图库服务端判 RBAC。
+ * 打标是管理员能力）。两个写工具的实现暂时保留，但在确定性用户确认门完成前不装配给模型。
  * </p>
  */
 public final class HuoshanToolFactory {
@@ -38,9 +37,7 @@ public final class HuoshanToolFactory {
         List<Object> tools = new ArrayList<>(List.of(
                 new ListSpacesTool(client),
                 new ListPicturesTool(client),
-                new GetTagCategoryTool(client),
-                new BatchEditPicturesTool(client),
-                new BatchUploadByUrlTool(client)
+                new GetTagCategoryTool(client)
         ));
         if (visionModel != null && canTagPictures) {
             tools.add(new VisionTaggerTool(client, visionModel));
