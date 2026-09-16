@@ -68,7 +68,7 @@
 | `AI_MCP_IMAGE_SEARCH_URL` | 部署 MCP 时 | 默认 `http://localhost:8127` |
 | `AI_MCP_CLIENT_ENABLED` | 见右 | **不部署 MCP 就设 `false`**。不设且 MCP 不可达也能用（失败即降级 + 60s 冷却），但每个故障窗口的**第一次对话要白等约 20s** |
 | Redis（`spring.data.redis.host/port` + `spring.session.store-type` / `spring.session.redis.namespace`） | 视需要 | **只配在不入库的 yaml 里**，入库配置没有这组。引擎自身的会话（`YUAI_SESSION` cookie，供其自带前端）用它；助手链路本身不依赖会话 |
-| `AI_DASHSCOPE_API_KEY` | 见右 | 入库配置里 `spring.ai.model.chat: dashscope` 是**默认值**。**本机没验证过"dashscope key 为空 + 只用 openai 协议模型"这个组合能否启动**——上线时第一次启动请看日志确认；报错就给个 key，或把 `spring.ai.model.chat` 置为 `none` |
+| `AI_DASHSCOPE_API_KEY` | **是**（2026-09-16 实测） | 入库配置里 `spring.ai.model.chat: dashscope` 是**默认值**，它会**急切创建** `dashScopeChatModel` Bean，而 `FlowWindowBasedChatMemory` 的构造函数必须注入一个 `ChatModel`。**实测两种做法都起不来**：① key 为空 → `DashScope API key must be set`；② 把 `spring.ai.model.chat` 置 `none` 想绕开 → `Parameter 1 of constructor in FlowWindowBasedChatMemory required a bean of type ChatModel that could not be found`。**结论：prod 必须给一个真实可用的 DashScope key**（哪怕助手的"大脑"是 MiMo）。**注意它不是摆设**：`FlowWindowBasedChatMemory.summarize()` 会 `chatModel.call(...)`——**长对话的摘要压缩走的就是这条链路**，给假 key 能启动、但会话变长后摘要会失败。若要摆脱这个耦合（让摘要走 MiMo / 或让该注入可选），属代码改动，需另立项 |
 | `VECTOR_ENABLED=false` | 是 | 向量库已停用，默认就是 false，别打开 |
 
 启动：`java -jar my-ai-agent-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod`（或全部走环境变量 + 显式覆盖 profile）。
@@ -86,6 +86,7 @@
 1. 建库：`CREATE DATABASE \`yu-ai-agent\` CHARACTER SET utf8mb4;`
 2. 起 MCP（8127）→ 看启动日志无异常
 3. 起引擎（8124）→ 日志里应出现 `OpenAI 协议模型就绪：config=app.ai.openai.assistant, baseUrl=..., model=mimo-v2.5 ... extraBodyKeys=[thinking]`（**`extraBodyKeys=[thinking]` 就是陷阱 2 的验收点**）
+   - **引擎起不来时先看这两条**（2026-09-16 实测都是真实故障形态）：`DashScope API key must be set`（缺 `AI_DASHSCOPE_API_KEY`）；`Parameter 1 of constructor in FlowWindowBasedChatMemory required a bean of type ChatModel`（把 chat 模型关成 `none` 了）。两者都指向同一件事：**必须给一个真实可用的 DashScope key**
 4. 起后端（8123，**显式 profile**）→ 日志无 fail-closed 警告
 5. 合并 nginx 片段 → `nginx -t` → `reload`
 6. 逐项自检：
@@ -102,7 +103,14 @@
 
 ## 6. 明确未覆盖 / 仍开着的
 
+**先解决两件"物料怎么到服务器"的事**（都不是技术难点，但会直接卡住第一次部署）：
+
+1. **仓库还没 push**。`origin/main` 停在 2026-09-09，本地 `main` 领先 **205 笔**（含本次 AI 助手全部改动与安全修复）。**若部署路径是"在服务器上 clone/pull 再打包"，拿到的是两个月前的旧代码。** 两条路选一条：push（仓库是公开的，注意第 0 节陷阱 1 说的"文档里写着线上仍未修"这层含义）／或直接 scp 构建产物（那就必须遵守陷阱 1 的 profile 纪律）。
+2. **引擎从未以 prod 形态起过**。它在本机跑了很多次，但每次都是连着**本机那个已有数据的库**（`yu-ai-agent`，Flyway 的 V1–V4 是几个月前就跑过的）。**"空库首跑 Flyway 建表 → 引擎正常启动 → 助手能对话"这条完整路径没验过。**
+
+**其余未覆盖 / 仍开着的**：
+
 - **D2 引擎 `CorsConfig`（`allowCredentials(true)` + 通配 Origin）缓解未修**：回环绑定后远程浏览器够不到，但**本机进程仍可利用**。不算已修好。
 - **SSE 中继的三个已知边界**（按规则 13 判为已知限制，不挂账）：上游多行 `data:` 的半帧、上游缺 `[DONE]` 时答案后多一句"响应意外中断"、线程池拒绝只给空体 500。详见 `docs/features/F11-AI助手MVP.md`「已知限制」9。
 - **`/ticket` 无频控、`message`/`chatId` 无长度校验**（同上，已知限制 7 ⑧）。
-- **本清单未在真机跑过**：我没有你的服务器访问权，第 5 节的命令与 nginx 片段都**未经实测**，是照代码与配置推导的。
+- **本清单与 nginx 片段都未经真机验证**：我没有服务器访问权。第 5 节的命令、`netstat` 期望值、第 3 步的启动日志断言都已尽量写成可机械核对的形态，但仍以你实际跑出来的为准；**若第 5 节任一步的现象与期望不符，先停下对照本节排查，别硬往下走**。
