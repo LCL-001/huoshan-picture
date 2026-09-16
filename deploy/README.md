@@ -15,6 +15,7 @@
 |---|---|
 | `prod-checklist.md` | **D4**：引擎 / MCP / 后端三个进程的 prod 配置清单、启动顺序、上线自检表，以及两个会直接坑住人的陷阱 |
 | `nginx/ai-assistant-sse.conf` | **D3**：合并进 `lincode.online:443` 的 SSE location 片段（关缓冲、放宽读超时） |
+| `sql/engine-schema.sql` | **引擎建表脚本（生产口径）**：2026-09-16 引擎移除 Flyway 后，首次部署必须手工执行它建四张表（`user` / `conversation` / `chat_message` / `chat_summary`）；幂等，可重复执行。口径见 `docs/decisions/2026-09-16-flyway-removed.md` |
 
 ## 阅读顺序
 
