@@ -7,7 +7,7 @@ server:
     context-path: /api
     session:
       cookie:
-        name: YUAI_SESSION
+        name: HUOSHAN_AI_SESSION
         path: /
         secure: true
         same-site: lax
@@ -15,7 +15,7 @@ server:
 
 spring:
   application:
-    name: my-ai-agent
+    name: huoshan-ai-agent
   ai:
     model:
       chat: none
@@ -49,7 +49,7 @@ spring:
   session:
     store-type: redis
     redis:
-      namespace: yuai:session
+      namespace: huoshan:ai-agent:session
   servlet:
     multipart:
       max-file-size: 10MB

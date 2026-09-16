@@ -1,6 +1,6 @@
 ﻿spring:
   application:
-    name: my-ai-agent
+    name: huoshan-ai-agent
   profiles:
     active: ollama #local
   ai:
@@ -145,7 +145,7 @@ server:
     context-path: /api
     session:
       cookie:
-        name: YUAI_SESSION
+        name: HUOSHAN_AI_SESSION
         path: /
       timeout: 7d
 

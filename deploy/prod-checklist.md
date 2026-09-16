@@ -68,7 +68,7 @@
 | `--app.ai.openai.assistant.extra-body.thinking.type=disabled`<br>`--app.ai.openai.vision.extra-body.thinking.type=disabled` | **是（陷阱 2）** | 入库配置里没有，必须显式给 |
 | `AI_MCP_IMAGE_SEARCH_URL` | 部署 MCP 时 | 默认 `http://localhost:8127` |
 | `AI_MCP_CLIENT_ENABLED` | 见右 | **不部署 MCP 就设 `false`**。不设且 MCP 不可达也能用（失败即降级 + 60s 冷却），但每个故障窗口的**第一次对话要白等约 20s** |
-| Redis（`spring.data.redis.host/port` + `spring.session.store-type` / `spring.session.redis.namespace`） | 视需要 | **只配在不入库的 yaml 里**，入库配置没有这组。引擎自身的会话（`YUAI_SESSION` cookie，供其自带前端）用它；助手链路本身不依赖会话 |
+| Redis（`spring.data.redis.host/port` + `spring.session.store-type` / `spring.session.redis.namespace`） | 视需要 | **只配在不入库的 yaml 里**，入库配置没有这组。引擎自身的会话（`HUOSHAN_AI_SESSION` cookie，供其自带前端）用它；助手链路本身不依赖会话 |
 | ~~`AI_DASHSCOPE_API_KEY`~~ | **不再需要**（2026-09-16 收口） | 原先必须给一个非空值（`spring.ai.model.chat: dashscope` 会急切建 Bean，缺 key 就起不来）。现在引擎侧**没有任何 DashScope 用法**——对话主脑、看图打标、会话摘要、会话标题全走 `app.ai.openai.*`（MiMo），入库配置里已把 `model.chat` / `model.embedding` 置 `none` 并整体 `dashscope.enabled: false`。**实测三种无 key 形态都能起**（见 `docs/decisions/2026-09-16-dashscope-decoupling.md`）。**注意**：`dashscope.enabled: false` 不能省——`model.chat` 只管得到 chat 那条自动配置，DashScope 的 agent 那条（`dashScopeAgent`）缺 key 时照样让启动失败 |
 | `VECTOR_ENABLED=false` | 是 | 向量库已停用，默认就是 false，别打开 |
 
