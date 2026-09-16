@@ -3,7 +3,7 @@
     <header class="page-header animate-fade-in-up">
       <h2 class="page-title">AI 助手</h2>
       <p class="page-subtitle">
-        专注于火山图库：帮你查询空间和图片、整理标签、搜索并入库素材。只有你明确提出时才会修改数据，暂不支持删除。
+        专注于火山图库：帮你查询空间和图片、查看标签、搜索图片素材。当前助手只提供查询和建议，不会直接修改图库。
       </p>
     </header>
 
@@ -52,7 +52,7 @@
           :placeholder="
             running
               ? '助手正在回答，请稍候…（可点“停止”中断）'
-              : '输入与空间、图片、标签或搜图入库有关的问题…'
+              : '输入与空间、图片、标签或素材搜索有关的问题…'
           "
           @press-enter="onPressEnter"
         />
@@ -89,8 +89,8 @@ const CHAT_ID_KEY = 'assistant-chat-id'
 const samples = [
   '列出我的空间',
   '看看某个空间里有哪些图片',
-  '帮我整理这些图片的标签',
-  '搜索一些图片并放入我的空间',
+  '看看这些图片适合哪些标签',
+  '帮我搜索一些图片素材',
 ]
 
 const router = useRouter()
