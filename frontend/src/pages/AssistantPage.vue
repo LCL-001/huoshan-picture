@@ -2,10 +2,16 @@
   <div id="assistantPage">
     <header class="page-header animate-fade-in-up">
       <h2 class="page-title">AI 助手</h2>
-      <p class="page-subtitle">用你自己的登录态操作空间 / 图片 / 标签——范围与你本人一致；改动只在你明确要求时发生，删除类操作不支持</p>
+      <p class="page-subtitle">
+        专注于火山图库：帮你查询空间和图片、整理标签、搜索并入库素材。只有你明确提出时才会修改数据，暂不支持删除。
+      </p>
     </header>
 
-    <a-card class="assistant-card animate-fade-in-up stagger-dyn" style="--stagger-i: 1" :bordered="false">
+    <a-card
+      class="assistant-card animate-fade-in-up stagger-dyn"
+      style="--stagger-i: 1"
+      :bordered="false"
+    >
       <template #title>
         <span class="assistant-card__title">对话</span>
         <a-tag v-if="loginUserStore.loginUser.userName" color="blue">
@@ -19,12 +25,13 @@
       <div ref="listRef" class="assistant-list">
         <!-- 空状态：示例问题点一下即填入输入框 -->
         <div v-if="!turns.length" class="assistant-empty">
-          <h3>可以让助手帮你看看图库里的东西</h3>
-          <p>它调用的是你自己的登录态，看到的范围与你本人一致</p>
+          <h3>想从图库里做点什么？</h3>
+          <p>助手会按当前账号权限访问你的空间和图片，只处理与火山图库相关的事项。</p>
           <div class="assistant-empty__samples">
-            <span v-for="sample in samples" :key="sample" @click="input = sample">{{ sample }}</span>
+            <span v-for="sample in samples" :key="sample" @click="input = sample">{{
+              sample
+            }}</span>
           </div>
-          <p class="assistant-empty__hint">可读也可改：看图给建议、批量改标签、按 URL 入库都在能力范围内，但只在你明确要求时才动手，且不支持删除。</p>
         </div>
 
         <div v-for="(turn, index) in turns" :key="index" class="assistant-turn">
@@ -42,10 +49,15 @@
           v-model:value="input"
           :auto-size="{ minRows: 2, maxRows: 4 }"
           :disabled="running"
-          :placeholder="running ? '助手正在回答，请稍候…（可点“停止”中断）' : '问点什么…（Enter 发送，Shift+Enter 换行）'"
+          :placeholder="
+            running
+              ? '助手正在回答，请稍候…（可点“停止”中断）'
+              : '输入与空间、图片、标签或搜图入库有关的问题…'
+          "
           @press-enter="onPressEnter"
         />
         <div class="assistant-input__actions">
+          <span class="assistant-input__shortcut">Enter 发送 · Shift+Enter 换行</span>
           <a-button v-if="running" danger @click="stop">停止</a-button>
           <a-button v-else type="primary" :disabled="!input.trim()" @click="send">发送</a-button>
         </div>
@@ -74,7 +86,12 @@ interface AssistantTurn {
 }
 
 const CHAT_ID_KEY = 'assistant-chat-id'
-const samples = ['我有几个空间？', '看看我的空间里都有什么图', '图库现在有哪些标签和分类？']
+const samples = [
+  '列出我的空间',
+  '看看某个空间里有哪些图片',
+  '帮我整理这些图片的标签',
+  '搜索一些图片并放入我的空间',
+]
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
@@ -322,11 +339,6 @@ onUnmounted(() => stream.stop())
   background: var(--app-primary-soft);
 }
 
-.assistant-empty__hint {
-  margin: 18px 0 0;
-  font-size: 12px;
-}
-
 /* ---------- 输入区 ---------- */
 
 .assistant-input {
@@ -337,8 +349,15 @@ onUnmounted(() => stream.stop())
 
 .assistant-input__actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: 10px;
+}
+
+.assistant-input__shortcut {
+  color: var(--app-text-secondary);
+  font-size: 12px;
 }
 
 @media (max-width: 768px) {

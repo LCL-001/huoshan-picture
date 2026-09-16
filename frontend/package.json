@@ -12,6 +12,7 @@
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
     "check:assistant-format": "node scripts/check-assistant-format.mjs",
+    "check:assistant-copy": "node scripts/check-assistant-copy.mjs",
     "lint": "eslint . --fix",
     "format": "prettier --write src/"
   },
