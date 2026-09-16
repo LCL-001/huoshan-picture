@@ -2,6 +2,8 @@ package com.lcl.myaiagent.chatmemory;
 
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import com.lcl.myaiagent.config.OpenAiChatModels;
+import com.lcl.myaiagent.config.OpenAiModelProperties;
 import com.lcl.myaiagent.model.po.ChatMessage;
 import com.lcl.myaiagent.model.po.ChatSummary;
 import com.lcl.myaiagent.repository.ChatMessageRepository;
@@ -72,7 +74,8 @@ class FlowWindowBasedChatMemoryMetricsTest {
     void setUp() {
         CALLS.reset();
         COMPRESS_INPUT_CHARS.reset();
-        memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatModel, chatSummaryRepository);
+        memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository,
+                OpenAiChatModels.from(new OpenAiModelProperties()), chatModel);
 
         // 有状态消息仓库：list() 返回活列表引用，步间追加对下一次读取可见
         liveStore = new ArrayList<>();

@@ -1,5 +1,6 @@
 package com.lcl.myaiagent.chatmemory;
 
+import com.lcl.myaiagent.config.OpenAiChatModels;
 import com.lcl.myaiagent.model.po.ChatMessage;
 import com.lcl.myaiagent.model.po.ChatSummary;
 import com.lcl.myaiagent.repository.ChatMessageRepository;
@@ -30,10 +31,21 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
 
     private final ChatMessageRepository chatMessageRepository;
 
-    // 容器里只有 ChatModel 这个 Bean（LoveApp 的 ChatClient 是方法内手工构建的局部对象，不受 Spring 管理）
-    private final ChatModel chatModel;
-
     private final ChatSummaryRepository chatSummaryRepository;
+
+    /**
+     * 摘要模型（2026-09-16）：优先用图库助手主脑（OpenAI 协议，prod 上是 MiMo）。
+     * <p>
+     * 起因：摘要原先只认容器里那个由 {@code spring.ai.model.chat} 决定的默认 ChatModel（本仓是
+     * DashScope），于是"摘要能不能用"被绑在 DashScope 的 key 上——给它一个假的但非空的 key，
+     * 引擎照常启动，**会话一长摘要就失败**（见 {@code deploy/prod-checklist.md} 陷阱 3 的实测）。
+     * 主脑与主流程同源，摘要跟它走，就不再有第二个模型提供方。
+     * </p>
+     */
+    private final OpenAiChatModels openAiChatModels;
+
+    /** 兜底摘要模型：主脑未配置（例如只跑 ollama profile 的本地形态）时仍能做摘要 */
+    private final ChatModel fallbackChatModel;
 
 
     @Override
@@ -234,8 +246,13 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
                     + "直接输出摘要内容，不要任何解释：\n【已有摘要】\n" + existingSummary
                     + "\n【新增对话】\n" + dialogue;
         }
-        String summary = chatModel.call(prompt);
-        log.info("摘要模型调用完成, 输入长度: {}, 返回长度: {}", prompt.length(), summary == null ? 0 : summary.length());
+        // 主脑与主流程同源：摘要优先走它（prod 上是 MiMo），容器默认模型只作兜底。
+        // 日志把实际用的那个打出来——换模型时最容易出的错是"配了主脑却仍打默认模型"。
+        boolean viaAssistant = openAiChatModels.hasAssistant();
+        String summary = (viaAssistant ? openAiChatModels.assistant() : fallbackChatModel).call(prompt);
+        log.info("摘要模型调用完成, 模型来源: {}, 输入长度: {}, 返回长度: {}",
+                viaAssistant ? "图库助手主脑" : "容器默认模型",
+                prompt.length(), summary == null ? 0 : summary.length());
         // 空返回视为失败（内容风控/服务异常都可能只给空串不抛错），
         // 抛出去走降级硬裁剪，绝不把空摘要落库污染水位线
         if (summary == null || summary.isBlank()) {

@@ -2,6 +2,8 @@ package com.lcl.myaiagent.chatmemory;
 
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import com.lcl.myaiagent.config.OpenAiChatModels;
+import com.lcl.myaiagent.config.OpenAiModelProperties;
 import com.lcl.myaiagent.model.po.ChatMessage;
 import com.lcl.myaiagent.model.po.ChatSummary;
 import com.lcl.myaiagent.repository.ChatMessageRepository;
@@ -47,17 +49,20 @@ class FlowWindowBasedChatMemoryTest {
     private ChatMessageRepository chatMessageRepository;
 
     @Mock
-    private ChatModel chatModel;
-
-    @Mock
     private ChatSummaryRepository chatSummaryRepository;
+
+    /** 兜底摘要模型：下面这些用例都不配主脑（hasAssistant=false），摘要走它 */
+    @Mock
+    private ChatModel chatModel;
 
     private FlowWindowBasedChatMemory memory;
 
     @BeforeEach
     void setUp() {
-        // @RequiredArgsConstructor 的字段声明顺序：chatMessageRepository, chatModel, chatSummaryRepository
-        memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatModel, chatSummaryRepository);
+        // @RequiredArgsConstructor 的字段声明顺序：
+        // chatMessageRepository, chatSummaryRepository, openAiChatModels, fallbackChatModel
+        memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository,
+                OpenAiChatModels.from(new OpenAiModelProperties()), chatModel);
     }
 
     // ---------- 构造数据的小工具 ----------

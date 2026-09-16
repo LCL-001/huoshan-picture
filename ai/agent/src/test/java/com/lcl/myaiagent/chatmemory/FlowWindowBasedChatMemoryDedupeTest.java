@@ -2,6 +2,8 @@ package com.lcl.myaiagent.chatmemory;
 
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import com.lcl.myaiagent.config.OpenAiChatModels;
+import com.lcl.myaiagent.config.OpenAiModelProperties;
 import com.lcl.myaiagent.model.po.ChatMessage;
 import com.lcl.myaiagent.model.po.ChatSummary;
 import com.lcl.myaiagent.repository.ChatMessageRepository;
@@ -61,7 +63,8 @@ class FlowWindowBasedChatMemoryDedupeTest {
 
     @BeforeEach
     void setUp() {
-        memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatModel, chatSummaryRepository);
+        memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository,
+                OpenAiChatModels.from(new OpenAiModelProperties()), chatModel);
         store.clear();
         mockStoredMessages();
         doAnswer(invocation -> {
