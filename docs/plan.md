@@ -112,7 +112,7 @@
 - [ ] T25（2026-09-16 用户要求修复）**约束助手自然语言回答范围**：实现口径见 `docs/spec.md` 关键三行；当前问题与实施证据见 `docs/plans/records/T25.md`。
   - 文件范围：`ai/agent/src/main/java/com/lcl/myaiagent/agent/HuoshanAssistantAgent.java`、对应 `ai/agent/src/test/` 测试、`docs/features/F11-AI助手MVP.md`、`docs/plans/records/T25.md`。
   - 验收：① 量子知识、Java 编程、旅游规划等明确无关问题统一简短拒绝，且不调用 `listSpaces` 等图库工具；② 图库空间、图片、标签、搜图入库、整理等范围内请求仍正常；③ 普通用户与管理员的既有工具权限不变；④ 先保留本轮真实模型复现证据，再补自动化回归并跑 `ai/agent` 门禁；⑤ 不新增依赖、进程或数据表。
-  - 状态：**待用户确认 spec 关键三行后实施**。
+  - 状态：**用户已确认，实施中**。
 
 ## 未决与非任务事项（不建任务）
 
