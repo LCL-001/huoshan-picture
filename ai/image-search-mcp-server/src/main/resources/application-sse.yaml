@@ -1,9 +1,20 @@
+# Production SSE profile.
+# PEXELS_API_KEY must be injected by the process manager or environment.
 spring:
+  application:
+    name: image-search-mcp-server
   ai:
     mcp:
       server:
         name: image-search-mcp-server
         version: 0.0.1
         type: SYNC
-        # sse
         stdio: false
+
+server:
+  port: 8127
+  address: 127.0.0.1
+
+pexels:
+  api:
+    key: ${PEXELS_API_KEY:}

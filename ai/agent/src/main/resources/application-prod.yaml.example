@@ -1,0 +1,118 @@
+# Production profile for the standalone AI agent.
+# Secrets are intentionally injected through environment variables.
+server:
+  port: 8124
+  address: 127.0.0.1
+  servlet:
+    context-path: /api
+    session:
+      cookie:
+        name: YUAI_SESSION
+        path: /
+        secure: true
+        same-site: lax
+      timeout: 7d
+
+spring:
+  application:
+    name: my-ai-agent
+  ai:
+    model:
+      chat: none
+      embedding: none
+      image: none
+      audio:
+        speech: none
+        transcription: none
+      moderation: none
+    dashscope:
+      enabled: false
+    mcp:
+      client:
+        enabled: ${AI_MCP_CLIENT_ENABLED:true}
+        initialized: false
+        sse:
+          connections:
+            image-search:
+              url: ${AI_MCP_IMAGE_SEARCH_URL:http://127.0.0.1:8127}
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/huoshan_ai_agent}
+    username: ${MYSQL_USERNAME:}
+    password: ${MYSQL_PASSWORD:}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:2}
+  session:
+    store-type: redis
+    redis:
+      namespace: yuai:session
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+app:
+  legacy-love:
+    enabled: false
+  vector:
+    enabled: false
+  ai:
+    openai:
+      assistant:
+        base-url: ${AI_OPENAI_BASE_URL:https://api.xiaomimimo.com}
+        api-key: ${AI_OPENAI_API_KEY:}
+        model: ${AI_OPENAI_MODEL:mimo-v2.5}
+        temperature: 0.4
+        timeout: 60s
+        extra-body:
+          thinking:
+            type: disabled
+      vision:
+        base-url: ${AI_OPENAI_VISION_BASE_URL:https://api.xiaomimimo.com}
+        api-key: ${AI_OPENAI_VISION_API_KEY:}
+        model: ${AI_OPENAI_VISION_MODEL:mimo-v2.5}
+        temperature: 0.2
+        timeout: 120s
+        extra-body:
+          thinking:
+            type: disabled
+  huoshan:
+    base-url: ${HUOSHAN_BASE_URL:http://127.0.0.1:8123/api}
+    headless-api-key: ${HUOSHAN_HEADLESS_API_KEY:}
+    connect-timeout: 5s
+    read-timeout: 30s
+
+search-api:
+  api-key: ${SEARCH_API_KEY:}
+
+springdoc:
+  api-docs:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: never
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: false
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDelete
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+    enable-sql-runner: true
+
+logging:
+  level:
+    org.springframework.ai: INFO
