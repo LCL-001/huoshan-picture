@@ -1,5 +1,5 @@
-drop database if exists `my-ai-agent`;
-create database `my-ai-agent`;
+create database if not exists `huoshan_ai_agent` character set utf8mb4;
+use `huoshan_ai_agent`;
 
 create table if not exists `user`
 (

@@ -1,4 +1,4 @@
--- 引擎库（yu-ai-agent）建表脚本 —— 生产口径，2026-09-16 立
+-- 引擎库（huoshan_ai_agent）建表脚本 —— 生产口径，2026-09-16 立
 --
 -- 背景：引擎不使用 Flyway（2026-09-16 用户拍板，理由见 docs/decisions/2026-09-16-flyway-removed.md），
 -- 启动时不会建表，所以首次部署必须手工执行本脚本。
@@ -7,13 +7,13 @@
 -- （已逐列、逐索引与在跑的库核对一致）。
 --
 -- 用法（先建库，再在目标库内执行本脚本）：
---   CREATE DATABASE `yu-ai-agent` CHARACTER SET utf8mb4;
---   mysql -u root -p --default-character-set=utf8mb4 yu-ai-agent < deploy/sql/engine-schema.sql
+--   CREATE DATABASE `huoshan_ai_agent` CHARACTER SET utf8mb4;
+--   mysql -u root -p --default-character-set=utf8mb4 huoshan_ai_agent < deploy/sql/engine-schema.sql
 --
 -- 可重复执行：四张表都是 create table if not exists，索引内联在建表语句里。
 -- 脚本自己带 `set names utf8mb4`，即使客户端默认字符集是 GBK 也不会踩"中文默认值报 1067"。
--- 另：ai/agent/create_sql/init.sql 是源仓遗留（docker-compose 用，库名 my-ai-agent 且以 drop database 开头），
--- 不是生产口径。
+-- 另：ai/agent/create_sql/init.sql 供 docker-compose 初始化使用，数据库名与本清单保持一致；
+-- 生产部署仍以本脚本为准。
 
 set names utf8mb4;
 

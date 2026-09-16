@@ -49,7 +49,7 @@
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/yu-ai-agent}
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/huoshan_ai_agent}
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:123456}
 #    # 向量库（pgvector）已随本地化改造停用。需要时通过环境变量注入连接串，

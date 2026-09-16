@@ -37,7 +37,7 @@
                           engine 8124（只监听 127.0.0.1）
                               ├──> 图库 API（以用户自己的凭据，RBAC 由图库判）
                               └──> MCP 8127（只监听 127.0.0.1）
-依赖：MySQL（后端 `yu_picture` + 引擎 `yu-ai-agent`）、Redis（后端会话库 1；引擎的会话存 Redis，见下）
+依赖：MySQL（后端 `yu_picture` + 引擎 `huoshan_ai_agent`）、Redis（后端会话库 1；引擎的会话存 Redis，见下）
 **JDK：服务器要同时装 17 与 21** —— 后端是 Java 17，**引擎与 MCP 是 Java 21**（两个 pom 里 `<java.version>21</java.version>`）。用 17 去起引擎/MCP 会直接报不支持的 class 版本；起这两个进程时必须显式指到 21 的 `java`（2026-09-16 补记，此前清单没写）。
 ```
 
@@ -60,7 +60,7 @@
 
 | 键 | 必需 | 说明 |
 |---|---|---|
-| `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 是 | 默认 `jdbc:mysql://localhost:3306/yu-ai-agent`。**引擎不使用 Flyway，空库不会自建表**：先建库再执行 `deploy/sql/engine-schema.sql`（见第 5 节第 1 步）。口径与理由见 `docs/decisions/2026-09-16-flyway-removed.md` |
+| `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 是 | 默认 `jdbc:mysql://localhost:3306/huoshan_ai_agent`。**引擎不使用 Flyway，空库不会自建表**：先建库再执行 `deploy/sql/engine-schema.sql`（见第 5 节第 1 步）。口径与理由见 `docs/decisions/2026-09-16-flyway-removed.md` |
 | `HUOSHAN_BASE_URL` | 是 | 图库后端地址，默认 `http://localhost:8123/api` |
 | `HUOSHAN_HEADLESS_API_KEY` | 是 | **与后端 `AI_ENGINE_INTERNAL_API_KEY` 同值** |
 | `AI_OPENAI_BASE_URL` / `AI_OPENAI_API_KEY` / `AI_OPENAI_MODEL` | 是 | 主脑（当前 MiMo `mimo-v2.5`，base-url 不带尾部 `/v1`） |
@@ -84,8 +84,8 @@
 
 ## 5. 上线顺序与自检
 
-1. 建库与建表：`CREATE DATABASE \`yu-ai-agent\` CHARACTER SET utf8mb4;`，然后在目标库里执行建表脚本 —— **引擎不使用 Flyway，这一步不能跳**（空库直接起引擎会在第一次读写时报表不存在）：
-   `mysql -u root -p --default-character-set=utf8mb4 yu-ai-agent < deploy/sql/engine-schema.sql`
+1. 建库与建表：`CREATE DATABASE \`huoshan_ai_agent\` CHARACTER SET utf8mb4;`，然后在目标库里执行建表脚本 —— **引擎不使用 Flyway，这一步不能跳**（空库直接起引擎会在第一次读写时报表不存在）：
+   `mysql -u root -p --default-character-set=utf8mb4 huoshan_ai_agent < deploy/sql/engine-schema.sql`
    脚本幂等（`create table if not exists`，可重复执行），自带 `set names utf8mb4`；**`--default-character-set=utf8mb4` 别省**——中文 Windows 上客户端默认字符集不是 utf8mb4，会在带中文默认值的列上报 `ERROR 1067`
 2. 起 MCP（8127）→ 看启动日志无异常
 3. 起引擎（8124）→ 日志里应出现 `OpenAI 协议模型就绪：config=app.ai.openai.assistant, baseUrl=..., model=mimo-v2.5 ... extraBodyKeys=[thinking]`（**`extraBodyKeys=[thinking]` 就是陷阱 2 的验收点**）
