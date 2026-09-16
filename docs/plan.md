@@ -113,6 +113,10 @@
   - 文件范围：`ai/agent/src/main/java/com/lcl/myaiagent/agent/HuoshanAssistantAgent.java`、对应 `ai/agent/src/test/` 测试、`docs/features/F11-AI助手MVP.md`、`docs/plans/records/T25.md`。
   - 验收：① 量子知识、Java 编程、旅游规划等明确无关问题统一简短拒绝，且不调用 `listSpaces` 等图库工具；② 图库空间、图片、标签、搜图入库、整理等范围内请求仍正常；③ 普通用户与管理员的既有工具权限不变；④ 先保留本轮真实模型复现证据，再补自动化回归并跑 `ai/agent` 门禁；⑤ 不新增依赖、进程或数据表。
   - 状态：**已完成**。实施与验收证据见 `docs/plans/records/T25.md`。
+- [ ] T26（2026-09-16 用户确认文案）**AI 助手页面范围提示与示例改写**：把技术化的“登录态 / 可读也可改”说明改成普通用户能理解的能力范围、安全边界与操作引导。
+  - 文件范围：`frontend/src/pages/AssistantPage.vue`、对应 `frontend/scripts/` 检查、`frontend/package.json`、`docs/features/F11-AI助手MVP.md`、`docs/plans/records/T26.md`。
+  - 验收：① 顶部与空状态明确只处理图库事项、按当前账号权限访问、只有明确要求才修改、暂不支持删除；② 示例严格使用用户确认的四条；③ 输入框提示聚焦空间/图片/标签/搜图入库；④ 文案常驻检查、前端 type-check 与改动文件 lint 不净增错误。
+  - 状态：**用户已确认，实施中**。实施计划见 `docs/plans/records/T26.md`。
 
 ## 未决与非任务事项（不建任务）
 
