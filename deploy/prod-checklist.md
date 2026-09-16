@@ -59,7 +59,7 @@
 
 | 键 | 必需 | 说明 |
 |---|---|---|
-| `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 是 | 默认 `jdbc:mysql://localhost:3306/yu-ai-agent`。**库建好空库即可**：入库配置里 Flyway 是开的，启动时会按 `db/migration/V1–V4` 自建表结构 |
+| `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 是 | 默认 `jdbc:mysql://localhost:3306/yu-ai-agent`。**引擎不使用 Flyway，空库不会自建表**：先建库再执行 `deploy/sql/engine-schema.sql`（见第 5 节第 1 步）。口径与理由见 `docs/decisions/2026-09-16-flyway-removed.md` |
 | `HUOSHAN_BASE_URL` | 是 | 图库后端地址，默认 `http://localhost:8123/api` |
 | `HUOSHAN_HEADLESS_API_KEY` | 是 | **与后端 `AI_ENGINE_INTERNAL_API_KEY` 同值** |
 | `AI_OPENAI_BASE_URL` / `AI_OPENAI_API_KEY` / `AI_OPENAI_MODEL` | 是 | 主脑（当前 MiMo `mimo-v2.5`，base-url 不带尾部 `/v1`） |
@@ -83,7 +83,9 @@
 
 ## 5. 上线顺序与自检
 
-1. 建库：`CREATE DATABASE \`yu-ai-agent\` CHARACTER SET utf8mb4;`
+1. 建库与建表：`CREATE DATABASE \`yu-ai-agent\` CHARACTER SET utf8mb4;`，然后在目标库里执行建表脚本 —— **引擎不使用 Flyway，这一步不能跳**（空库直接起引擎会在第一次读写时报表不存在）：
+   `mysql -u root -p --default-character-set=utf8mb4 yu-ai-agent < deploy/sql/engine-schema.sql`
+   脚本幂等（`create table if not exists`，可重复执行），自带 `set names utf8mb4`；**`--default-character-set=utf8mb4` 别省**——中文 Windows 上客户端默认字符集不是 utf8mb4，会在带中文默认值的列上报 `ERROR 1067`
 2. 起 MCP（8127）→ 看启动日志无异常
 3. 起引擎（8124）→ 日志里应出现 `OpenAI 协议模型就绪：config=app.ai.openai.assistant, baseUrl=..., model=mimo-v2.5 ... extraBodyKeys=[thinking]`（**`extraBodyKeys=[thinking]` 就是陷阱 2 的验收点**）
    - **引擎起不来时先看这两条**（2026-09-16 实测过，但都已**不再是默认形态的坑**）：`DashScope API key must be set` → 说明有人把入库配置的 `dashscope.enabled: false` 覆盖回 true 了；`Parameter 1 of constructor in FlowWindowBasedChatMemory required a bean of type ChatModel` → 说明 `spring.ai.model.chat` 被从 `none` 改回去了。**这两条都指向"默认配置被动过"，不要靠补一个 key 去绕**
@@ -106,8 +108,8 @@
 
 **先解决两件"物料怎么到服务器"的事**（都不是技术难点，但会直接卡住第一次部署）：
 
-1. **仓库还没 push**。`origin/main` 停在 2026-09-09，本地 `main` 领先 **205 笔**（含本次 AI 助手全部改动与安全修复）。**若部署路径是"在服务器上 clone/pull 再打包"，拿到的是两个月前的旧代码。** 两条路选一条：push（仓库是公开的，注意第 0 节陷阱 1 说的"文档里写着线上仍未修"这层含义）／或直接 scp 构建产物（那就必须遵守陷阱 1 的 profile 纪律）。
-2. **引擎从未以 prod 形态起过**。它在本机跑了很多次，但每次都是连着**本机那个已有数据的库**（`yu-ai-agent`，Flyway 的 V1–V4 是几个月前就跑过的）。**"空库首跑 Flyway 建表 → 引擎正常启动 → 助手能对话"这条完整路径没验过。**
+1. **仓库还没 push**。`origin/main` 停在 2026-09-09，本地 `main` 领先 **215 笔**（2026-09-16 实测；含本次 AI 助手全部改动与安全修复）。**若部署路径是"在服务器上 clone/pull 再打包"，拿到的是两个月前的旧代码。** 两条路选一条：push（仓库是公开的，注意第 0 节陷阱 1 说的"文档里写着线上仍未修"这层含义）／或直接 scp 构建产物（那就必须遵守陷阱 1 的 profile 纪律）。
+2. **引擎从未以本次口径从空库起过**。它在本机跑了很多次，但每次都是连着**本机那个已有数据的库**（`yu-ai-agent`）。**2026-09-16 更新**：Flyway 已整体移除（见 `docs/decisions/2026-09-16-flyway-removed.md`），"空库自建表"这条路不复存在，改由手工脚本承担；要验的路径变成 **"空库 → 执行 `deploy/sql/engine-schema.sql` → 引擎正常启动 → 助手能对话"**。本机有 5 个 `yu_ai_agent_rehearsal_*` 排练库与一个仍在跑的引擎进程（连 `yu_ai_agent_rehearsal_manual_20260916`），说明这条路径被人私下走过一遍，**但没留下记录、未逐项核对自检表**；按用户 2026-09-16 指示，正式的本地排练**不做**。
 
 **其余未覆盖 / 仍开着的**：
 
