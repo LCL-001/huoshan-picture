@@ -19,7 +19,6 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,9 +50,6 @@ class FlowWindowBasedChatMemoryDedupeTest {
     private ChatMessageRepository chatMessageRepository;
 
     @Mock
-    private ChatModel chatModel;
-
-    @Mock
     private ChatSummaryRepository chatSummaryRepository;
 
     private FlowWindowBasedChatMemory memory;
@@ -63,8 +59,9 @@ class FlowWindowBasedChatMemoryDedupeTest {
 
     @BeforeEach
     void setUp() {
+        // 本类只测写入去重（add），不碰摘要：给一个"主脑未配置"的持有器就够了
         memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository,
-                OpenAiChatModels.from(new OpenAiModelProperties()), chatModel);
+                OpenAiChatModels.from(new OpenAiModelProperties()));
         store.clear();
         mockStoredMessages();
         doAnswer(invocation -> {

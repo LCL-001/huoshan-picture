@@ -40,9 +40,9 @@ public class MyManus extends ToolCallAgent {
      * </p>
      *
      * @param allTools 所有可用的工具回调数组
-     * @param dashscopeChatModel DashScope聊天模型实例
+     * @param chatModel 图库助手主脑模型（OpenAI 协议，见 OpenAiChatModels.assistant()）
      */
-    public MyManus(ToolCallback[] allTools, ChatModel dashscopeChatModel, String chatId, FlowWindowBasedChatMemory flowWindowBasedChatMemory) {
+    public MyManus(ToolCallback[] allTools, ChatModel chatModel, String chatId, FlowWindowBasedChatMemory flowWindowBasedChatMemory) {
         super(allTools);
         // 会话 ID 必须在构建时定下来，供记忆 Advisor 逐步读写外部记忆
         this.setConversationId(chatId);
@@ -59,7 +59,7 @@ public class MyManus extends ToolCallAgent {
         // 记忆走 Advisor 模式：每步 LLM 调用前由 advisor 读取外部记忆注入提示词，
         // conversationId 在 callLlm 里通过 advisor 参数传入；
         // 历史不做手动 addAll，避免与 advisor 注入的记忆重复
-        ChatClient chatClient = ChatClient.builder(dashscopeChatModel)
+        ChatClient chatClient = ChatClient.builder(chatModel)
                 .defaultAdvisors(new MyLoggerAdvisor(),
                         MessageChatMemoryAdvisor.builder(flowWindowBasedChatMemory).build())
                 .build();

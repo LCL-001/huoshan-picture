@@ -5,8 +5,12 @@
     active: ollama #local
   ai:
     model:
-      chat: dashscope
-      embedding: dashscope
+      # 2026-09-16：引擎侧已无任何 DashScope 用法——对话主脑、看图打标、会话摘要、会话标题
+      # 全部走 app.ai.openai.*（厂商不绑死，当前是 MiMo），所以默认模型这两类显式关掉。
+      # 关掉之后引擎能起在**没有 DashScope key** 的环境里（实测见
+      # docs/decisions/2026-09-16-dashscope-decoupling.md）
+      chat: none
+      embedding: none
       # 其余模型类型显式关掉：OpenAI starter 的这四类自动装配都是 matchIfMissing = true，
       # 属性缺省即启用，会去建需要 api-key 的 OpenAi*Model Bean（T6）
       image: none
@@ -14,12 +18,12 @@
         speech: none
         transcription: none
       moderation: none
+    # DashScope 集成整体关闭（2026-09-16 实测）：上面那个 `model.chat` 只管得到 chat 一条
+    # 自动配置，而 DashScope 的 agent（`dashScopeAgent`）另有开关，key 为空时照样让启动失败
+    # （`DashScope API key must be set`）。要重新启用 DashScope：去掉本项、把上面 chat /
+    # embedding 改回 dashscope、并补回 `api-key`（形如 `api-key: ${AI_DASHSCOPE_API_KEY:}`）。
     dashscope:
-      api-key: ${AI_DASHSCOPE_API_KEY:}
-      chat:
-        options:
-          model: qwen3.7-flash
-          timeout: 60s
+      enabled: false
     # [LOCAL-ONLY-DISABLED] pgvector 向量库配置：全本地化改造（不使用向量数据库）暂时停用，恢复时取消注释
     #vectorstore:
     #  pgvector:

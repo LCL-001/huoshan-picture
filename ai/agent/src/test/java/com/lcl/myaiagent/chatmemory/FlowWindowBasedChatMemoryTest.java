@@ -3,7 +3,6 @@ package com.lcl.myaiagent.chatmemory;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.lcl.myaiagent.config.OpenAiChatModels;
-import com.lcl.myaiagent.config.OpenAiModelProperties;
 import com.lcl.myaiagent.model.po.ChatMessage;
 import com.lcl.myaiagent.model.po.ChatSummary;
 import com.lcl.myaiagent.repository.ChatMessageRepository;
@@ -51,18 +50,21 @@ class FlowWindowBasedChatMemoryTest {
     @Mock
     private ChatSummaryRepository chatSummaryRepository;
 
-    /** 兜底摘要模型：下面这些用例都不配主脑（hasAssistant=false），摘要走它 */
+    /** 摘要模型桩（主脑指向它，见 setUp）：call(prompt) 返回给定摘要文本 */
     @Mock
     private ChatModel chatModel;
+
+    /** 摘要走主脑（OpenAiChatModels.assistant()）：把主脑指到上面的 chatModel 桩上 */
+    @Mock
+    private OpenAiChatModels openAiChatModels;
 
     private FlowWindowBasedChatMemory memory;
 
     @BeforeEach
     void setUp() {
-        // @RequiredArgsConstructor 的字段声明顺序：
-        // chatMessageRepository, chatSummaryRepository, openAiChatModels, fallbackChatModel
-        memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository,
-                OpenAiChatModels.from(new OpenAiModelProperties()), chatModel);
+        // @RequiredArgsConstructor 的字段声明顺序：chatMessageRepository, chatSummaryRepository, openAiChatModels
+        when(openAiChatModels.assistant()).thenReturn(chatModel);
+        memory = new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository, openAiChatModels);
     }
 
     // ---------- 构造数据的小工具 ----------
@@ -168,7 +170,8 @@ class FlowWindowBasedChatMemoryTest {
 
         assertEquals(12, result.size());   // 1 system + 1 摘要 + 10 新增
         assertTrue(result.get(1).getText().contains("这是上次的摘要"));
-        verify(chatModel, never()).call(anyString());               // 模型一次都没调
+        // 连"取模型"这一步都没发生，比"模型没被调用"更强
+        verify(openAiChatModels, never()).assistant();
         verify(chatSummaryRepository, never()).saveOrUpdate(any()); // 也没有重复写库
     }
 
@@ -219,7 +222,7 @@ class FlowWindowBasedChatMemoryTest {
         // 硬裁剪：从尾往前保留 3 条(3150)，第 4 条就超预算 → 1 system + 3 normal
         assertEquals(4, result.size());
         assertInstanceOf(SystemMessage.class, result.get(0));
-        verify(chatModel, never()).call(anyString());               // 不该有模型调用
+        verify(openAiChatModels, never()).assistant();              // 不该去取模型
         verify(chatSummaryRepository, never()).saveOrUpdate(any());
     }
 
@@ -239,7 +242,7 @@ class FlowWindowBasedChatMemoryTest {
         List<Message> result = memory.get(CHAT_ID);
 
         assertEquals(6, result.size());              // 原样：1 system + 5 normal
-        verify(chatModel, never()).call(anyString());
+        verify(openAiChatModels, never()).assistant();
         verify(chatSummaryRepository, never()).saveOrUpdate(any());
     }
 }

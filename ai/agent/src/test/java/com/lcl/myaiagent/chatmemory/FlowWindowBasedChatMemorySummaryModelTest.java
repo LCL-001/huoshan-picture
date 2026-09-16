@@ -20,8 +20,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.model.ChatModel;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -35,16 +35,14 @@ import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
  * 摘要走哪个模型（2026-09-16）。
  * <p>
- * 固定口径：摘要压缩**优先走图库助手主脑**（OpenAI 协议，prod 上是 MiMo），而不是容器里那个由
+ * 口径：摘要压缩走**图库助手主脑**（OpenAI 协议，prod 上是 MiMo），不再用容器里那个由
  * {@code spring.ai.model.chat} 决定的默认 ChatModel——否则"摘要能不能用"就绑在 DashScope 的 key 上
- * （假 key 能启动、长对话摘要失败，见 {@code deploy/prod-checklist.md} 陷阱 3）。
- * 主脑未配置时才回落到默认模型。
+ * （假 key 能启动、长对话摘要失败）。主脑未配置时不做二次回退，直接降级为硬裁剪（有日志）。
  * </p>
  * <p>
  * 不用 Mockito 桩主脑（{@link OpenAiChatModels} 是 final 类，且真正要证的正是"请求真的发到了主脑的
@@ -53,7 +51,7 @@ import static org.mockito.Mockito.*;
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-@DisplayName("摘要模型选择：主脑优先、默认模型兜底")
+@DisplayName("摘要模型：走主脑，配不上就降级")
 class FlowWindowBasedChatMemorySummaryModelTest {
 
     private static final String CHAT_ID = "summary-model-chat";
@@ -75,9 +73,6 @@ class FlowWindowBasedChatMemorySummaryModelTest {
 
     @Mock
     private ChatSummaryRepository chatSummaryRepository;
-
-    @Mock
-    private ChatModel fallbackChatModel;
 
     @BeforeAll
     static void startStubServer() throws IOException {
@@ -104,7 +99,7 @@ class FlowWindowBasedChatMemorySummaryModelTest {
     }
 
     @Test
-    @DisplayName("主脑已配置：摘要请求打到主脑 base-url，容器默认 ChatModel 一次都不碰")
+    @DisplayName("主脑已配置：摘要请求打到主脑 base-url，并正常落库")
     void summaryGoesToAssistantModel() {
         FlowWindowBasedChatMemory memory = memoryWith(mimoModels());
 
@@ -120,24 +115,20 @@ class FlowWindowBasedChatMemorySummaryModelTest {
         assertThat(REQUESTS.get(0))
                 .as("打到主脑上的必须真的是摘要请求")
                 .contains(SUMMARY_PROMPT_MARKER);
-        verifyNoInteractions(fallbackChatModel);
     }
 
     @Test
-    @DisplayName("主脑未配置：回落到容器默认 ChatModel，主脑端点零请求")
-    void summaryFallsBackToDefaultModelWhenAssistantMissing() {
-        when(fallbackChatModel.call(anyString())).thenReturn("兜底摘要");
+    @DisplayName("主脑未配置：零请求、不落摘要，降级为硬裁剪（压缩失败不影响可用性）")
+    void unconfiguredAssistantDegradesToTrim() {
         FlowWindowBasedChatMemory memory = memoryWith(OpenAiChatModels.from(new OpenAiModelProperties()));
 
-        ChatSummary saved = compressAndCaptureSummary(memory);
+        List<Message> result = memory.get(CHAT_ID);
 
-        assertThat(saved.getSummary()).isEqualTo("兜底摘要");
         assertThat(REQUESTS)
                 .as("主脑没配，不该有任何请求发出去")
                 .isEmpty();
-        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(fallbackChatModel).call(prompt.capture());
-        assertThat(prompt.getValue()).contains(SUMMARY_PROMPT_MARKER);
+        verify(chatSummaryRepository, never()).saveOrUpdate(any());
+        assertThat(result).as("降级后仍要能返回可用历史").isNotEmpty();
     }
 
     // ---------- 装配与桩 ----------
@@ -145,7 +136,7 @@ class FlowWindowBasedChatMemorySummaryModelTest {
     private FlowWindowBasedChatMemory memoryWith(OpenAiChatModels models) {
         mockMessageQuery(overBudgetHistory());
         mockSummaryQuery();
-        return new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository, models, fallbackChatModel);
+        return new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository, models);
     }
 
     /** 主脑 = 桩服务（MiMo 的协议根不带尾部 /v1，与 T6 口径一致） */
