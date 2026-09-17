@@ -24,7 +24,7 @@
 - [x] F8 可观测性：traceId 全链路日志（异步透传）、Actuator/Prometheus 指标
 - [x] F9 工程化：GitHub Actions CI（编译 + 无 MySQL/Redis 单测）、JMeter 压测资产（本地，不入库）
 - [x] F10 标签词表（2026-09-14 T5 完成）：新表 `tag`（id/name/type(tag|category)/usageCount/审计字段，全局词表；列名随库内 camelCase 约定，设计文档速写 usage_count）；/tag_category 查表动态化（返回结构 PictureTagCategory 逐字段不变，9 标签 + 5 分类种子迁移）；编辑接口（单编/批编）同事务 upsert 词表并累加 usageCount（一次编辑调用计 1，不随图片数放大）；picture.tags JSON 列与 LIKE 查询逻辑不动
-- [ ] F11 AI 助手一期（**2026-09-15 用户拍板：等一期部署上线后再勾**；代码已推进到 T24，尚未上线）：`ai/` 引擎（图库工具集、OpenAI 协议多模型、会话类型 + headless SSE 端点、MCP 搜图）+ `backend` AI 代理（服务间 API key、凭据组透传、SSE 转发）+ `frontend` 助手界面（对话 + SSE 步骤折叠条）。**实现状态、验收证据与已知限制见 `docs/features/F11-AI助手MVP.md`、`F12`、`F13`，以及 `docs/plans/records/` 下 T4–T24 各任务记录。**
+- [x] F11 AI 助手一期（**2026-09-17 首次部署上线**；助手按首发安全口径保持只读/建议能力）：`ai/` 引擎（图库工具集、OpenAI 协议多模型、会话类型 + headless SSE 端点、MCP 搜图）+ `backend` AI 代理（服务间 API key、凭据组透传、SSE 转发）+ `frontend` 助手界面（对话 + SSE 步骤折叠条）。**实现状态、验收证据与已知限制见 `docs/features/F11-AI助手MVP.md`、`F12`、`F13`，以及 `docs/plans/records/` 下 T4–T24 各任务记录。**
 
 ## 技术方案
 

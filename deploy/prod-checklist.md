@@ -3,6 +3,14 @@
 > 2026-09-15 立。目标：把一期从"代码完成"推到"线上可用"，并把踩坑点写在前头。
 > 口径见 `docs/decisions/2026-09-15-D1-loopback.md`；SSE 的 nginx 片段见 `deploy/nginx/ai-assistant-sse.conf`。
 
+## 2026-09-17 首次生产部署结果
+
+- 部署方式：本地打包 JAR / 前端产物后上传服务器，三个 Java 进程交给宝塔 Java 项目管理；backend 用 JDK 17，agent 与 MCP 用 JDK 21。
+- 生产引擎库：`huoshan_ai_agent`，4 张表（`user` / `conversation` / `chat_message` / `chat_summary`）已导入。
+- **真机踩坑**：环境变量曾写 `MYSQL_USERNAME=huoshan_agent`，但宝塔创建的实际数据库用户是 `huoshan_ai_agent`，导致 `Access denied for user 'huoshan_agent'@'localhost'`。改成实际用户名并重启后，助手恢复。用户名不是固定协议，部署时必须以 `mysql.user` / 宝塔数据库页显示的真实账户为准。
+- Java 启动参数顺序：JVM 参数必须放在 `-jar` 前，例如 `java -Xms128m -Xmx512m -jar app.jar --spring.profiles.active=prod`。
+- nginx 已由用户合并 SSE / WebSocket / 普通 API 片段；助手线上已能调用。未留下 `nginx -t`、长对话逐帧或 360s 超时的文本证据。
+
 ## 0. 先看两个陷阱（会直接把你坑住）
 
 ### 陷阱 1：当前的 jar 里烤着**本机**的配置，而后端默认 profile 就是 `local`
@@ -60,7 +68,7 @@
 
 | 键 | 必需 | 说明 |
 |---|---|---|
-| `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 是 | 默认 `jdbc:mysql://localhost:3306/huoshan_ai_agent`。**引擎不使用 Flyway，空库不会自建表**：先建库再执行 `deploy/sql/engine-schema.sql`（见第 5 节第 1 步）。口径与理由见 `docs/decisions/2026-09-16-flyway-removed.md` |
+| `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 是 | 默认 `jdbc:mysql://localhost:3306/huoshan_ai_agent`；用户名必须填写服务器实际创建的 MySQL 用户（本次宝塔真机为 `huoshan_ai_agent`，不能照抄旧示例 `huoshan_agent`）。**引擎不使用 Flyway，空库不会自建表**：先建库再执行 `deploy/sql/engine-schema.sql`（见第 5 节第 1 步）。口径与理由见 `docs/decisions/2026-09-16-flyway-removed.md` |
 | `HUOSHAN_BASE_URL` | 是 | 图库后端地址，默认 `http://localhost:8123/api` |
 | `HUOSHAN_HEADLESS_API_KEY` | 是 | **与后端 `AI_ENGINE_INTERNAL_API_KEY` 同值** |
 | `AI_OPENAI_BASE_URL` / `AI_OPENAI_API_KEY` / `AI_OPENAI_MODEL` | 是 | 主脑（当前 MiMo `mimo-v2.5`，base-url 不带尾部 `/v1`） |
@@ -72,7 +80,7 @@
 | ~~`AI_DASHSCOPE_API_KEY`~~ | **不再需要**（2026-09-16 收口） | 原先必须给一个非空值（`spring.ai.model.chat: dashscope` 会急切建 Bean，缺 key 就起不来）。现在引擎侧**没有任何 DashScope 用法**——对话主脑、看图打标、会话摘要、会话标题全走 `app.ai.openai.*`（MiMo），入库配置里已把 `model.chat` / `model.embedding` 置 `none` 并整体 `dashscope.enabled: false`。**实测三种无 key 形态都能起**（见 `docs/decisions/2026-09-16-dashscope-decoupling.md`）。**注意**：`dashscope.enabled: false` 不能省——`model.chat` 只管得到 chat 那条自动配置，DashScope 的 agent 那条（`dashScopeAgent`）缺 key 时照样让启动失败 |
 | `VECTOR_ENABLED=false` | 是 | 向量库已停用，默认就是 false，别打开 |
 
-启动：`java -jar my-ai-agent-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod`（或全部走环境变量 + 显式覆盖 profile）。
+启动：`java -Xms128m -Xmx512m -jar my-ai-agent-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod`（JVM 参数必须在 `-jar` 前；或全部走环境变量 + 显式覆盖 profile）。
 
 ## 4. MCP（`ai/image-search-mcp-server`，新进程）
 
@@ -95,31 +103,31 @@
 6. 逐项自检：
 
 - [ ] `netstat` 看 8124 / 8127 **只绑 127.0.0.1**（不是 `0.0.0.0`）
-- [ ] 后端 → 引擎联通：登录后打开 `/assistant` 发一句话，能出步骤条与回答
+- [x] 后端 → 引擎联通：登录后打开 `/assistant` 发一句话，能出步骤条与回答（2026-09-17 真机通过）
 - [ ] **SSE 逐步显示**：折叠条是**一步步**出现，不是最后一次性刷出（D3 的验收点）
-- [ ] 登录态透传：助手能列出**你自己的**空间（不是别人的）
+- [x] 登录态透传：助手能列出**你自己的**空间（不是别人的）（2026-09-17 真机通过）
 - [ ] **摘要走主脑**：让一条对话够长（历史估算 token 过 4096，通常要几轮长回答），引擎日志出现 `摘要模型调用完成`；**不应**出现 `会话摘要压缩失败，降级为硬裁剪`（出现即说明主脑没配全，摘要悄悄退化成"丢掉老消息"）
 - [ ] 引擎日志里 `调用者非管理员，本次会话不挂 visionTagger` 只在普通用户会话出现
 - [ ] MCP 通：问"找几张 X 的图"能搜到（`searchImage` 被调用）
 - [ ] **助手只读边界**：问“把这些图放进空间”时不得调用 `batchUploadByUrl`、不得声称已入库，只返回候选或引导到普通图库页面
 - [ ] **助手只读边界**：问“直接改这些图片的标签”时不得调用 `batchEditPictures`、不得写库，只给建议或引导到普通图库页面
 - [ ] **日志脱敏**：完成一轮查询与搜图后，agent INFO 日志中不出现完整用户 Prompt、工具参数或工具返回正文
-- [ ] AI 打标（管理端公共图库「AI 打标」）能出建议 → 确认入库
-- [ ] **部署后把 `docs/spec.md` 的 F11 勾上**（D5：用户拍板"等一期部署上线后再勾"）
-- [ ] 顺手把后端也升上去——线上目前跑的还是修复前的版本（`plan.md`「已接受的暴露」A1：匿名可枚举空间与属主）
+- [x] AI 打标（管理端公共图库「AI 打标」）能出建议 → 确认入库（2026-09-17 用户确认可用）
+- [x] **部署后把 `docs/spec.md` 的 F11 勾上**（2026-09-17 已完成）
+- [x] 后端同步升级，A1 的旧版匿名枚举暴露随部署自然收口（2026-09-17）
 
 ## 6. 明确未覆盖 / 仍开着的
 
-**先解决两件"物料怎么到服务器"的事**（都不是技术难点，但会直接卡住第一次部署）：
+**首次部署的两项物料结果**：
 
-1. **仓库还没 push**。`origin/main` 仍停在 2026-09-09；本地 `main` 已包含之后的 AI 助手、后端安全修复与上线物料。提交数会随收口文档继续增长，部署前用 `git rev-list --left-right --count origin/main...HEAD` 取实值。**若部署路径是"在服务器上 clone/pull 再打包"，不先 push 就会拿到旧代码。** 两条路选一条：用户明确放行后 push／或直接 scp 构建产物（后者必须遵守第 0 节的 profile 与密钥纪律）。
-2. **引擎从未以本次口径从空库起过**。它在本机跑了很多次，但每次都是连着**本机那个已有数据的库**（`yu-ai-agent`）。**2026-09-16 更新**：Flyway 已整体移除（见 `docs/decisions/2026-09-16-flyway-removed.md`），"空库自建表"这条路不复存在，改由手工脚本承担；要验的路径变成 **"空库 → 执行 `deploy/sql/engine-schema.sql` → 引擎正常启动 → 助手能对话"**。本机留有 5 个 `yu_ai_agent_rehearsal_*` 排练库（其中一次是手工建表起引擎、连 `yu_ai_agent_rehearsal_manual_20260916`），说明这条路径被人私下走过一遍，**但没留下记录、未逐项核对自检表**；按用户 2026-09-16 指示，正式的本地排练**不做**。
+1. **已解决：仓库已 push，且首次部署选择本地打包后上传服务器。** 2026-09-17 部署前 `main` 与 `origin/main` 均指向 `10571ea`；服务器运行产物未做哈希回读，线上版本以该部署候选记录。
+2. **已解决：生产空库已执行 `deploy/sql/engine-schema.sql` 并确认 4 张表存在。** 首轮助手请求暴露的是 MySQL 用户名不一致，而非缺表；改为宝塔实际用户 `huoshan_ai_agent` 后对话成功。
 
 **其余未覆盖 / 仍开着的**：
 
-- **三个进程怎么常驻没定**（2026-09-16 补记）：第 5 节只写了启动顺序与命令，**没写守护方式**——开机自启、崩了自动拉起、日志落盘（含轮转）、以及引擎/MCP 的 stdout 往哪写。现有 8123 那个后端是靠老办法在跑的，做法未入库。**上线前必须定下来并把结论写进本节**，否则重启一次机器三个进程就都不会回来。
-- **前端构建命令已确定，发布落点仍待服务器确认**（2026-09-16）：本次上线使用 `cd frontend && npm ci && npm run pure-build`，不使用会被 124 例存量 type-check 基线阻断的 `npm run build`。`pure-build` 已在当前候选代码上实跑成功（4015 modules，约 32.5s）；产物为 `frontend/dist/`。仍需在服务器确认 nginx 的静态根目录与上传/替换方式，替换前备份旧目录。当前主 bundle 约 2.95 MB（gzip 约 941 KB）会触发 Vite 大 chunk 警告，但不阻断本次发布。
+- **常驻方式已选宝塔 Java 项目管理**（2026-09-17）：backend / agent / MCP 均由面板托管。开机自启、崩溃重拉与日志轮转的具体开关没有留下截图或文本输出，服务器重启后仍应做一次恢复演练。
+- **前端构建命令与发布落点已确认**（2026-09-17）：静态根目录为 `/www/wwwroot/Java/yun-picture-frontend`；本次上线使用 `cd frontend && npm ci && npm run pure-build`，不使用会被 124 例存量 type-check 基线阻断的 `npm run build`。`pure-build` 已在当前候选代码上实跑成功（4015 modules，约 32.5s）；产物为 `frontend/dist/`，服务器静态根目录已确认；后续替换前仍应备份旧目录。当前主 bundle 约 2.95 MB（gzip 约 941 KB）会触发 Vite 大 chunk 警告，但不阻断本次发布。
 - **D2 引擎 `CorsConfig`（`allowCredentials(true)` + 通配 Origin）缓解未修**：回环绑定后远程浏览器够不到，但**本机进程仍可利用**。不算已修好。
 - **SSE 中继的三个已知边界**（按规则 13 判为已知限制，不挂账）：上游多行 `data:` 的半帧、上游缺 `[DONE]` 时答案后多一句"响应意外中断"、线程池拒绝只给空体 500。详见 `docs/features/F11-AI助手MVP.md`「已知限制」9。
 - **`/ticket` 无频控、`message`/`chatId` 无长度校验**（同上，已知限制 7 ⑧）。
-- **本清单与 nginx 片段都未经真机验证**：我没有服务器访问权。第 5 节的命令、`netstat` 期望值、第 3 步的启动日志断言都已尽量写成可机械核对的形态，但仍以你实际跑出来的为准；**若第 5 节任一步的现象与期望不符，先停下对照本节排查，别硬往下走**。
+- **真机验证范围有限**：用户已完成部署、修复数据库用户名并确认助手与 AI 打标可用，也已合并 nginx；但没有保存 `netstat`、`nginx -t`、长对话摘要、MCP 搜图、只读负向控制和日志脱敏的文本输出。未勾选项仍需后续按需复测。
