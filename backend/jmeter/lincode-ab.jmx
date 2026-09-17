@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="分页列表单路径压测（每次运行只测一条路径）" enabled="true">
+      <stringProp name="TestPlan.comments">目的：把「走 DB」与「走三级缓存」拆成两次独立运行来测，避免同一次运行里两条路径互抢线程、连接池与 CPU。&#xd;
+同一 JVM 内并行跑两条路径时，缓存路径的 p95 会含着 DB 路径的排队成本，测出来是混合成本而不是路径成本，因此不能用于 A/B。&#xd;
+&#xd;
+本计划含两个线程组：&#xd;
+  01-被测路径   N 个线程只打 ${sampler_path}（由 -Jsampler_path 指定，一次运行只有一条）&#xd;
+  02-网络基线   ${t_base} 个线程只打 health / tag_category，提供本次运行的公网 RTT 参考&#xd;
+&#xd;
+用法（由 scripts/run-ab-staircase.ps1 自动调用，一般不用手敲）：&#xd;
+  jmeter -n -t lincode-ab.jmx -Jsampler_path=/api/picture/list/page/vo -Jpath_label=list-page-DB -Jt1=100 -Jramp1=30 -Jdur=300 -l db-t100.jtl -e -o report-db-t100&#xd;
+  jmeter -n -t lincode-ab.jmx -Jsampler_path=/api/picture/list/page/vo/cache -Jpath_label=list-page-Cache -Jt1=100 -Jramp1=30 -Jdur=300 -l cache-t100.jtl -e -o report-cache-t100&#xd;
+&#xd;
+口径提醒：&#xd;
+1) 报告里 health / tag_category 是空跑基线，只有公网 RTT + HTTPS 成本；对比两条路径时必须一起看，&#xd;
+   延迟差值要减去各自基线才有意义。&#xd;
+2) 缓存路径的 Redis TTL 是 300+随机(0,300) 秒、本地 Caffeine 是 5~10 分钟随机 TTL，&#xd;
+   单次 300s 运行可能撞上过期，属预期现象。预热线程组会在正式计时前先打热缓存。&#xd;
+3) 想拿服务端净耗时，把 -Jhost/-Jport/-Jprotocol 指到内网或本机；此时基线延迟会大幅下降，&#xd;
+   缓存与 DB 的差值才接近真实服务端差值。&#xd;
+&#xd;
+安全：账号口令等敏感值一律通过 -J 传入，禁止写回本文件。本仓库是公开仓库。</stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <stringProp name="TestPlan.user_define_classpath"></stringProp>
+    </TestPlan>
+    <hashTree>
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP Request Defaults" enabled="true">
+        <intProp name="HTTPSampler.connect_timeout">5000</intProp>
+        <intProp name="HTTPSampler.response_timeout">15000</intProp>
+        <stringProp name="HTTPSampler.domain">${__P(host,lincode.online)}</stringProp>
+        <stringProp name="HTTPSampler.port">${__P(port,443)}</stringProp>
+        <stringProp name="HTTPSampler.protocol">${__P(protocol,https)}</stringProp>
+        <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+          <collectionProp name="Arguments.arguments"/>
+        </elementProp>
+        <stringProp name="HTTPSampler.implementation"></stringProp>
+      </ConfigTestElement>
+      <hashTree/>
+      <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP 信息头管理器" enabled="true">
+        <collectionProp name="HeaderManager.headers">
+          <elementProp name="" elementType="Header">
+            <stringProp name="Header.name">Content-Type</stringProp>
+            <stringProp name="Header.value">application/json</stringProp>
+          </elementProp>
+          <elementProp name="" elementType="Header">
+            <stringProp name="Header.name">User-Agent</stringProp>
+            <stringProp name="Header.value">jmeter-loadtest/1.0</stringProp>
+          </elementProp>
+        </collectionProp>
+      </HeaderManager>
+      <hashTree/>
+      <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="HTTP Cookie Manager" enabled="true">
+        <collectionProp name="CookieManager.cookies"/>
+        <boolProp name="CookieManager.clearEachIteration">false</boolProp>
+        <boolProp name="CookieManager.controlledByThreadGroup">false</boolProp>
+      </CookieManager>
+      <hashTree/>
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="00-预热（打同一个被测路径）" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController">
+          <intProp name="LoopController.loops">${__P(warmup,20)}</intProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </SetupThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="预热" enabled="true">
+          <stringProp name="HTTPSampler.path">${__P(sampler_path,/api/picture/list/page/vo/cache)}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{&quot;current&quot;:${__P(page_current,1)},&quot;pageSize&quot;:${__P(page_size,10)}}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="断言 code=0" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">预热失败：服务未启动、profile 不对或路径写错</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">2</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="01-被测路径（本次运行唯一的一条）" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">${__P(t1,50)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(ramp1,30)}</stringProp>
+        <stringProp name="ThreadGroup.duration">${__P(dur,300)}</stringProp>
+        <longProp name="ThreadGroup.delay">0</longProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController">
+          <intProp name="LoopController.loops">-1</intProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="${__P(path_label,被测路径)}" enabled="true">
+          <stringProp name="HTTPSampler.path">${__P(sampler_path,/api/picture/list/page/vo/cache)}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{&quot;current&quot;:${__P(page_current,1)},&quot;pageSize&quot;:${__P(page_size,10)}}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="断言 code=0" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">被测路径返回 code 非 0</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">2</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="02-网络基线（RTT 参考，可与被测路径不同线程数）" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">${__P(t_base,1)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(ramp1,30)}</stringProp>
+        <stringProp name="ThreadGroup.duration">${__P(dur,300)}</stringProp>
+        <longProp name="ThreadGroup.delay">0</longProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController">
+          <intProp name="LoopController.loops">-1</intProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="BASELINE-health" enabled="true">
+          <stringProp name="HTTPSampler.path">/api/health</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="断言 code=0" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">health 返回 code 非 0：服务异常</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">2</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="BASELINE-tag_category" enabled="true">
+          <stringProp name="HTTPSampler.path">/api/picture/tag_category</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="断言 code=0" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">标签分类接口返回异常</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">2</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <assertionsResultsToSave>0</assertionsResultsToSave>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename"></stringProp>
+      </ResultCollector>
+      <hashTree/>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

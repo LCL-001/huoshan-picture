@@ -11,13 +11,18 @@
 | 文件 | 说明 |
 |---|---|
 | `lincode-loadtest-v3.jmx` | 主测试计划（JMeter 5.6.3）：3 个线程组，覆盖匿名读 / 登录 / 登录态 |
+| `lincode-ab.jmx` | A/B 单路径计划：**一次运行只压一条路径**（由 `-Jsampler_path` 指定），含预热线程组与 health / tag_category 空跑基线 |
+| `scripts/run-ab-staircase.ps1` | A/B 阶梯运行器：每个（路径 × 并发档）起一个**独立 JMeter 进程**，产出 `reports/` 与 `statistics-ab/` |
+| `scripts/compare-ab.py` | 读 `statistics-ab/`，出两张表：同并发下 DB vs Cache（含扣除基线的 `net` 列）、各路径的阶梯与拐点 |
 | `statistics/*.json` | 11 次运行的 JMeter 统计原始文件（`statistics.json`），本文件的数字全部来自这里 |
+| `statistics-ab/*.json` | A/B 各次运行的 `statistics.json` 副本（运行器写入）。与 `statistics/` 同属"可复现的最小证据集"，**入库**；尚未实跑过时该目录不存在 |
 | `scripts/summarize_reports.py` | 汇总脚本，读取 `statistics/` 生成下方表格 |
 | `scripts/*.ps1` | 压测期间的辅助脚本（接口探测、结果分析） |
 
-**未纳入仓库**（体积原因，本地保留）：
+**未纳入仓库**（体积原因，`backend/.gitignore` 的 `jmeter/report*/` 兜住）：
 - `*.jtl` 原始样本文件，单个最大 39MB（`r01-ano-100.jtl`）
 - JMeter 生成的 HTML 报告目录，每个约 2.9MB，其中大部分是报表模板
+- A/B 运行器写出的 `reports/`（jtl + HTML）同理不入库，只有 `statistics-ab/` 的 json 副本入库
 
 ---
 
@@ -46,7 +51,9 @@
 | TG3 | 登录态 | 先登录建立会话，再轮询 `/api/user/get/login`、`/api/notification/unread`、`/api/notification/list`、`/api/spaceUser/list/my`、`/api/picture/get/vo` | `t3`（5）、`ramp3`（10）、`dur`（300s） |
 | （脚本未留存） | 混合 | 上述三类按比例混合 | 见 `report04-mix` |
 
-**关键设计**：TG1 里同时放了「走 DB」和「走缓存」两个采样器，打的是**同一个分页列表查询**——这是唯一能直接对比缓存收益的设计。
+**注意 TG1 的采样器关系**：TG1 里同时放了「走 DB」与「走缓存」两个采样器，打的是**同一个分页列表查询**——但两者是在**同一次运行内并发**跑的，所以那两个数（§5.1 的 240 / 205）不能当作干净的缓存收益口径：它们互抢 Tomcat 线程、HikariCP 连接池与 CPU，缓存路径的延迟里含着 DB 路径的排队成本。
+
+要测「缓存相对 DB 省了多少」，用 `lincode-ab.jmx`（§6.2）：它在**分进程的独立运行**里各压一条路径，每次运行自带 health / tag_category 空跑基线，并由 `compare-ab.py` 减出 `net` 列。
 
 ---
 
@@ -87,6 +94,8 @@
 **准确表述**：同一个分页列表查询，在「走 DB」与「走三级缓存」两条路径下 p95 分别为 240.0ms 和 204.95ms，差 35ms。
 
 **不能这么说**：❌「接口优化后 p95 从 240 降到 205」——这不是同一接口的优化前后，是两条路径的横向对比。
+
+**还要补一句**：这两条路径是在**同一次运行内并发**压的，互抢 Tomcat 工作线程、HikariCP 连接池与 CPU，缓存路径那份延迟里含着 DB 路径的排队成本。所以 35ms 是**有偏的近似值**（偏保守：真实收益应 ≥ 35ms），适合当"缓存确实有效"的定性证据；要拿干净数字，用 §6.2 的 A/B 计划分进程重跑。拿本节数字时不要省掉这句限定。
 
 **必须补充的背景**：同一次运行里还有两个**空跑基线**采样器：
 - `/api/health`（只回状态）p95 = 166ms
@@ -130,6 +139,8 @@
 
 ## 6. 复现方式
 
+### 6.1 v3 全场景复现
+
 ```bash
 # 1. 服务端先启用 test profile（关闭验证码与登录限流），否则登录接口会大量失败
 #    java -jar xxx.jar --spring.profiles.active=prod,test
@@ -146,6 +157,48 @@ python scripts/summarize_reports.py statistics
 
 可覆盖参数：`t1`/`ramp1`/`t2`/`ramp2`/`t3`/`ramp3`/`dur`/`TEST_ACCOUNT`/`TEST_PASSWORD`/`TEST_USER_ID`/`TEST_PICTURE_ID`
 
+### 6.2 A/B 阶梯（测「缓存相对 DB 省了多少」）
+
+不要用手敲 `jmeter` 命令，直接跑运行器；它会为每个（路径 × 并发档）各起一个**独立 JMeter 进程**，并把每次运行的 `statistics.json` 复制到 `statistics-ab/`。
+
+```powershell
+cd backend/jmeter/scripts
+
+# 公网（默认目标 lincode.online:443，20/50/100 三档，每档 300s）
+.\run-ab-staircase.ps1
+
+# 本机实例：基线 RTT 大幅下降，DB 与缓存的差值才接近真实服务端差值
+.\run-ab-staircase.ps1 -TargetHost 127.0.0.1 -Port 8123 -Protocol http -Levels 20,50,100 -Duration 120
+
+# 只压缓存路径、只跑一档
+.\run-ab-staircase.ps1 -Paths Cache -Levels 100
+```
+
+运行器跑完会自动调 `compare-ab.py`，输出两张表：同并发下 DB vs Cache（含扣除基线的 `net` 列），以及各路径的阶梯与拐点。也可手工重跑对比：
+
+```bash
+python scripts/compare-ab.py backend/jmeter/statistics-ab
+```
+
+**为什么必须分进程**（这条是本目录的口径，不要退回"一次运行里放两条路径"）：同一 JVM 内并发压两条路径时，慢的 DB 查询会占满 Tomcat 工作线程与 HikariCP 连接池，缓存路径的延迟里就含进了 DB 的排队成本，测出来是混合成本而不是路径成本。分进程还有两个附带好处：没有 JIT 与连接池的跨运行残留，也没有采样器顺序偏置。
+
+**为什么每次运行都带基线**：目标通常在公网，响应时间的大头是 RTT + HTTPS，与服务器无关。`compare-ab.py` 的 `net` 列减掉的是**同一次运行内**测出的最慢基线——这是唯一站得住脚的比法。仍是近似：基线线程组跑在低并发，被测路径跑在 N 线程，两者的争用程度并不相同。
+
+> **注意**：截至本次提交，这套 A/B 资产**尚未实跑过**（`statistics-ab/` 不存在），`compare-ab.py` 只做过空目录、语法与样本冒烟。首次实跑后请把真实输出贴回 `docs/plans/records/`，再引用具体数字。
+
+### 6.3 边界：这些接口不要压
+
+凡涉及**外部第三方计费**的接口一律不进常规压测范围，避免资金损失或账号被外部平台风控封禁：
+
+| 不压的接口 | 原因 |
+|---|---|
+| `/api/picture/out_painting/create_task` | 阿里百炼 AI 扩图，按次计费 |
+| `/api/agent/chat/sse`、`/ai/**` | 大模型 Token 消耗 |
+| MCP 搜图（Pexels） | 付费或限流，且 `ai/image-search-mcp-server` 自身是独立进程 |
+| 真实对象存储大文件上传 | 腾讯云 COS 流量与请求计费 |
+
+压测资产聚焦在**本地单机核心链路**：数据库、Caffeine/Redis 缓存、Sa-Token 鉴权与容器吞吐。
+
 ---
 
 ## 7. 已知缺失与改进项
@@ -157,6 +210,8 @@ python scripts/summarize_reports.py statistics
 | `report`（无后缀）是一次基线运行 | 命名不规范，容易被误当成模板目录 | 重命名为 `report00-baseline` |
 | 原始 `.jtl` 未入库 | 无法从原始样本重新计算其他分位数（p99 等） | 如需保留，考虑压缩后放外部存储 |
 | 未做内网压测 | 延迟被公网 RTT 主导，无法体现服务端真实性能 | 条件允许时补一次内网基线 |
+| A/B 资产（`lincode-ab.jmx` + 运行器）尚未实跑 | §5.1 的 240/205 是同运行并发两路径，含排队成本；干净口径还没有数字 | 跑一次 `run-ab-staircase.ps1`，把输出贴进 `docs/plans/records/` |
+| §3 的 TG1 同运行并发压两条路径 | 与 §6.2 的分进程口径冲突，那组数字只作定性证据 | 已在本文件注明偏保守；新数字一律走 A/B |
 
 ---
 

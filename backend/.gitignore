@@ -19,6 +19,7 @@ jmeter/report*/
 jmeter/temp/
 jmeter/*.log
 jmeter/*.tmp
+__pycache__/
 # docs/ 整个目录不纳入版本控制
 docs/
 
