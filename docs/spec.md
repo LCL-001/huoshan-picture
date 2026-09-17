@@ -22,7 +22,7 @@
 - [x] F6 多人协同编辑：WebSocket + Disruptor，编辑锁 + 空闲超时兜底
 - [x] F7 帖子与社交（部分停用）：Post/PostInteraction/UserFollow 控制器类注解已注释、不被 Spring 加载；SocialController 在服务但仅保留 /notification/* 通知接口（前端 GlobalHeader 铃铛正在调用，用户 2026-09-13 拍板保留），/timeline 已注释停用。**前端残留（2026-09-15 排查，同日 T22 已清理）**：原先 frontend 仍注册 `/square`、`/post/:id`、`/user/:id` 三个路由并引用已停用的 `/post/**`，`@/api/postController.ts` 里混着**仍在服务**的手写通知函数（不可整文件删）——现在三个路由与三个页面已删、`postController.ts` 已整体删除（6 个通知函数迁入 `api/notificationController.ts`，顶栏铃铛照常工作）。
 - [x] F8 可观测性：traceId 全链路日志（异步透传）、Actuator/Prometheus 指标
-- [x] F9 工程化：GitHub Actions CI（编译 + 无 MySQL/Redis 单测）、JMeter 压测资产（本地，不入库）
+- [x] F9 工程化：GitHub Actions CI（编译 + 无 MySQL/Redis 单测）、JMeter 压测资产（`backend/jmeter/` **入库**：测试计划 + `statistics/` 原始统计 + 脚本 + README，jtl 与 HTML 报告不入库；口径以 `backend/jmeter/README.md` 为准）
 - [x] F10 标签词表（2026-09-14 T5 完成）：新表 `tag`（id/name/type(tag|category)/usageCount/审计字段，全局词表；列名随库内 camelCase 约定，设计文档速写 usage_count）；/tag_category 查表动态化（返回结构 PictureTagCategory 逐字段不变，9 标签 + 5 分类种子迁移）；编辑接口（单编/批编）同事务 upsert 词表并累加 usageCount（一次编辑调用计 1，不随图片数放大）；picture.tags JSON 列与 LIKE 查询逻辑不动
 - [x] F11 AI 助手一期（**2026-09-17 首次部署上线**；助手按首发安全口径保持只读/建议能力）：`ai/` 引擎（图库工具集、OpenAI 协议多模型、会话类型 + headless SSE 端点、MCP 搜图）+ `backend` AI 代理（服务间 API key、凭据组透传、SSE 转发）+ `frontend` 助手界面（对话 + SSE 步骤折叠条）。**实现状态、验收证据与已知限制见 `docs/features/F11-AI助手MVP.md`、`F12`、`F13`，以及 `docs/plans/records/` 下 T4–T24 各任务记录。**
 
