@@ -104,34 +104,6 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="图片分页列表-走DB" enabled="true">
-          <stringProp name="HTTPSampler.path">/api/picture/list/page/vo</stringProp>
-          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
-          <stringProp name="HTTPSampler.method">POST</stringProp>
-          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
-          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
-          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
-            <collectionProp name="Arguments.arguments">
-              <elementProp name="" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">{&quot;current&quot;:1,&quot;pageSize&quot;:10}</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-              </elementProp>
-            </collectionProp>
-          </elementProp>
-        </HTTPSamplerProxy>
-        <hashTree>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="断言 code=0" enabled="true">
-            <collectionProp name="Asserion.test_strings">
-              <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
-            </collectionProp>
-            <stringProp name="Assertion.custom_message">图片分页接口返回异常</stringProp>
-            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
-            <boolProp name="Assertion.assume_success">false</boolProp>
-            <intProp name="Assertion.test_type">2</intProp>
-          </ResponseAssertion>
-          <hashTree/>
-        </hashTree>
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="图片分页列表-走三级缓存" enabled="true">
           <stringProp name="HTTPSampler.path">/api/picture/list/page/vo/cache</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
@@ -154,34 +126,6 @@
               <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
             </collectionProp>
             <stringProp name="Assertion.custom_message">缓存列表接口返回异常</stringProp>
-            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
-            <boolProp name="Assertion.assume_success">false</boolProp>
-            <intProp name="Assertion.test_type">2</intProp>
-          </ResponseAssertion>
-          <hashTree/>
-        </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="空间分页列表" enabled="true">
-          <stringProp name="HTTPSampler.path">/api/space/list/page/vo</stringProp>
-          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
-          <stringProp name="HTTPSampler.method">POST</stringProp>
-          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
-          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
-          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
-            <collectionProp name="Arguments.arguments">
-              <elementProp name="" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">{&quot;current&quot;:1,&quot;pageSize&quot;:10}</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-              </elementProp>
-            </collectionProp>
-          </elementProp>
-        </HTTPSamplerProxy>
-        <hashTree>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="断言 code=0" enabled="true">
-            <collectionProp name="Asserion.test_strings">
-              <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
-            </collectionProp>
-            <stringProp name="Assertion.custom_message">空间列表接口返回异常</stringProp>
             <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
             <boolProp name="Assertion.assume_success">false</boolProp>
             <intProp name="Assertion.test_type">2</intProp>
@@ -441,6 +385,34 @@
               <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
             </collectionProp>
             <stringProp name="Assertion.custom_message">图片详情接口返回异常</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">2</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="空间分页列表（登录态）" enabled="true">
+          <stringProp name="HTTPSampler.path">/api/space/list/page/vo</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{&quot;current&quot;:1,&quot;pageSize&quot;:10}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="断言 code=0" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="2101543395">&quot;code&quot;:0,</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.custom_message">空间列表接口返回异常（该接口要求登录，见 README §3）</stringProp>
             <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
             <boolProp name="Assertion.assume_success">false</boolProp>
             <intProp name="Assertion.test_type">2</intProp>
