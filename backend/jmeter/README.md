@@ -10,7 +10,7 @@
 
 | 文件 | 说明 |
 |---|---|
-| `lincode-loadtest-v3.jmx` | 主测试计划（JMeter 5.6.3）：3 个线程组，覆盖匿名读 / 登录 / 登录态 |
+| `lincode-loadtest-v3.jmx` | 主测试计划（JMeter 5.6.3）：3 个线程组，覆盖匿名读 / 登录 / 登录态。2026-09-18 调整过采样器归属，见 §3 |
 | `lincode-ab.jmx` | A/B 单路径计划：**一次运行只压一条路径**（由 `-Jsampler_path` 指定），含预热线程组与 health / tag_category 空跑基线 |
 | `scripts/run-ab-staircase.ps1` | A/B 阶梯运行器：每个（路径 × 并发档）起一个**独立 JMeter 进程**，产出 `reports/` 与 `statistics-ab/` |
 | `scripts/compare-ab.py` | 读 `statistics-ab/`，出两张表：同并发下 DB vs Cache（含扣除基线的 `net` 列）、各路径的阶梯与拐点 |
@@ -48,12 +48,18 @@
 
 | 线程组 | 场景 | 接口 | 线程参数（`-J` 覆盖） |
 |---|---|---|---|
-| TG1 | 匿名读 | `/api/health`、`/api/picture/tag_category`（纯静态基线）、`/api/picture/list/page/vo`（**走 DB**）、`/api/picture/list/page/vo/cache`（**走三级缓存**）、`/api/space/list/page/vo`、`/api/user/get/vo` | `t1`（默认 20）、`ramp1`（20）、`dur`（300s） |
+| TG1 | 匿名读 | `/api/health`（空跑基线）、`/api/picture/tag_category`（纯静态基线）、`/api/picture/list/page/vo/cache`（**未登录首页走的就是这条**）、`/api/user/get/vo` | `t1`（默认 20）、`ramp1`（20）、`dur`（300s） |
 | TG2 | 登录 | `/api/user/login`（BCrypt 校验） | `t2`（5）、`ramp2`（10）、`dur`（300s） |
-| TG3 | 登录态 | 先登录建立会话，再轮询 `/api/user/get/login`、`/api/notification/unread`、`/api/notification/list`、`/api/spaceUser/list/my`、`/api/picture/get/vo` | `t3`（5）、`ramp3`（10）、`dur`（300s） |
+| TG3 | 登录态 | 先登录建立会话，再轮询 `/api/user/get/login`、`/api/notification/unread`、`/api/notification/list`、`/api/spaceUser/list/my`、`/api/picture/get/vo`、`/api/space/list/page/vo` | `t3`（5）、`ramp3`（10）、`dur`（300s） |
 | （脚本未留存） | 混合 | 上述三类按比例混合 | 见 `report04-mix` |
 
-**注意 TG1 的采样器关系**：TG1 里同时放了「走 DB」与「走缓存」两个采样器，打的是**同一个分页列表查询**——但两者是在**同一次运行内并发**跑的，所以那两个数（§5.1 的 240 / 205）不能当作干净的缓存收益口径：它们互抢 Tomcat 线程、HikariCP 连接池与 CPU，缓存路径的延迟里含着 DB 路径的排队成本。
+**2026-09-18 的两处计划调整**（改了计划本身，故与 `statistics/` 里 2026-09-17 及以前的采样本数不可逐个对齐）：
+
+1. **`/api/space/list/page/vo` 从 TG1 移到 TG3**：该接口**现在要求登录**（`SpaceController:140-141` —— 收口"匿名可分页枚举他人私有空间的名称、配额、用量与属主"这个越权入口；前端的调用方是登录后的「我的空间」页 `MySpacePage.vue`）。留在匿名组会 100% 拿 40100。
+2. **TG1 摘掉「走 DB」采样器**：`/api/picture/list/page/vo`（不走缓存）与 `/cache` 在**同一次运行内并发**压，得到的两个数**不是**干净的缓存收益口径——它们互抢 Tomcat 线程、HikariCP 连接池与 CPU，缓存那份延迟里含着 DB 的排队成本。缓存 vs DB 的对比改由 `lincode-ab.jmx` 承担（**分进程、单路径、自带基线**，见 §6.2 与 §5.6），混合场景只保留**首页真实走的那条**。
+   - **注意**：`/api/picture/list/page/vo` 并不是废弃端点——**搜索**走的仍是它（前端 `PictureSearchForm.vue`）。摘掉之后，搜索路径不在这套混合场景的覆盖范围内。
+
+> **历史口径（2026-09-17 及以前）**：TG1 曾同时含「走 DB」与「走缓存」两个采样器，§5.1 的 p95 240/205 就出自那次同运行并发；那组数字自 2026-09-17 起降级为定性证据，原始统计仍在 `statistics/report01-ano-100.json` 里可查。
 
 要测「缓存相对 DB 省了多少」，用 `lincode-ab.jmx`（§6.2）：它在**分进程的独立运行**里各压一条路径，每次运行自带 health / tag_category 空跑基线，并由 `compare-ab.py` 减出 `net` 列。
 
