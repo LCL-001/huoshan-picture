@@ -2,7 +2,7 @@
 
 > 上游口径：`backend/jmeter/README.md`（压测单一事实源）§6.2。
 > 运行器：`backend/jmeter/scripts/run-ab-staircase.ps1`；对比脚本：`backend/jmeter/scripts/compare-ab.py`。
-> 原始统计：`backend/jmeter/statistics-ab/*.json`（6 个文件，入库）。
+> 原始统计：`backend/jmeter/statistics-ab-uncooled/*.json`（6 个文件，入库）。运行器每轮都会覆盖 `statistics-ab/`，故首轮单独归档；本文所有数字以归档目录为准。
 
 ## 一句话
 
@@ -99,7 +99,7 @@ cd backend/jmeter/scripts
 ## 方法学限制（本次运行）
 
 本次是**背靠背**跑的：运行器当时没有组间冷却。实测每轮周期 **308–310 秒**，而被测线程组本身跑 300 秒
-（各轮 `statistics-ab/*.json` 的写入时刻：13:48:47 / 13:53:54 / 13:59:02 / 14:04:10 / 14:09:19 / 14:14:29），
+（各轮 `statistics-ab-uncooled/*.json` 的写入时刻：13:48:47 / 13:53:54 / 13:59:02 / 14:04:10 / 14:09:19 / 14:14:29），
 即两组之间只有约 **8 秒**空窗——而这 8 秒里还包含上一轮的 HTML 报告生成、`statistics.json` 拷贝、
 下一个 JMeter JVM 启动与预热线程组。**服务端从未排空。**
 

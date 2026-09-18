@@ -15,7 +15,8 @@
 | `scripts/run-ab-staircase.ps1` | A/B 阶梯运行器：每个（路径 × 并发档）起一个**独立 JMeter 进程**，产出 `reports/` 与 `statistics-ab/` |
 | `scripts/compare-ab.py` | 读 `statistics-ab/`，出两张表：同并发下 DB vs Cache（含扣除基线的 `net` 列）、各路径的阶梯与拐点 |
 | `statistics/*.json` | 11 次运行的 JMeter 统计原始文件（`statistics.json`），本文件的数字全部来自这里 |
-| `statistics-ab/*.json` | A/B 各次运行的 `statistics.json` 副本（运行器写入）。与 `statistics/` 同属"可复现的最小证据集"，**入库**；**2026-09-18 首次实跑**，现有 6 个文件（DB/Cache × 20/50/100） |
+| `statistics-ab/*.json` | A/B 各次运行的 `statistics.json` 副本（运行器写入）。与 `statistics/` 同属"可复现的最小证据集"，**入库**；**2026-09-18 首次实跑**，每次运行覆盖 |
+| `statistics-ab-uncooled/*.json` | **首轮（2026-09-18，无组间冷却）**的同一批副本，单独归档：§5.6 与 `docs/plans/records/ab-first-run-2026-09-18.md` 里引用的首轮数字以它为准。运行器每次运行都会覆盖 `statistics-ab/`，不另存就会被第二轮顶掉 |
 | `scripts/summarize_reports.py` | 汇总脚本，读取 `statistics/` 生成下方表格 |
 | `scripts/chart-ab.py` | 读 `statistics-ab/` 画一张两面板 PNG（吞吐与 p95 各一条 DB、一条缓存），输出到 `reports/charts/ab-staircase.png`。JMeter 自带的 HTML 仪表盘是**每次运行一份、只能画一条路径**，跨运行的 DB vs 缓存同图只有这里有。需要 Pillow（缺了只打印提示、不影响压测本身） |
 | `scripts/*.ps1` | 压测期间的辅助脚本（接口探测、结果分析） |
