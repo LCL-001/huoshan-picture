@@ -17,6 +17,7 @@
 | `statistics/*.json` | 11 次运行的 JMeter 统计原始文件（`statistics.json`），本文件的数字全部来自这里 |
 | `statistics-ab/*.json` | A/B 各次运行的 `statistics.json` 副本（运行器写入）。与 `statistics/` 同属"可复现的最小证据集"，**入库**；**2026-09-18 首次实跑**，现有 6 个文件（DB/Cache × 20/50/100） |
 | `scripts/summarize_reports.py` | 汇总脚本，读取 `statistics/` 生成下方表格 |
+| `scripts/chart-ab.py` | 读 `statistics-ab/` 画一张两面板 PNG（吞吐与 p95 各一条 DB、一条缓存），输出到 `reports/charts/ab-staircase.png`。JMeter 自带的 HTML 仪表盘是**每次运行一份、只能画一条路径**，跨运行的 DB vs 缓存同图只有这里有。需要 Pillow（缺了只打印提示、不影响压测本身） |
 | `scripts/*.ps1` | 压测期间的辅助脚本（接口探测、结果分析） |
 
 **未纳入仓库**（体积原因，`backend/.gitignore` 的 `jmeter/report*/` 兜住）：
@@ -202,6 +203,14 @@ python scripts/compare-ab.py backend/jmeter/statistics-ab
 ```
 
 **组间冷却（2026-09-18 起，默认 60s）**：每次运行是全新的 JMeter JVM，但**服务端不会被复位**——2026-09-18 首跑实测，不带冷却时一轮 300 秒的压测到下轮开始只隔约 8 秒（每轮周期 308–310 秒），机器从未排空；而路径顺序固定为 `DB, Cache`，**缓存那轮永远继承一台刚被压了五分钟的机器**。运行器因此在两组之间空转 `-CooldownSeconds`（默认 60，从上一组进程退出算起；`-CooldownSeconds 0` 恢复旧行为）。**已知影响**：`statistics-ab/` 里 6 个首跑文件是**无冷却**状态下的产物，偏置方向对缓存路径不利，故那份结论偏保守。
+
+**图表（2026-09-18 起）**：两处产出，作用不同——
+- **每次运行自带 JMeter HTML 仪表盘**（命令里的 `-e -o reports/<tag>`，一直在用），含响应时间趋势、吞吐、百分位、活跃线程等图；**局限是每次运行一份、只能画一条路径**，且 `reports/` 不入库（`backend/.gitignore` 的 `jmeter/report*/`，含约 40MB 的 `.jtl`），清理时容易连图表一起删掉。运行器每组结束会打印 `dashboard: <路径>`。
+- **跨运行的 DB vs 缓存对比图**：运行器结尾调 `scripts/chart-ab.py` 生成 `reports/charts/ab-staircase.png`（`-Charts:$false` 可关）。它只依赖入库的 `statistics-ab/*.json`，所以**删了随时能重画**：
+
+```bash
+python scripts/chart-ab.py backend/jmeter/statistics-ab backend/jmeter/reports/charts
+```
 
 **为什么必须分进程**（这条是本目录的口径，不要退回"一次运行里放两条路径"）：同一 JVM 内并发压两条路径时，慢的 DB 查询会占满 Tomcat 工作线程与 HikariCP 连接池，缓存路径的延迟里就含进了 DB 的排队成本，测出来是混合成本而不是路径成本。分进程还有两个附带好处：没有 JIT 与连接池的跨运行残留，也没有采样器顺序偏置。
 
