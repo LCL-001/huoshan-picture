@@ -11,6 +11,13 @@
   Each run is a fresh JVM, so there is also no JIT / connection warm-up carry
   over between runs, and no sampler-order bias inside a run.
 
+  The SERVER is not reset that way. Without a pause the next JVM starts a few
+  seconds after the previous load stops (measured 2026-09-18: 308-310s per
+  cycle against a 300s measured window), so the box never drains - and because
+  the path order is fixed (DB, Cache), the cache run always inherits a machine
+  that was just hammered. Runs are therefore separated by -CooldownSeconds of
+  idle time, counted from the previous JMeter process exiting.
+
   Runs performed (defaults):
     list-page-DB    x 20, 50, 100
     list-page-Cache x 20, 50, 100
@@ -38,6 +45,11 @@
   # Only the cache path, one level
   .\run-ab-staircase.ps1 -Paths Cache -Levels 100
 
+.EXAMPLE
+  # Same as the default but without the inter-run pause (old behaviour, useful
+  # only when you deliberately want back-to-back runs to compare against).
+  .\run-ab-staircase.ps1 -CooldownSeconds 0
+
 .NOTES
   Keep this file ASCII-only. Windows PowerShell 5.1 reads .ps1 as ANSI unless it
   has a BOM, so non-ASCII text here turns into mojibake on the console.
@@ -58,6 +70,10 @@ param(
     [int]    $Ramp     = 30,
     [int]    $Duration = 300,
     [int]    $Warmup   = 20,
+    # Idle seconds between two runs, counted from the previous JMeter process
+    # exiting. 0 restores the old back-to-back behaviour. See .DESCRIPTION for
+    # why the server side needs it even though every run is a fresh client JVM.
+    [int]    $CooldownSeconds = 60,
     [int]    $BaseThreads = 1,
     [string] $TargetHost = "lincode.online",
     [int]    $Port       = 443,
@@ -125,14 +141,24 @@ Write-Host "target   : ${Protocol}://${TargetHost}:$Port"
 Write-Host "paths    : $($pathKeys -join ', ')"
 Write-Host "levels   : $($levelList -join ', ')"
 Write-Host "ramp/dur : ${Ramp}s / ${Duration}s"
+Write-Host "cooldown : ${CooldownSeconds}s between runs"
 Write-Host "runs     : $($pathKeys.Count * $levelList.Count) separate JVMs"
 Write-Host ""
+
+# Counted across both loops: the pause goes between runs, not before the first.
+$runIndex = 0
 
 foreach ($level in $levelList) {
     foreach ($key in $pathKeys) {
 
         $spec = $pathMap[$key]
         $tag  = "$($spec.Label)-t$level"
+
+        if ($runIndex -gt 0 -and $CooldownSeconds -gt 0) {
+            Write-Host "cooldown : ${CooldownSeconds}s before $tag ..."
+            Start-Sleep -Seconds $CooldownSeconds
+        }
+        $runIndex++
 
         $jtl       = Join-Path $reportRoot "$tag.jtl"
         $reportDir = Join-Path $reportRoot $tag
