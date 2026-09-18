@@ -2,7 +2,9 @@
 // 文档一致性门禁（AGENTS.md 规则 17）——随 pre-commit 运行，docs-only 提交也跑。
 //
 // 治的是"同一事实有两份、只改了一份"这一类漂移：2026-09-15 复核发现，3 天里的 7 处勘误
-// 全部源于此。这里只做**便宜且低误报**的四项机械核对，不做语义判断。
+// 全部源于此。这里只做**便宜且低误报**的机械核对，不做语义判断。
+// 2026-09-18 扩展（文档保养）：预算（plan 行数 / decisions 决定列字数 / AGENTS 行数）、
+// spec 三行纯度、handoff 份数、freshness 超期——防"文档随开发时长无界变长"。
 //
 // 红灯时的两种正确处置（不得绕过）：
 //   1. 改文档，让它与事实一致；
@@ -157,12 +159,90 @@ function checkFrontendBaseline() {
   else console.log(`[docs-gate] type-check errors ${actual} <= baseline ${baseline} OK`)
 }
 
+// ---------- check 5: budgets (docs must not regrow; see "文档保养" in vibe-handoff) ----------
+const BUDGET = { planLines: 120, decisionChars: 160, agentsLines: 150, handoffFiles: 10, freshnessDays: 45 }
+const visibleLen = (s) => s
+  .replace(/<!--.*?-->/g, '')
+  .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+  .replace(/[*_`]/g, '')
+  .trim().length
+
+function checkBudgets() {
+  const planLines = fs.readFileSync(path.join(ROOT, 'docs/plan.md'), 'utf8').split(/\r?\n/).length
+  if (planLines > BUDGET.planLines) {
+    fail('docs/plan.md', `budget exceeded: ${planLines} lines > ${BUDGET.planLines} - archive closed milestones into docs/plans/archive/`)
+  }
+  const agentsLines = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8').split(/\r?\n/).length
+  if (agentsLines > BUDGET.agentsLines) {
+    console.log(`[docs-gate] WARN: AGENTS.md is ${agentsLines} lines > ${BUDGET.agentsLines} - move incident history to docs/workflow-history.md`)
+  }
+  const dl = fs.readFileSync(path.join(ROOT, 'docs/decisions.md'), 'utf8').split(/\r?\n/)
+  for (let i = 0; i < dl.length; i++) {
+    const l = dl[i].trim()
+    if (!l.startsWith('|')) continue
+    const cells = l.split('|').map((c) => c.trim())
+    if (cells.length !== 6) continue
+    if (/^:?-{2,}:?$/.test(cells[1]) || cells[1].includes('日期')) continue
+    const len = visibleLen(cells[2])
+    if (len > BUDGET.decisionChars) {
+      fail('docs/decisions.md', `row ${i + 1}: decision cell ${len} chars > ${BUDGET.decisionChars} - keep one sentence and link the detail`)
+    }
+  }
+}
+
+// ---------- check 6: spec key-three-lines purity ----------
+function checkSpecPurity() {
+  const lines = fs.readFileSync(path.join(ROOT, 'docs/spec.md'), 'utf8').split(/\r?\n/)
+  let inBlock = false
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]
+    if (/^##\s/.test(l)) {
+      if (inBlock) break
+      inBlock = /关键三行/.test(l)
+      continue
+    }
+    if (!inBlock) continue
+    if (/\d{4}-\d{1,2}-\d{1,2}/.test(l) || /已完成|已上线|已收口|全部完成|已部署/.test(l)) {
+      if (allowed('docs/spec.md', l)) continue
+      fail('docs/spec.md', `line ${i + 1}: key-three-lines must hold intent only (no dates, no progress) - status goes to plan.md, history to decisions.md`)
+    }
+  }
+}
+
+// ---------- check 7: handoff retention ----------
+function checkHandoffRetention() {
+  const dir = path.join(ROOT, 'docs/handoff')
+  if (!fs.existsSync(dir)) return
+  const snaps = fs.readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('monthly-'))
+  if (snaps.length > BUDGET.handoffFiles) {
+    console.log(`[docs-gate] WARN: ${snaps.length} handoff snapshots > ${BUDGET.handoffFiles} - compress the oldest into monthly-YYYY-MM.md`)
+  }
+}
+
+// ---------- check 8: freshness stamps ----------
+function checkFreshness() {
+  const now = Date.now()
+  for (const file of ['AGENTS.md', 'docs/spec.md', 'docs/plan.md', 'docs/decisions.md']) {
+    const p = path.join(ROOT, file)
+    if (!fs.existsSync(p)) continue
+    const head = fs.readFileSync(p, 'utf8').split(/\r?\n/).slice(0, 40).join('\n')
+    const m = head.match(/freshness:[^\n]*reviewed:\s*['"]?(\d{4}-\d{2}-\d{2})/)
+    if (!m) { console.log(`[docs-gate] WARN: ${file} has no freshness stamp`); continue }
+    const age = Math.floor((now - Date.parse(m[1])) / 86400000)
+    if (age > BUDGET.freshnessDays) console.log(`[docs-gate] WARN: ${file} freshness is ${age} days old - run docs grooming`)
+  }
+}
+
 // ---------- run ----------
 checkPaths()
 checkContractBoundary()
 checkCheckboxes()
 checkPointers()
 checkFrontendBaseline()
+checkBudgets()
+checkSpecPurity()
+checkHandoffRetention()
+checkFreshness()
 
 if (problems.length === 0) {
   console.log('[docs-gate] PASS: docs consistency ok')

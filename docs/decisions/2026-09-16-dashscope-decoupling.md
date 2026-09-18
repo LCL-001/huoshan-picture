@@ -119,3 +119,7 @@ mvn -B test -Dtest="MyAiAgentApplicationTests" -Dsurefire.failIfNoSpecifiedTests
 - **旧链路行为确实变了**：`/ai/manus/chat` 从 DashScope/Qwen 变成 MiMo。它服务冻结的 MyManus 前端，且 D1 后只监听回环；工具调用组合（`ToolCallAgent` 的 `DashScopeChatOptions` + OpenAI 协议模型）与图库助手**同构**，后者已实机验证过工具循环。这是用户明确指示的改动。
 - `ToolCallAgent.createChatOptions()` 仍返回 `DashScopeChatOptions` **对象**——它只是个 options POJO，**不依赖 DashScope 集成**（形态 2–4 的启动已证明）。换成 provider 中立的 options 属可选清理，按规则 1 未做。
 - 后端（`backend`）与线上未动；F11 仍未勾（等部署）。
+
+## 表格行快照（2026-09-18 保养压缩前原文）
+
+| 2026-09-16 | **引擎侧摘掉 DashScope（用户 2026-09-16 两轮指示：先"把摘要也接 mimo"，再"仍用默认模型的两处也接 mimo"）**：三处调用点全部改走图库助手主脑（OpenAI 协议，prod 上是 MiMo）——**会话摘要**、旧链路 `/ai/manus/chat` 的 **MyManus 对话**、**会话标题**；主脑成为**唯一**模型提供方，**不做跨厂商回退**（摘要拿不到主脑即降级硬裁剪并记 WARN、标题跳过记 WARN、manus 端点入口 fail-closed）。入库配置改为 `spring.ai.model.chat: none` + `model.embedding: none` + `dashscope.enabled: false`，故 **prod 不再需要 `AI_DASHSCOPE_API_KEY`**。关键发现：`model.chat` **管不到** DashScope 的 agent 自动配置（`dashScopeAgent` 缺 key 照样让启动失败），必须显式关整个集成。单测 177 例绿 + 上下文装配绿 + 真机启动四形态（其中 prod 形态：留着 `${AI_DASHSCOPE_API_KEY}` 占位且环境变量缺失也能起） | [理由与证据](decisions/2026-09-16-dashscope-decoupling.md) | 生效 |

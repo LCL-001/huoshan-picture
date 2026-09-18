@@ -69,3 +69,7 @@ corresponds to your MySQL server version for the right syntax to use near
 - **本机还留着 5 个排练库**（`yu_ai_agent_rehearsal_*` / `yu_ai_agent_schema_fix_check_*`，2026-09-16 下午某次未记录会话所建，非本次产物），**未动**。
 - **`ai/agent/create_sql/init.sql` 保留未删**：它是源仓遗留、被 `ai/agent/docker-compose.yml` 引用（库名 `my-ai-agent` 且以 `drop database` 开头，**不是生产口径**）。它没被 Flyway 那套消费，不属本次范围（规则 1）；生产建库口径已由 `deploy/sql/engine-schema.sql` 承担。
 - **线上未动**：本次全部为本地仓库改动，未部署。
+
+## 表格行快照（2026-09-18 保养压缩前原文）
+
+| 2026-09-16 | **引擎移除 Flyway（用户 2026-09-16 指示"我不使用 Flyway，你可以把它相关的删除了"）**：`db/migration` 下的 V1–V4 四个迁移脚本、`ai/agent/pom.xml` 的 `flyway-mysql` 依赖、`application.yaml` 的 `spring.flyway` 块**一并删除**（不再是"关掉"）；库结构改由**入库的手工建表脚本** `deploy/sql/engine-schema.sql` 建立（四张表：user / conversation / chat_message / chat_summary，取自本机在跑的库，逐列逐索引核对一致、可重复执行）。两条同向事实：① V1 的 `create index if not exists` 是 MariaDB 语法，MySQL 8 直接报 1064，**"空库首跑 Flyway 建表"这条路本来就是坏的**；② V2–V4 建的那批 interview/study/knowledge/agent_run 表引擎代码零引用。移除后 `ai/agent` 门禁 177 例与全上下文装配测试均绿 | [理由与证据](decisions/2026-09-16-flyway-removed.md) | 生效 |

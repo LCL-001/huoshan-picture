@@ -66,3 +66,7 @@ node .githooks/check-docs-consistency.mjs         # 指针可达性现在是常�
 ## 未纳入本次（需用户单独决定）
 
 `docs/spec.md` 的"关键三行"仍是 10 KB 的三条超长行，其中含已被 features/ 与 decisions/ 重复承载的档位推进史。按 AGENTS.md 规则 3，关键三行是**用户合同**，缩短需用户确认，本次未动。
+
+## 表格行快照（2026-09-18 保养压缩前原文）
+
+| 2026-09-15 | **AGENTS.md 两处事实订正**：`backend/docs/deploy` 被 `backend/.gitignore` 排除、不在版本控制内（已就地注明）；前端门禁口径由"以 type-check+lint 为检查手段"改为"改动不得净增"并配基线文件 `frontend/type-check-baseline.txt`（实测 124 例） | [理由与证据](decisions/2026-09-15-process-overhead.md) | 生效 |
