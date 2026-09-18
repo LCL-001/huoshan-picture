@@ -75,6 +75,11 @@ param(
     # why the server side needs it even though every run is a fresh client JVM.
     [int]    $CooldownSeconds = 60,
     [int]    $BaseThreads = 1,
+    # Draw reports/charts/ab-staircase.png at the end (scripts/chart-ab.py).
+    # Needs Pillow; missing Pillow only prints a notice, it does not fail a run.
+    # JMeter's own HTML dashboard (-e -o) is always written regardless: one
+    # dashboard per run, so it can only ever show a single path.
+    [bool]   $Charts   = $true,
     [string] $TargetHost = "lincode.online",
     [int]    $Port       = 443,
     [string] $Protocol   = "https",
@@ -198,9 +203,18 @@ foreach ($level in $levelList) {
         if (-not (Test-Path $statsJson)) { throw "no statistics.json produced for $tag" }
         Copy-Item $statsJson (Join-Path $statsDir "$tag.json") -Force
 
+        # JMeter's own dashboard (-e -o) is per-run, so it holds charts for THIS
+        # path only. Printed here because reports/ is not committed.
+        Write-Host "dashboard: $(Join-Path $reportDir 'index.html')"
         Write-Host ""
     }
 }
 
 Write-Host "== comparison =="
 python (Join-Path $PSScriptRoot "compare-ab.py") $statsDir
+
+if ($Charts) {
+    Write-Host ""
+    Write-Host "== chart =="
+    python (Join-Path $PSScriptRoot "chart-ab.py") $statsDir (Join-Path $reportRoot "charts")
+}
