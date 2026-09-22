@@ -84,3 +84,4 @@
 | 2026-09-18 | 缓存 vs DB A/B 实跑完成（两轮，以第二轮为准）：约 67 万样本、错误率 0%，100 档吞吐比 1.78×（703.2 vs 395.0 QPS）；**基线选取口径缺陷待用户拍板**，`compare-ab.py` 未改 | [数字明细](decisions/2026-09-18-ab-first-run.md)：另见 `backend/jmeter/README.md` §5.6、`docs/plans/records/ab-first-run-2026-09-18.md` | 生效 |
 | 2026-09-18 | **文档保养首轮（用户拍板）**：结转归档、decisions 压缩（一行 ≤160 字 + 详情不可变）、handoff 保留 8 份、spec 三行净化；新增文档寿命与保养规则与门禁预算/freshness 检查 | 清单与执行见 docs/workflow-history.md 2026-09-18 节 | 生效 |
 | 2026-09-18 | **批量抓取落库批量化（用户批准）**：并行线程只做下载 + COS，`allOf` 后一次 `saveBatch` + 一次清缓存；**入库阶段整批原子**（失败整批回滚 + 补偿删已转存文件），下载/COS 失败仍逐张跳过；源地址批内去重；prod 的 JDBC 暂不加 `rewriteBatchedStatements` | [理由与代价](decisions/2026-09-18-batch-crawl-persist.md) | 生效 |
+| 2026-09-18 | **URL 导入判重口径（用户批准：源地址列 + 按空间）**：新增 `picture.sourceUrl`，判重 = 源地址 + 目标空间（跨空间与公共图库互不影响、逻辑删除后可重导）；命中仍拒；不建唯一索引；删掉永不命中的 `getByUrl`；DDL 必须先于新 jar 手工执行 | [理由与未选方案](decisions/2026-09-18-source-url-dedupe.md) | 生效 |

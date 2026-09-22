@@ -62,6 +62,22 @@
 | `AI_VISION_BASE_URL` / `AI_VISION_API_KEY` / `AI_VISION_MODEL` | AI 打标要 | 三个缺一即视为未配置（打标接口直接回"模型未配置"，不发注定失败的请求） |
 | `DB_PASSWORD` / `MAIL_*` | 已有 | 沿用现有 prod 配置 |
 
+### 2.1 后端数据库变更与待同步配置（手工，按顺序）
+
+后端**没有 Flyway/Liquibase**，表结构变更只能手工执行；每项都标明"先做还是后做"，顺序错会直接报错。
+
+| 项 | 来源 | 顺序 | 不做会怎样 |
+|---|---|---|---|
+| 执行 `backend/sql/add_picture_source_url.sql`（`picture` 加 `sourceUrl` 列 + 前缀索引） | T29（`docs/decisions/2026-09-18-source-url-dedupe.md`） | **先于新 jar** | URL 导入与批量抓取的判重查询报 `Unknown column 'sourceUrl'`；文件上传不受影响（不写该列） |
+| `application-prod.yaml` 的 JDBC URL 补 `rewriteBatchedStatements=true` | T28（`docs/decisions/2026-09-18-batch-crawl-persist.md`） | 随 jar | 批量抓取仍是"一个事务 + N 条 INSERT"，功能正常，只是少一次合并 |
+
+执行示例（在服务器上）：
+
+```bash
+mysql -u root -p --default-character-set=utf8mb4 yu_picture < backend/sql/add_picture_source_url.sql
+mysql -u root -p yu_picture -e "SHOW COLUMNS FROM picture LIKE 'sourceUrl';"
+```
+
 ## 3. 引擎（`ai/agent`，新进程）
 
 必需项（这些都是**入库配置里的占位符**，除 `thinking` 外都能用环境变量给）：
