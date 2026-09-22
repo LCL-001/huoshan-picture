@@ -83,3 +83,4 @@
 | 2026-09-17 | **压测资产单一事实源定为 `backend/jmeter/`，A/B 一律分进程（独立 JVM）**；v3 的同进程并发口径作废（§5.1 p95 降级为定性证据）；三份 JMeter 计划断言一律断响应体 `"code":0` 而非 HTTP 状态码 | [理由与证据](decisions/2026-09-17-jmeter-source-of-truth.md)（用法见 `backend/jmeter/README.md`） | 生效 |
 | 2026-09-18 | 缓存 vs DB A/B 实跑完成（两轮，以第二轮为准）：约 67 万样本、错误率 0%，100 档吞吐比 1.78×（703.2 vs 395.0 QPS）；**基线选取口径缺陷待用户拍板**，`compare-ab.py` 未改 | [数字明细](decisions/2026-09-18-ab-first-run.md)：另见 `backend/jmeter/README.md` §5.6、`docs/plans/records/ab-first-run-2026-09-18.md` | 生效 |
 | 2026-09-18 | **文档保养首轮（用户拍板）**：结转归档、decisions 压缩（一行 ≤160 字 + 详情不可变）、handoff 保留 8 份、spec 三行净化；新增文档寿命与保养规则与门禁预算/freshness 检查 | 清单与执行见 docs/workflow-history.md 2026-09-18 节 | 生效 |
+| 2026-09-18 | **批量抓取落库批量化（用户批准）**：并行线程只做下载 + COS，`allOf` 后一次 `saveBatch` + 一次清缓存；**入库阶段整批原子**（失败整批回滚 + 补偿删已转存文件），下载/COS 失败仍逐张跳过；源地址批内去重；prod 的 JDBC 暂不加 `rewriteBatchedStatements` | [理由与代价](decisions/2026-09-18-batch-crawl-persist.md) | 生效 |
