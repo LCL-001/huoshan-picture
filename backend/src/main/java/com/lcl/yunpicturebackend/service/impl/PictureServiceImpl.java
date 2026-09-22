@@ -130,6 +130,13 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private static final String PICTURE_LIST_CACHE_VERSION_KEY = "huoshantuku:listPictureVOByPage:version";
 
     /**
+     * 来源地址最大长度：与 backend/sql/add_picture_source_url.sql 里 {@code sourceUrl varchar(1024)} 对齐。
+     * 超长时严格模式的 INSERT 会报 "Data too long"，而入库是整批原子的（T28）——
+     * 批量抓取里只要有一张超长，整批 30 张都会回滚并补偿删除，所以必须在发起下载之前就拦住（T31）。
+     */
+    private static final int MAX_SOURCE_URL_LENGTH = 1024;
+
+    /**
      * 释放分布式锁的 Lua 脚本：仅当锁的 value 与持有者标识一致时才删除，避免误删已超时后他人持有的锁
      */
     private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
@@ -374,6 +381,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
      */
     protected Picture preparePicture(Object inputSource, PictureUploadRequest pictureUploadRequest, User loginUser,
                                      Long spaceId, Picture oldPicture) {
+        // 来源地址长度前置校验：超长就按参数错误拒绝，不发起下载、不转存 COS。
+        // 放在这里是因为单张上传与批量抓取共用本方法——批量下这次失败只让该张跳过（逐张隔离），
+        // 不会像"入库时才发现超长"那样把整批一起打掉（T31 / 独立 review ①-1）
+        ThrowUtils.throwIf(inputSource instanceof String
+                        && ((String) inputSource).length() > MAX_SOURCE_URL_LENGTH,
+                ErrorCode.PARAMS_ERROR, "来源地址过长");
         // 按照用户 id 划分目录 => 按照空间划分目录
         String uploadPathPrefix;
         if (spaceId == null) {

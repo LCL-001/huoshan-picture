@@ -40,6 +40,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -217,6 +219,22 @@ class PictureSourceUrlDedupeIntegrationTest {
         // 清空之后，同一源地址可以重新导入（否则旧地址会一直挡住它）
         uploadUrl(SOURCE_URL, spaceA.getId());
         assertEquals(1L, countBySourceUrl(SOURCE_URL, spaceA.getId()));
+    }
+
+    // ===== 超长源地址：必须在发起下载之前失败（T31 / 独立 review ①-1） =====
+
+    @Test
+    void overlongSourceUrlShouldFailBeforeDownloading() {
+        // sourceUrl 列是 varchar(1024)，超长时严格模式下 INSERT 直接报错；T28 起入库整批原子，
+        // 批量路径下这一张会把整批 30 张一起打掉，所以必须在下载/COS 之前就拦住
+        String overlong = SOURCE_URL + "?x=" + "a".repeat(1200);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> uploadUrl(overlong, spaceA.getId()));
+
+        assertEquals("来源地址过长", exception.getMessage());
+        assertEquals(0L, countBySourceUrl(overlong, spaceA.getId()));
+        verify(cosManager, never()).putPictureObject(anyString(), any(File.class));
     }
 
     // ===== fixtures & helpers =====
