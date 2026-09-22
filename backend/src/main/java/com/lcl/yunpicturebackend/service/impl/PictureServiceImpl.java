@@ -282,32 +282,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "图片已存在");
             }
         }
-        // 上传图片，获取信息
-        /*// 按用户id划分目录
-        String uploadPathPrefix = String.format("public/%s", loginUser.getId());*/
-        // 按照用户 id 划分目录 => 按照空间划分目录
-        String uploadPathPrefix;
-        if (spaceId == null) {
-            uploadPathPrefix = String.format("public/%s", loginUser.getId());
-        } else {
-            uploadPathPrefix = String.format("space/%s", spaceId);
-        }
-
-        PictureUploadTemplate pictureUploadTemplate;
-        if (inputSource instanceof MultipartFile) {
-            pictureUploadTemplate = pictureUpload;
-        } else {
-            pictureUploadTemplate = urlFilePictureUpload;
-        }
-        UploadPictureResult uploadPictureResult = pictureUploadTemplate.uploadPicture(inputSource, uploadPathPrefix);
-        // 构造要上传的图片信息
-        Picture picture = getPicture(loginUser, uploadPictureResult, pictureUploadRequest, oldPicture);
-        // 填充 spaceId
-        picture.setSpaceId(spaceId);
-        // 填充图片颜色
-        picture.setPicColor(uploadPictureResult.getPicColor());
-        // 填充审核信息
-        fillReviewParams(picture, loginUser);
+        // 上传图片，获取信息：网络阶段（下载/读取输入源 → 转存 COS → 构造未落库记录）单独成方法，
+        // 与批量抓取共用；本方法负责把它落库
+        Picture picture = preparePicture(inputSource, pictureUploadRequest, loginUser, spaceId, oldPicture);
         // 开启事务
         Long finalSpaceId = spaceId;
         Picture finalOldPicture = oldPicture;
@@ -363,8 +340,78 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         private int index;
         private String url;
         private boolean success;
-        private Long pictureId;
+        /**
+         * 已转存 COS、尚未落库的记录；成功时非空
+         */
+        private Picture picture;
         private String errorMessage;
+    }
+
+    /**
+     * 图片上传的网络阶段：把输入源下载/读取后转存 COS，返回**尚未落库**的记录。
+     * <p>
+     * 单张上传与批量抓取共用：单张上传随即落库；批量抓取让并行线程只跑这一段，
+     * 等 allOf 归集后一次性批量入库——避免 30 张图 30 个事务、30 次缓存失效。
+     * <p>
+     * protected 是为了让集成测试能用 @SpyBean 替换掉真实下载（与 {@link #loadFromDb} 同一做法）。
+     *
+     * @param inputSource           图片来源（MultipartFile 或 URL 字符串）
+     * @param pictureUploadRequest  上传请求，用于取图片名称
+     * @param loginUser             上传人
+     * @param spaceId               目标空间，null 表示公共图库
+     * @param oldPicture            替换图片时的原记录，新增时为 null
+     * @return 未落库的图片记录
+     */
+    protected Picture preparePicture(Object inputSource, PictureUploadRequest pictureUploadRequest, User loginUser,
+                                     Long spaceId, Picture oldPicture) {
+        // 按照用户 id 划分目录 => 按照空间划分目录
+        String uploadPathPrefix;
+        if (spaceId == null) {
+            uploadPathPrefix = String.format("public/%s", loginUser.getId());
+        } else {
+            uploadPathPrefix = String.format("space/%s", spaceId);
+        }
+        PictureUploadTemplate pictureUploadTemplate;
+        if (inputSource instanceof MultipartFile) {
+            pictureUploadTemplate = pictureUpload;
+        } else {
+            pictureUploadTemplate = urlFilePictureUpload;
+        }
+        UploadPictureResult uploadPictureResult = pictureUploadTemplate.uploadPicture(inputSource, uploadPathPrefix);
+        // 构造要上传的图片信息
+        Picture picture = getPicture(loginUser, uploadPictureResult, pictureUploadRequest, oldPicture);
+        // 填充 spaceId
+        picture.setSpaceId(spaceId);
+        // 填充图片颜色
+        picture.setPicColor(uploadPictureResult.getPicColor());
+        // 填充审核信息
+        fillReviewParams(picture, loginUser);
+        return picture;
+    }
+
+    /**
+     * 抓取 Bing 图片搜索结果页的 HTML。
+     * <p>
+     * protected 是为了让集成测试能用 @SpyBean 替换掉真实外网请求（与 {@link #loadFromDb} 同一做法）：
+     * "一次入库、一次清缓存、失败补偿"这些语义只有在没有外网的测试里才能稳定复现。
+     *
+     * @param searchText 搜索词
+     * @param offset     结果偏移量
+     * @return 页面 HTML
+     */
+    protected String fetchBingSearchPage(String searchText, int offset) {
+        String fetchURL = String.format("https://cn.bing.com/images/async?q=%s&first=%d&mmasync=1",
+                searchText, offset + 10);
+        try {
+            Document document = Jsoup.connect(fetchURL)
+                    // 出站请求带上 traceId：外部依赖超时/改版时，可以和本地日志串起来
+                    .header(TraceContext.TRACE_ID_HEADER, TraceContext.currentOrDefault())
+                    .get();
+            return document.html();
+        } catch (IOException e) {
+            log.error("获取页面失败", e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取页面失败");
+        }
     }
 
     @Override
@@ -378,27 +425,16 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
 
         ThrowUtils.throwIf(pictureUploadByBatchRequest.getCount() > 30, ErrorCode.PARAMS_ERROR, "图片数量不能超过30张");
 
-//        String fetchURL = String.format("https://cn.bing.com/images/async?q=%s&mmasync=1", searchText);
-        String fetchURL = String.format("https://cn.bing.com/images/async?q=%s&first=%d&mmasync=1",
-                searchText, offset + 10);
-        Document document;
-        try {
-            document = Jsoup.connect(fetchURL)
-                    // 出站请求带上 traceId：外部依赖超时/改版时，可以和本地日志串起来
-                    .header(TraceContext.TRACE_ID_HEADER, TraceContext.currentOrDefault())
-                    .get();
-        } catch (IOException e) {
-            log.error("获取页面失败", e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取页面失败");
-        }
-
+        String html = fetchBingSearchPage(searchText, offset);
         // 解析原图地址：选择器与字段名走配置（app.bing-image.*），
         // 契约由 BingImageParserContractTest 用固定样本钉住，Bing 改版时构建期就能暴露
-        List<String> imageUrls = bingImageParser.parseImageUrls(document.html(),
+        List<String> imageUrls = bingImageParser.parseImageUrls(html,
                 pictureUploadByBatchRequest.getCount());
-        List<Map.Entry<Integer, String>> indexedUrls = new ArrayList<>(imageUrls.size());
-        for (int i = 0; i < imageUrls.size(); i++) {
-            indexedUrls.add(new AbstractMap.SimpleEntry<>(i, imageUrls.get(i)));
+        // 去重提到并行之前：批内重复的源地址只下载一次，库中已存在的地址一次 IN 查询拦掉
+        List<Map.Entry<Integer, String>> indexedUrls = filterDuplicateAndMissingUrls(imageUrls);
+        if (indexedUrls.isEmpty()) {
+            log.info("批量上传完成，总数: 0, 成功: 0, 失败: 0");
+            return 0;
         }
         String finalNamePrefix = namePrefix;
         List<CompletableFuture<UploadResult>> futures = indexedUrls.stream()
@@ -417,10 +453,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                                 pictureUploadRequest.setPicName(finalNamePrefix + currentIndex);
                             }
 
-                            PictureVO pictureVO = this.uploadPicture(fileURL, pictureUploadRequest, loginUser);
+                            // 并行阶段只做网络（下载 + 转存 COS）并构造记录，不写库、不清缓存；
+                            // 批量抓取一律进公共图库（请求体没有 spaceId），故不走空间权限与额度分支
+                            result.setPicture(preparePicture(fileURL, pictureUploadRequest, loginUser, null, null));
                             result.setSuccess(true);
-                            result.setPictureId(pictureVO.getId());
-                            log.info("上传图片成功 [{}]: {}", currentIndex, pictureVO.getId());
                         } catch (Exception e) {
                             result.setSuccess(false);
                             result.setErrorMessage(e.getMessage());
@@ -438,10 +474,22 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 .map(CompletableFuture::join)
                 .collect(Collectors.toList());
 
-        long successCount = results.stream().filter(UploadResult::isSuccess).count();
-        long failCount = results.size() - successCount;
+        List<Picture> picturesToSave = results.stream()
+                .filter(UploadResult::isSuccess)
+                .map(UploadResult::getPicture)
+                .collect(Collectors.toList());
+        // 落库只做一次（一个事务），失败整批回滚并补偿删掉已转存的文件
+        persistPicturesInBatch(picturesToSave);
+        if (CollUtil.isNotEmpty(picturesToSave)) {
+            // 清缓存也只做一次：逐张清会在批量执行期间把列表缓存反复打穿
+            this.clearPictureListCache();
+            log.info("批量入库成功，图片 ID: {}",
+                    picturesToSave.stream().map(Picture::getId).collect(Collectors.toList()));
+        }
 
-        log.info("批量上传完成，总数: {}, 成功: {}, 失败: {}", results.size(), successCount, failCount);
+        long failCount = results.size() - picturesToSave.size();
+
+        log.info("批量上传完成，总数: {}, 成功: {}, 失败: {}", results.size(), picturesToSave.size(), failCount);
 
         results.forEach(result -> {
             if (!result.isSuccess()) {
@@ -450,7 +498,67 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             }
         });
 
-        return (int) successCount;
+        return picturesToSave.size();
+    }
+
+    /**
+     * 批量落库：一个事务内 saveBatch（本地 JDBC 已带 rewriteBatchedStatements=true，合并成多值 INSERT），
+     * 取代改动前"每张图各开一个事务、各自提交"。
+     * <p>
+     * 入库阶段是整批原子的：任一行失败即整批回滚，此时这一批已经转存到 COS 的文件不再被任何记录引用，
+     * 逐个补偿删除（cleanupPictureFile 按引用计数兜底，不会误删仍被占用的文件）。
+     *
+     * @param pictures 待落库的记录
+     */
+    private void persistPicturesInBatch(List<Picture> pictures) {
+        if (CollUtil.isEmpty(pictures)) {
+            return;
+        }
+        try {
+            transactionTemplate.execute(status -> {
+                boolean saved = this.saveBatch(pictures);
+                ThrowUtils.throwIf(!saved, ErrorCode.OPERATION_ERROR, "图片批量入库失败");
+                return pictures;
+            });
+        } catch (RuntimeException e) {
+            pictures.forEach(this::cleanupPictureFile);
+            throw e;
+        }
+    }
+
+    /**
+     * 并行抓取前的地址过滤：批内按源地址去重（Bing 结果去掉查询参数后常有重复，重复项会被下载两次
+     * 并在库里留下两条内容相同的记录），并一次 IN 查询拦掉库中已存在的地址——改动前每张图一次
+     * getByUrl，30 张就是 30 次查询。
+     * <p>
+     * 注意库里 picture.url 存的是 COS 地址，Bing 源地址通常命中不到这条存在性检查；保留它是为了
+     * 与单张上传同口径（"已存在即跳过"这条语义不因批量而改变）。序号保留解析出的原始位置，
+     * 命名前缀不因跳过而重排。
+     *
+     * @param imageUrls 解析出的原图地址
+     * @return 原始序号 + 地址，按解析顺序
+     */
+    private List<Map.Entry<Integer, String>> filterDuplicateAndMissingUrls(List<String> imageUrls) {
+        if (CollUtil.isEmpty(imageUrls)) {
+            return Collections.emptyList();
+        }
+        Map<String, Integer> urlToIndex = new LinkedHashMap<>();
+        for (int i = 0; i < imageUrls.size(); i++) {
+            urlToIndex.putIfAbsent(imageUrls.get(i), i);
+        }
+        Set<String> existingUrls = this.lambdaQuery()
+                .select(Picture::getUrl)
+                .in(Picture::getUrl, urlToIndex.keySet())
+                .list().stream()
+                .map(Picture::getUrl)
+                .collect(Collectors.toSet());
+        List<Map.Entry<Integer, String>> indexedUrls = new ArrayList<>(urlToIndex.size());
+        urlToIndex.forEach((url, index) -> {
+            if (!existingUrls.contains(url)) {
+                indexedUrls.add(new AbstractMap.SimpleEntry<>(index, url));
+            }
+        });
+        return indexedUrls;
     }
 
     /**

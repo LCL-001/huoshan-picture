@@ -45,7 +45,8 @@ app:
       model: ${AI_VISION_MODEL:replace-me-vision-model}
 
 spring:
-  # MySQL 连接地址/用户名/库名见 application.yaml（默认 root@localhost:3306/yu_picture）
+  # MySQL 连接地址/用户名/库名见 application.yaml（默认 root@localhost:3306/yu_picture，
+  # 该地址已带 rewriteBatchedStatements=true，批量入库依赖它合并 INSERT）
   datasource:
     password: ${DB_PASSWORD:replace-me-mysql-password}
   # ShardingSphere 当前未启用（主类 exclude 了它的自动配置），保留此项只为与线上配置结构一致

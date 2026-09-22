@@ -39,7 +39,9 @@ spring:
   # 数据库配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/yu_picture
+    # rewriteBatchedStatements=true：批量抓取用 MyBatis-Plus saveBatch 入库，带上这个参数
+    # MySQL 驱动才会把多条 INSERT 合并成一条多值 INSERT；不带只是少了合并，功能不受影响
+    url: jdbc:mysql://localhost:3306/yu_picture?rewriteBatchedStatements=true
     username: root
     password: ${DB_PASSWORD:}
   servlet:
