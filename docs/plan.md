@@ -18,6 +18,13 @@
   - 用户可见语义变更（已确认）：下载/COS 失败仍逐张跳过并保留"成功 N 张"，但入库失败整批报错。口径见 `docs/decisions.md` 2026-09-18 行；讲解见 `docs/features/F3-批量抓取.md`。
   - 实施记录与证据见 `docs/plans/records/T28-批量抓取批量化.md`。
 
+- [ ] T29（2026-09-18 用户批准：方案 1 + 按空间）**URL 导入按源地址去重**：`picture` 加 `sourceUrl` 列（URL 导入/批量抓取写入来源地址，文件上传为 null）；把"比对 COS 地址、对 URL 路径永不命中"的 `getByUrl` 换成"源地址 + 目标空间"判重；批量抓取的并行前过滤改用同一列；命中仍拒绝并沿用"图片已存在"文案；用文件替换图片时清空旧源地址。
+  - 用户可见行为变更（属规则 3 ④）：同一源地址在同一空间内只导一次；跨空间、公共图库与空间之间互不影响；逻辑删除后可重新导入。
+  - 数据结构变更（属规则 3 ③）：新增列 `sourceUrl` + 前缀索引；**backend 无 Flyway**，prod 必须手工执行 DDL 且**先于新 jar**（文件上传不写该列，但 URL 导入与批量抓取会）。
+  - 文件范围：`backend/sql/`（新增 `add_picture_source_url.sql`）、`backend/sql/create_table.sql`、`backend/src/main/java/com/lcl/yunpicturebackend/domain/po/Picture.java`、`backend/src/main/java/com/lcl/yunpicturebackend/service/impl/PictureServiceImpl.java`、`backend/src/main/java/com/lcl/yunpicturebackend/service/IPictureService.java`（删掉改后无人调用的 `getByUrl`）、`backend/src/test/java/com/lcl/yunpicturebackend/service/impl/`（新增 PictureSourceUrlDedupeIntegrationTest + 补批量抓取跨批次用例）、`docs/features/F3-批量抓取.md`、`deploy/prod-checklist.md`。
+  - 验收：① 同空间同源地址第二次被拒；跨空间、公共库与空间之间都允许；逻辑删除后可重导；替换自身不被自己挡住；文件替换会清空旧源地址（否则旧地址继续误挡）；② 批量抓取同一搜索词重跑第二次返回 0；③ 存量集成用例与 CI 口径快速子集全绿；④ `deploy/prod-checklist.md` 写明 DDL 先于 jar 的执行顺序。
+  - 实施与红绿证据：完成后落 `docs/plans/records/`（T29-源地址去重.md）。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
