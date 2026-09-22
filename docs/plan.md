@@ -22,6 +22,12 @@
   - 部署硬约束：DDL 必须先于新 jar（后端无 Flyway），步骤见 `deploy/prod-checklist.md` §2.1；口径见 `docs/decisions.md` 2026-09-18 行。
   - 实施记录与证据见 `docs/plans/records/T29-源地址去重.md`。
 
+- [ ] T30（2026-09-18 用户批准）**批量抓取页"0 张"显示修正**：后端成功抓 0 张时返回 `{code:0, data:0, message:"ok"}`，而页面判的是 `code === 0 && data`（JS 里 `0` 是 falsy）⇒ 走失败分支，显示成标题"任务执行失败"、描述 "ok"。T29 起"重跑同一搜索词"稳定返回 0，这条路径从罕见变成最容易碰到。修法：把"响应 → 展示状态"的映射抽成前端纯函数（`frontend/src/utils/`，新增 `batchCrawlResult.ts`）并配常驻断言（`frontend/scripts/`，新增 `check-batch-crawl-result.mjs` + npm script，沿用 `check:assistant-format` 的做法）；0 张单独给"完成但没有新增"的文案与中性图标。
+  - 用户可见行为变更（属规则 3 ④）：成功但 0 张时不再显示为失败。
+  - 边界：不改后端返回结构与文案、不动其它页面、不加依赖（esbuild 已在 devDependencies）。
+  - 验收：① 断言脚本先红后绿（红用例 = `data=0` 被映射成失败且描述为 "ok"）；② `npm run type-check` 错误数不超基线 124；③ 改动文件 lint 通过；④ F3 讲解补"0 张文案"与并发窗口已知限制。
+  - 实施与红绿证据：完成后落 `docs/plans/records/`（T30-批量抓取页0张显示.md）。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
