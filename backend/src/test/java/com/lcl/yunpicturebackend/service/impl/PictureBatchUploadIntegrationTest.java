@@ -186,6 +186,27 @@ class PictureBatchUploadIntegrationTest {
                 "rewriteBatchedStatements=true 未生效：3 行被拆成了多条 INSERT");
     }
 
+    // ===== 用例 6：同一搜索词重跑（Bing 返回同样的源地址）不再重复下载与入库 =====
+
+    @Test
+    void reRunningSameSearchShouldImportNothing() {
+        stubSearchPage("https://img.example.com/r1.jpg", "https://img.example.com/r2.jpg",
+                "https://img.example.com/r3.jpg");
+        stubPreparePicture(call -> newPicture());
+
+        assertEquals(3, pictureService.uploadPictureByBatch(batchRequest(3), uploader));
+        assertEquals(3L, countStoredPictures());
+        long insertStatementsAfterFirstRun = comInsertCount();
+
+        // 第二次：三个源地址都已在公共图库导入过，全部被并行前过滤拦掉
+        assertEquals(0, pictureService.uploadPictureByBatch(batchRequest(3), uploader));
+
+        assertEquals(3L, countStoredPictures());
+        assertEquals(insertStatementsAfterFirstRun, comInsertCount(), "第二次不应再有任何 INSERT");
+        // 第一次 3 次准备 + 第二次 0 次：被拦掉的地址连下载都不该发生
+        verify(pictureService, times(3)).preparePicture(anyString(), any(), any(), any(), any());
+    }
+
     // ===== 测试替身与工具方法 =====
 
     /**
@@ -202,7 +223,9 @@ class PictureBatchUploadIntegrationTest {
     }
 
     /**
-     * 替换"下载 + COS 转存 + 构造记录"这一步：factory 返回 null 表示该张下载失败
+     * 替换"下载 + COS 转存 + 构造记录"这一步：factory 返回 null 表示该张下载失败。
+     * 与生产一致地写入来源地址（生产在 {@code preparePicture} 里按输入源写入），
+     * 否则批量路径的"跨批次判重"测不出来。
      */
     private void stubPreparePicture(Function<Integer, Picture> factory) {
         AtomicInteger calls = new AtomicInteger();
@@ -211,6 +234,7 @@ class PictureBatchUploadIntegrationTest {
             if (picture == null) {
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "图片下载失败（测试构造）");
             }
+            picture.setSourceUrl(invocation.getArgument(0, String.class));
             storedUrls.add(picture.getUrl());
             return picture;
         }).when(pictureService).preparePicture(any(), any(), any(), any(), any());

@@ -65,6 +65,11 @@ ALTER TABLE picture
     -- 添加新列
     ADD COLUMN thumbnailUrl varchar(512) NULL COMMENT '缩略图 url';
 
+-- T29：URL 导入的来源地址（判重口径见 backend/sql/add_picture_source_url.sql）
+ALTER TABLE picture
+    ADD COLUMN sourceUrl varchar(1024) NULL COMMENT '来源地址（URL 导入/批量抓取写入，按空间判重用）' AFTER tags,
+    ADD INDEX idx_sourceUrl (sourceUrl(191));
+
 -- 空间表
 create table if not exists space
 (

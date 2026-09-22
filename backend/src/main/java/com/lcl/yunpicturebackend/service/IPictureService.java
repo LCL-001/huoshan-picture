@@ -172,13 +172,6 @@ public interface IPictureService extends IService<Picture> {
     void editPictureByBatch(PictureEditByBatchRequest pictureEditByBatchRequest, User loginUser);
 
     /**
-     * 根据URL查询图片
-     * @param url 图片URL
-     * @return 图片对象
-     */
-    Picture getByUrl(String url);
-
-    /**
      * 创建图片扩展任务
      *
      * @param createPictureOutPaintingTaskRequest 创建图片扩展任务请求

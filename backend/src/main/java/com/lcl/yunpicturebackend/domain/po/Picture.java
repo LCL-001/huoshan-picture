@@ -50,6 +50,9 @@ public class Picture implements Serializable {
     @ApiModelProperty(value = "标签（JSON 数组）")
     private String tags;
 
+    @ApiModelProperty(value = "来源地址（URL 导入/批量抓取写入，按空间判重用）")
+    private String sourceUrl;
+
     @ApiModelProperty(value = "图片体积")
     private Long picSize;
 

@@ -7,6 +7,7 @@ import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
@@ -273,12 +274,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             }
         }
 
-        // 如果是URL图片（抓取到的URL），则需要判断图片是否存在
+        // URL 来源的图片按"源地址 + 目标空间"判重：同一张图在同一空间里只导一次（跨空间各存一份是允许的）
         if (inputSource instanceof String) {
-            String imageUrl = (String) inputSource;
-            Picture existingPicture = this.getByUrl(imageUrl);
+            String sourceUrl = (String) inputSource;
+            Picture existingPicture = this.getBySourceUrl(sourceUrl, spaceId, pictureId);
             if (existingPicture != null) {
-                log.warn("图片已存在，URL: {}, 已有ID: {}", imageUrl, existingPicture.getId());
+                log.warn("图片已存在，源地址: {}, 空间: {}, 已有ID: {}", sourceUrl, spaceId, existingPicture.getId());
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "图片已存在");
             }
         }
@@ -292,6 +293,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             transactionTemplate.execute(status -> {
                 boolean result = this.saveOrUpdate(picture);
                 ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "图片上传失败");
+                // 用文件替换掉的记录不再有"来源地址"：MyBatis-Plus 的 updateById 不写 null 字段，
+                // 必须显式清空，否则旧源地址会一直留着，把同地址的重新导入误挡掉
+                if (picture.getSourceUrl() == null && finalOldPicture != null
+                        && StrUtil.isNotBlank(finalOldPicture.getSourceUrl())) {
+                    this.lambdaUpdate()
+                            .eq(Picture::getId, picture.getId())
+                            .set(Picture::getSourceUrl, null)
+                            .update();
+                }
                 if (finalSpaceId != null) {
                     if (finalOldPicture != null) {
                         // 替换图片：额度只记净差值、条数不变；GREATEST 防止历史脏数据把 totalSize 减成负数
@@ -382,11 +392,38 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         Picture picture = getPicture(loginUser, uploadPictureResult, pictureUploadRequest, oldPicture);
         // 填充 spaceId
         picture.setSpaceId(spaceId);
+        // 填充来源地址：只有 URL 导入（单张 /upload/url 与批量抓取）才有可判重的来源，文件上传为 null
+        picture.setSourceUrl(inputSource instanceof String ? (String) inputSource : null);
         // 填充图片颜色
         picture.setPicColor(uploadPictureResult.getPicColor());
         // 填充审核信息
         fillReviewParams(picture, loginUser);
         return picture;
+    }
+
+    /**
+     * 按"源地址 + 目标空间"查已导入的图片。
+     * <p>
+     * 源地址只对 URL 导入（单张 {@code /picture/upload/url} 与批量抓取）有意义，文件上传写入 null，
+     * 因此这条检查只覆盖 URL 路径。同一张图进不同空间是允许的，所以判重带空间条件
+     * （{@code spaceId} 为 null 表示公共图库，用 IS NULL 匹配）。
+     * <p>
+     * 替换图片时排除自身：否则"用同一个源地址替换自己"会被自己挡住。
+     * 用 {@code getOne(wrapper, false)} 而不是 {@code one()}：源地址列不是唯一索引（刻意不建，
+     * 逻辑删除的行会永久占住唯一索引），理论上可能存在同一地址的多条记录，这里取第一条即可。
+     *
+     * @param sourceUrl 来源地址
+     * @param spaceId   目标空间，null 表示公共图库
+     * @param excludeId 替换图片时要排除的记录 id，新增时为 null
+     * @return 已存在的记录，没有则返回 null
+     */
+    private Picture getBySourceUrl(String sourceUrl, Long spaceId, Long excludeId) {
+        LambdaQueryWrapper<Picture> wrapper = Wrappers.lambdaQuery(Picture.class)
+                .eq(Picture::getSourceUrl, sourceUrl)
+                .eq(spaceId != null, Picture::getSpaceId, spaceId)
+                .isNull(spaceId == null, Picture::getSpaceId)
+                .ne(excludeId != null, Picture::getId, excludeId);
+        return this.getOne(wrapper, false);
     }
 
     /**
@@ -422,7 +459,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         if (StrUtil.isBlank(namePrefix)) {
             namePrefix = searchText;
         }
-
+        ThrowUtils.throwIf(pictureUploadByBatchRequest.getCount() == null, ErrorCode.PARAMS_ERROR, "图片数量不能为空");
         ThrowUtils.throwIf(pictureUploadByBatchRequest.getCount() > 30, ErrorCode.PARAMS_ERROR, "图片数量不能超过30张");
 
         String html = fetchBingSearchPage(searchText, offset);
@@ -528,12 +565,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
 
     /**
      * 并行抓取前的地址过滤：批内按源地址去重（Bing 结果去掉查询参数后常有重复，重复项会被下载两次
-     * 并在库里留下两条内容相同的记录），并一次 IN 查询拦掉库中已存在的地址——改动前每张图一次
-     * getByUrl，30 张就是 30 次查询。
+     * 并在库里留下两条内容相同的记录），并一次 IN 查询拦掉**公共图库里已导入过**的源地址
+     * （批量抓取一律进公共图库，所以空间条件是 IS NULL；T29 起 sourceUrl 才是判重依据，
+     * 改动前每张图一次 getByUrl 且比对的是 COS 地址、永远命中不了）。
      * <p>
-     * 注意库里 picture.url 存的是 COS 地址，Bing 源地址通常命中不到这条存在性检查；保留它是为了
-     * 与单张上传同口径（"已存在即跳过"这条语义不因批量而改变）。序号保留解析出的原始位置，
-     * 命名前缀不因跳过而重排。
+     * 序号保留解析出的原始位置，命名前缀不因跳过而重排。
      *
      * @param imageUrls 解析出的原图地址
      * @return 原始序号 + 地址，按解析顺序
@@ -547,10 +583,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             urlToIndex.putIfAbsent(imageUrls.get(i), i);
         }
         Set<String> existingUrls = this.lambdaQuery()
-                .select(Picture::getUrl)
-                .in(Picture::getUrl, urlToIndex.keySet())
+                .select(Picture::getSourceUrl)
+                .in(Picture::getSourceUrl, urlToIndex.keySet())
+                .isNull(Picture::getSpaceId)
                 .list().stream()
-                .map(Picture::getUrl)
+                .map(Picture::getSourceUrl)
                 .collect(Collectors.toSet());
         List<Map.Entry<Integer, String>> indexedUrls = new ArrayList<>(urlToIndex.size());
         urlToIndex.forEach((url, index) -> {
@@ -1296,13 +1333,6 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         ThrowUtils.throwIf(!update, ErrorCode.OPERATION_ERROR);
         // 7. 清除列表缓存，避免批量改分类/标签/名称后列表脏读
         this.clearPictureListCache();
-    }
-
-    @Override
-    public Picture getByUrl(String url) {
-        return this.lambdaQuery()
-                .eq(Picture::getUrl, url)
-                .one();
     }
 
     /**
