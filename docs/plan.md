@@ -14,6 +14,13 @@
   - 边界：不重复处理 F11 已关闭的多行 SSE、缺 `[DONE]`、线程池拒绝空 500、300 秒超时、GET message 日志、频控/长度限制等已知限制；不新增进程/依赖/数据表。
   - 详细任务、文件范围、负向控制、提交拆分与停止条件：见 `docs/plans/2026-09-16-T27-AI助手后端安全加固实施计划.md`。
 
+- [ ] T28（2026-09-18 用户批准）**批量抓取落库批量化**：`/picture/upload/batch` 的并行任务不再逐张入库 + 逐张清缓存，改为并行只做"下载 + COS 上传 + 构造未落库记录"，`CompletableFuture.allOf` 之后一次 `saveBatch` + 一次清缓存；URL 检查提到并行前（一次 `in (urls)` 查询 + 批内按源地址去重，重复源地址今天会被下载并入库两份，改后只留一份）；批量入库失败按引用计数补偿删已上传的 COS 对象。
+  - **用户可见语义变更（已确认，属规则 3 ④ 字据）**：入库阶段从"逐张原子"变为"整批原子"——下载/COS 失败仍逐张跳过（保留"成功 N 张"），但入库失败整批回滚并报错。spec 关键三行不变（F3 意图未变）。
+  - 测试缝：新增 `fetchBingSearchPage` 与 `preparePicture` 两个 `protected` 方法供 `@SpyBean` 替换（沿用 `loadFromDb` 的做法），外网抓页与逐张下载不进测试。
+  - 文件范围：`backend/src/main/java/com/lcl/yunpicturebackend/service/impl/PictureServiceImpl.java`、`backend/src/main/resources/application.yaml`（本地 JDBC URL 加 `rewriteBatchedStatements=true`）、`backend/src/main/resources/application-local.yaml.example`（注释同步）、新增 `backend/src/test/java/com/lcl/yunpicturebackend/service/impl/PictureBatchUploadIntegrationTest.java`、新增 `docs/features/F3-批量抓取.md`。
+  - 验收：① 新测试先红后绿，断言 N 张只落一次库、只清一次缓存、批内重复源地址只存一份、单张失败不拖垮整批、入库失败整批回滚且补偿删除全部已转存文件；② CI 口径快速子集（无 MySQL/Redis）绿；③ 存量替换/额度集成测试（`PictureReplaceQuotaIntegrationTest` 等）复跑绿，证明单张路径行为未变；④ `application-prod.yaml` 不动，prod 生效随下次发布。
+  - 实施与红绿证据：完成后落 `docs/plans/records/`（T28-批量抓取批量化.md）。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
