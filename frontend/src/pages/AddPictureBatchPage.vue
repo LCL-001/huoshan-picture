@@ -67,13 +67,18 @@
 </template>
 
 <script setup lang="ts">
-import { markRaw, reactive, ref, shallowRef } from 'vue'
+import { markRaw, reactive, ref, shallowRef, type Component } from 'vue'
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons-vue'
 import { uploadPictureByBatchUsingPost } from '@/api/pictureController.ts'
+import {
+  mapBatchCrawlResponse,
+  type BatchTaskStatus,
+} from '@/utils/batchCrawlResult.ts'
 
 const formData = reactive<API.PictureUploadByBatchRequest>({
   count: 10, offset: 0,
@@ -81,15 +86,22 @@ const formData = reactive<API.PictureUploadByBatchRequest>({
 // 提交任务状态
 const loading = ref(false)
 
-// 任务执行结果：success=完成；background=请求超时但任务已转后台；error=失败
+// 任务执行结果：success=有新增；empty=完成但 0 张；background=请求超时但任务已转后台；error=失败
 interface TaskResult {
-  status: 'success' | 'background' | 'error'
-  icon: any
+  status: BatchTaskStatus | 'background'
+  icon: Component
   title: string
   desc: string
   elapsed?: string
 }
 const taskResult = shallowRef<TaskResult | null>(null)
+
+const STATUS_ICONS: Record<TaskResult['status'], Component> = {
+  success: CheckCircleOutlined,
+  empty: InfoCircleOutlined,
+  error: CloseCircleOutlined,
+  background: ClockCircleOutlined,
+}
 
 /**
  * 提交表单
@@ -100,29 +112,21 @@ const handleSubmit = async () => {
   const startedAt = Date.now()
   const elapsedText = () => `${((Date.now() - startedAt) / 1000).toFixed(1)} 秒`
   try {
-    // 后端同步爬取并逐张入库，耗时随抓取数量增长，全局 10s 超时不够，单独放宽到 5 分钟
+    // 后端同步爬取并批量入库，耗时随抓取数量增长，全局 10s 超时不够，单独放宽到 5 分钟
     const res = await uploadPictureByBatchUsingPost(
       {
         ...formData,
       },
       { timeout: 300000 },
     )
-    if (res.data.code === 0 && res.data.data) {
-      taskResult.value = {
-        status: 'success',
-        icon: markRaw(CheckCircleOutlined),
-        title: '任务执行完成',
-        desc: `成功抓取并上传 ${res.data.data} 张图片`,
-        elapsed: elapsedText(),
-      }
-    } else {
-      taskResult.value = {
-        status: 'error',
-        icon: markRaw(CloseCircleOutlined),
-        title: '任务执行失败',
-        desc: res.data.message ?? '请稍后重试',
-        elapsed: elapsedText(),
-      }
+    // 响应 → 展示状态走纯函数：成功但 0 张是 empty 而不是失败（断言见 scripts/check-batch-crawl-result.mjs）
+    const mapped = mapBatchCrawlResponse(res.data)
+    taskResult.value = {
+      status: mapped.status,
+      icon: markRaw(STATUS_ICONS[mapped.status]),
+      title: mapped.title,
+      desc: mapped.desc,
+      elapsed: elapsedText(),
     }
   } catch (e: any) {
     // 请求超时被中断时，后端任务仍在继续执行，避免误以为失败而重复提交
@@ -183,6 +187,11 @@ const handleSubmit = async () => {
 
 .result-icon.error {
   color: #ff4d4f;
+}
+
+/* 完成但没有新增（源地址都导入过了 / 搜索词没有可用图片）：中性提示，不是失败 */
+.result-icon.empty {
+  color: #1677ff;
 }
 
 .result-title {
