@@ -26,11 +26,9 @@
   - 验收：断言脚本先红 5 → 绿；`type-check` 124 = 基线；改动文件 lint 净减；F3 讲解已补 0 张文案与并发窗口已知限制。
   - 实施记录与证据见 `docs/plans/records/T30-批量抓取页0张显示.md`。
 
-- [ ] T31（2026-09-18 独立 review 前置条件 ①-1，用户批准）**源地址长度前置校验**：`picture.sourceUrl` 是 `varchar(1024)` 且入库前无长度校验；严格模式下超长 URL 的 INSERT 直接报错，而 T28 起"入库阶段整批原子" ⇒ 30 张里 1 张超长即整批回滚 + 补偿删除 30 个 COS 对象 + 接口 500，且 Bing 同词返回同批 URL ⇒ 该搜索词每次重跑都撞同一张（永久不可用）。修法：在**单张与批量共用的 `preparePicture` 入口**（发起下载之前）按列宽 fail fast，抛参数错误"来源地址过长"；批量下该张按"单张失败"逐张跳过，其余照常入库。
-  - 用户可见行为变更（属规则 3 ④）：>1024 字符的源地址从"系统错误 / 整批 500"变为"参数错误（来源地址过长）"。
-  - 文件范围：`backend/src/main/java/com/lcl/yunpicturebackend/service/impl/PictureServiceImpl.java`、`backend/src/test/java/com/lcl/yunpicturebackend/service/impl/`（PictureSourceUrlDedupeIntegrationTest 补用例）。
-  - 验收：① 新用例先红后绿（红 = 现在超长 URL 会被下载、一路走到 INSERT 才炸）；② 断言"失败发生在 COS 上传之前"（`CosManager` mock 零调用）；③ 存量集成与 CI 口径快速子集绿。
-  - 实施与红绿证据：完成后落 `docs/plans/records/`（T31-源地址长度校验.md）。
+- [x] T31（2026-09-18 独立 review 前置条件 ①-1，用户批准）**源地址长度前置校验**：`picture.sourceUrl` 是 `varchar(1024)` 且入库前无长度校验，严格模式下超长 URL 的 INSERT 报 `Data too long`；因为 T28 起入库整批原子，批量里 1 张超长即整批回滚 + 补偿删除 + 接口 500，且 Bing 同词重跑必撞同一张（该搜索词永久不可用）。已在**单张与批量共用的 `preparePicture` 入口**（发起下载之前）按列宽 fail fast 抛 `PARAMS_ERROR / "来源地址过长"`。
+  - 落点说明：review 建议的落点（`uploadPicture` 判重块）只覆盖单张路径，批量走 `preparePicture` 绕开那里；放在共用入口后，批量下超长 URL 只让该张按"单张失败"跳过，其余照常入库。
+  - 实施记录与证据见 `docs/plans/records/T31-源地址长度校验.md`。
 
 ## 未决与非任务事项（不建任务）
 
