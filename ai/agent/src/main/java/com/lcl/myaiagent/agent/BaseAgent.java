@@ -1,6 +1,8 @@
 package com.lcl.myaiagent.agent;
 
 import cn.hutool.core.util.StrUtil;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.event.AgentEventListener;
 import com.lcl.myaiagent.agent.event.SseAgentEventListener;
@@ -11,7 +13,6 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 /**
  * 智能体基类，提供基础的AI Agent执行框架
@@ -95,16 +97,22 @@ public abstract class BaseAgent {
     // 运行期计数（R1 埋点）：超时与提前终止各一个计数器；不注入时为 null，循环照常跑
     private AgentRunMetrics metrics;
 
-    // 添加重复内容阈值
+    // 循环检测：滑窗内同一循环签名的触发次数（含当前），见 isStuck
     private int duplicateThreshold = 2;
 
-    // 陷入循环计数器
+    // 陷入循环计数器：第 1 次纠偏、第 2 次强停（T33 收紧；旧口径 3 次要白烧约 5 步预算）
     private int stuckCount = 0;
-    private static final int MAX_STUCK_COUNT = 3;
+    private static final int MAX_STUCK_COUNT = 2;
 
-    // 卡死提示词前缀：该提示只拼入本轮请求、不入库（2026-09-27 起，advisor 的回写移除后
-    // 内部提示不再落库）；前端历史里旧时代的内部提示行仍由 ChatHistoryAssembler 按前缀过滤
+    /** 循环检测滑窗宽度（assistant 子序列的最后 N 步）；参考 Strands 的滑窗指纹与 Inngest 的连续口径 */
+    private static final int STUCK_WINDOW = 4;
+
+    /** 卡死提示词前缀：该提示只拼入本轮请求、不入库（2026-09-27 起，advisor 的回写移除后
+     * 内部提示不再落库）；前端历史里旧时代的内部提示行仍由 ChatHistoryAssembler 按前缀过滤 */
     public static final String STUCK_PROMPT_PREFIX = "观察到重复响应";
+
+    /** 循环签名的参数规范化用（只做内存比较，与持久化序列化无关） */
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
      * 以流式方式运行智能体，通过SSE（Server-Sent Events）实时返回执行结果
@@ -221,8 +229,9 @@ public abstract class BaseAgent {
                 for (AgentEvent event : this.step()) {
                     listener.onEvent(event);
                 }
-                // 每一步 step 执行完都要检查是否陷入循环
-                if (isStuck()) {
+                // 每一步 step 执行完都要检查是否陷入循环；本步已给出最终回答（FINISHED）时不再检测——
+                // 循环已自然结束，重复的收尾回答不该被追加一句"检测到循环"（T33 修复双 answer）
+                if (this.state != AgentState.FINISHED && isStuck()) {
                     handleStuckState();
                     if (this.state == AgentState.FINISHED) {
                         listener.onEvent(new AgentEvent.Answer("检测到循环，智能体已终止"));
@@ -369,7 +378,7 @@ public abstract class BaseAgent {
     protected abstract void cleanUp();
 
     /**
-     * 处理陷入循环的状态
+     * 处理陷入循环的状态（T33 收紧：第 1 次纠偏、第 2 次强停）
      */
     protected void handleStuckState() {
         stuckCount++;
@@ -378,58 +387,83 @@ public abstract class BaseAgent {
             this.state = AgentState.FINISHED;
             return;
         }
+        // 纠偏提示只进下一轮请求、不入库（T32 起 advisor 回写移除）；
+        // think() 每轮消费后置空，这里重新注入一轮
         String stuckPrompt = STUCK_PROMPT_PREFIX + "。考虑新策略，避免重复已尝试过的无效路径。";
-        this.nextStepPrompt = stuckPrompt + "\n" + (this.nextStepPrompt != null ? this.nextStepPrompt : "");
+        this.nextStepPrompt = stuckPrompt;
         log.warn("Agent detected stuck state ({} / {}). Added prompt: {}", stuckCount, MAX_STUCK_COUNT, stuckPrompt);
     }
 
     /**
-     * 检查代理是否陷入循环
-     * 查找最后一条 ASSISTANT 消息，检测是否与历史 ASSISTANT 消息重复
+     * 检查代理是否陷入循环（T33 重写）。
+     * <p>
+     * 旧实现（OpenManus 同款）是"最后一条 assistant 文本在整段历史里出现 ≥2 次"的全局计数，
+     * 有三类问题：① 空文本的工具决策行直接让检测失明——"同工具同参数反复调用"这条最常见的
+     * 死循环形态完全抓不到；② 全局计数把不同上下文里合法重复的短句误判成卡死；③ 精确等值匹配
+     * 又对微小措辞差异漏报。现改为在 assistant 子序列的"循环签名"上做滑窗判定：
+     * 最近 {@link #STUCK_WINDOW} 步内同一签名出现 ≥ {@link #duplicateThreshold} 次（含当前）即判卡死。
+     * 工具签名抓"同工具同参数反复调用"（主信号，业界共识参考 Strands/Inngest），
+     * 文本签名兜"模型复读"形态；签名只做内存比较，不进提示词与持久化。
+     * </p>
      *
      * @return 是否陷入循环
      */
     protected boolean isStuck() {
-        List<Message> messages = getMessageList();
-        if (messages.size() < 2) {
-            return false;
-        }
-
-        // 从末尾查找最后一条 ASSISTANT 消息（跳过 ToolResponseMessage 等）
-        Message lastAssistantMsg = null;
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            Message msg = messages.get(i);
-            if (msg.getMessageType() == MessageType.ASSISTANT) {
-                lastAssistantMsg = msg;
-                break;
+        List<String> signatures = new ArrayList<>();
+        for (Message message : getMessageList()) {
+            String signature = loopSignature(message);
+            if (signature != null) {
+                signatures.add(signature);
             }
         }
-
-        if (lastAssistantMsg == null
-                || lastAssistantMsg.getText() == null
-                || lastAssistantMsg.getText().isEmpty()) {
-            return false;
-        }
-
-        // 通过引用查找最后一条 ASSISTANT 消息的位置（不能用 indexOf，因为 equals 是按内容比较）
-        int lastIndex = -1;
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            if (messages.get(i) == lastAssistantMsg) {
-                lastIndex = i;
-                break;
+        int from = Math.max(0, signatures.size() - STUCK_WINDOW);
+        List<String> window = signatures.subList(from, signatures.size());
+        for (String candidate : window) {
+            int count = 0;
+            for (String signature : window) {
+                if (candidate.equals(signature)) {
+                    count++;
+                }
+            }
+            if (count >= this.duplicateThreshold) {
+                return true;
             }
         }
-        // 计算该 ASSISTANT 消息在历史 ASSISTANT 消息中的重复次数
-        int duplicateCount = 0;
-        for (int i = lastIndex - 1; i >= 0; i--) {
-            Message msg = messages.get(i);
-            if (msg.getMessageType() == MessageType.ASSISTANT
-                    && lastAssistantMsg.getText().equals(msg.getText())) {
-                duplicateCount++;
-            }
-        }
+        return false;
+    }
 
-        return duplicateCount >= this.duplicateThreshold;
+    /**
+     * 单步的循环签名：工具调用步 = "tool|名|规范化参数"（一次多调用按序拼接），
+     * 纯文本步 = "text|文本"；空文本且无工具调用的决策行无签名（不参与计数）。
+     * 带文本的工具决策行按工具签名判——文本只是模型的修辞变化，重复的动作才是循环信号。
+     */
+    private String loopSignature(Message message) {
+        if (!(message instanceof AssistantMessage assistantMessage)) {
+            return null;
+        }
+        List<AssistantMessage.ToolCall> toolCalls = assistantMessage.getToolCalls();
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+            return toolCalls.stream()
+                    .map(toolCall -> "tool|" + toolCall.name() + "|" + canonicalArguments(toolCall.arguments()))
+                    .collect(Collectors.joining(";"));
+        }
+        String text = assistantMessage.getText();
+        if (text != null && !text.isBlank()) {
+            return "text|" + text.trim();
+        }
+        return null;
+    }
+
+    /** 参数规范化：JSON 串重序列化去掉空白差异（键序重排不归一，属可接受漏报）；非 JSON 按原文 */
+    private static String canonicalArguments(String arguments) {
+        if (arguments == null) {
+            return "";
+        }
+        try {
+            return MAPPER.readTree(arguments).toString();
+        } catch (JsonProcessingException e) {
+            return arguments.trim();
+        }
     }
 
 }

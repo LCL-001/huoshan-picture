@@ -370,6 +370,29 @@ class BaseAgentTest {
             assertThat(listener.joinedAnswers()).contains("检测到循环，智能体已终止");
             assertThat(listener.joinedAnswers()).doesNotContain("达到最大步骤");
         }
+
+        /**
+         * T33：循环检测只在"循环还要继续"（state 仍 RUNNING）时进行——本步已给出最终回答时，
+         * 重复的收尾回答不该被追加一句"检测到循环，智能体已终止"（旧实现会在真回答后面双 answer）。
+         */
+        @Test
+        @DisplayName("本步已给出最终回答时，不再补发『检测到循环』")
+        void shouldNotAppendLoopNoticeWhenStepAlreadyAnswered() {
+            TestAgent agent = new TestAgent("最终回答");
+            agent.setFinishOnStep(true);
+            agent.setName("StuckAgent");
+            for (int i = 0; i < 3; i++) {
+                agent.getMessageList().add(
+                        new org.springframework.ai.chat.messages.UserMessage("next-step"));
+                agent.getMessageList().add(
+                        new org.springframework.ai.chat.messages.AssistantMessage("最终回答"));
+            }
+
+            RecordingAgentEventListener listener = runLoop(agent, "test");
+
+            assertThat(listener.joinedAnswers()).contains("最终回答");
+            assertThat(listener.joinedAnswers()).doesNotContain("检测到循环");
+        }
     }
 
     // ==================== runStream ====================
