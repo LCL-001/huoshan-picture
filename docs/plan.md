@@ -34,6 +34,11 @@
   - 验收：`AgentExplicitMemoryTest` 接线守护 + `FlowWindowBasedChatMemoryAddTest` 写入契约（两项负向控制实测红）；20 轮模拟：4096 对照 65% / 基线 14→7 不变，默认预算 32768 零摘要调用；ai/agent 196 例绿。
   - 实施记录与证据见 `docs/plans/records/T32-记忆显式读写.md`；口径见 `docs/decisions.md` 2026-09-27 行。
 
+- [x] T33（2026-09-27 用户批准：方案 2 不含 2b）**循环检测重写为双信号滑窗**：旧实现照抄 OpenManus 的"assistant 文本全局计数"——空文本工具决策行让检测失明（最常见的"同工具同参数反复调用"抓不到）、全局计数误报合法重复、精确匹配漏报微差。改为 assistant 子序列的"循环签名"（工具调用步 = `tool|名|规范化参数`，纯文本步 = `text|文本`，带文本的决策行按工具签名判）取最近 4 步滑窗，同签名 ≥2 次（含当前）判卡死；第 1 次纠偏、第 2 次强停（MAX_STUCK_COUNT 3→2）；state 已 FINISHED 不再补发"检测到循环"（修双 answer）。
+  - 调研对齐：OpenManus（源头同款缺陷）/ LangGraph·OpenAI SDK·CrewAI（只做步数硬边界）/ Strands（工具指纹滑窗 + 执行前阻断）/ Inngest（连续同工具）；"执行前阻断"（2b）经用户拍板暂不做。
+  - 验收：`BaseAgentStuckTest` 重写 12 例（先红 7）+ `BaseAgentTest` 双 answer 用例；负向控制两项实测红（摘工具签名 → 3 红；滑窗改全局 → 1 红）；ai/agent 203 例绿。
+  - 实施记录与证据见 `docs/plans/records/T33-循环检测双信号.md`；口径见 `docs/decisions.md` 2026-09-27 行。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
