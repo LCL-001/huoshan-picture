@@ -86,3 +86,4 @@
 | 2026-09-18 | **批量抓取落库批量化（用户批准）**：并行线程只做下载 + COS，`allOf` 后一次 `saveBatch` + 一次清缓存；**入库阶段整批原子**（失败整批回滚 + 补偿删已转存文件），下载/COS 失败仍逐张跳过；源地址批内去重；prod 的 JDBC 暂不加 `rewriteBatchedStatements` | [理由与代价](decisions/2026-09-18-batch-crawl-persist.md) | 生效 |
 | 2026-09-18 | **URL 导入判重口径（用户批准：源地址列 + 按空间）**：新增 `picture.sourceUrl`，判重 = 源地址 + 目标空间（跨空间与公共图库互不影响、逻辑删除后可重导）；命中仍拒；不建唯一索引；删掉永不命中的 `getByUrl`；DDL 必须先于新 jar 手工执行 | [理由与未选方案](decisions/2026-09-18-source-url-dedupe.md) | 生效 |
 | 2026-09-18 | **T28/T29/T30 独立 review：有条件通过**：① `sourceUrl` 超长会在整批原子下放大成整批 500，已修（T31）；② 0 张路径真机冒烟交用户执行。另 4 项判为已知限制并关闭、prod JDBC 开关维持既有决定 | [报告要点与未验证项](decisions/2026-09-18-review-batch-crawl.md) | 生效 |
+| 2026-09-27 | **记忆读写去 advisor 化（T32，用户提出）**：移除 `MessageChatMemoryAdvisor`（每轮重读全量注入 + 回写最后一条用户消息），改为循环显式读写——运行开始读一次压缩视图作前缀、写一次用户消息，每步写一次助手消息；指纹去重随之退役；压缩预算 4096→32768（主脑 1M 上下文） | [理由与影响](decisions/2026-09-27-memory-explicit-rw.md) | 生效 |

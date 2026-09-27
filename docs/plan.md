@@ -30,6 +30,10 @@
   - 落点说明：review 建议的落点（`uploadPicture` 判重块）只覆盖单张路径，批量走 `preparePicture` 绕开那里；放在共用入口后，批量下超长 URL 只让该张按"单张失败"跳过，其余照常入库。
   - 实施记录与证据见 `docs/plans/records/T31-源地址长度校验.md`。
 
+- [x] T32（2026-09-27 用户提出：窗口扩容 + 去 advisor）**记忆读写去 advisor 化 + 预算扩容**：核实 Spring AI `MessageChatMemoryAdvisor` 每轮重读全量记忆注入 + 回写最后一条用户消息（循环每轮重提整段 messageList ⇒ 同段上下文每轮两份、逐轮膨胀），移除 advisor 改显式读写——运行开始读一次压缩视图作前缀（`historyContext`）、写一次用户消息，每步模型调用后写一次助手消息；指纹去重随 advisor 退役；压缩预算 4096 → 32768（主脑 1M 上下文）。
+  - 验收：`AgentExplicitMemoryTest` 接线守护 + `FlowWindowBasedChatMemoryAddTest` 写入契约（两项负向控制实测红）；20 轮模拟：4096 对照 65% / 基线 14→7 不变，默认预算 32768 零摘要调用；ai/agent 196 例绿。
+  - 实施记录与证据见 `docs/plans/records/T32-记忆显式读写.md`；口径见 `docs/decisions.md` 2026-09-27 行。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
