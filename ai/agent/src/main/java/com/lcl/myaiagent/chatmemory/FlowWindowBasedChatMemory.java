@@ -26,7 +26,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class FlowWindowBasedChatMemory implements ChatMemory {
-    private static final int DEFAULT_MAX_TOKEN = 4096;// 每个对话窗口的默认最大token数
+    /**
+     * 每个对话窗口的默认最大 token 数（读时压缩的预算护栏）。
+     * 2026-09-27：4096 → 32768。预算不是模型上限（主脑是 1M 上下文的模型），而是单次请求的成本护栏：
+     * 4096 会让几乎所有真实会话都触发摘要；32k 按"20 步 × 数百 token"的典型规模放大约 8 倍，
+     * 典型会话全程零压缩，超长会话仍有水位线增量摘要兜底。估算口径（字符 × 1.5）本身偏保守。
+     */
+    static final int DEFAULT_MAX_TOKEN = 32768;
 
     private final ChatMessageRepository chatMessageRepository;
 
@@ -44,9 +50,15 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
     private final OpenAiChatModels openAiChatModels;
 
 
+    /**
+     * 显式写入（2026-09-27 起）：调用方只有两处——BaseAgent 运行开始写用户消息、
+     * ToolCallAgent.think() 每步写助手消息，每条消息都只该被写一次，所以不再按指纹去重。
+     * 去重是给"MessageChatMemoryAdvisor 每轮回写最后一条用户消息"的时代擦屁股的，
+     * advisor 移除后它只剩副作用：用户隔轮重复同一句话时第二句进不了记忆，
+     * 且每条 add 都要全量扫一遍该会话的行。
+     */
     @Override
     public void add(String conversationId, List<Message> messages) {
-        Set<String> stored = storedFingerprints(conversationId);
         for (Message message : messages) {
             // 系统提示词全局只保留一份：新增 system 前先删旧的（对应官方"换人设清旧提示词"的逻辑）
             if (message instanceof SystemMessage) {
@@ -54,28 +66,9 @@ public class FlowWindowBasedChatMemory implements ChatMemory {
                         .eq(ChatMessage::getConversationId, conversationId)
                         .eq(ChatMessage::getMessageType, MessageType.SYSTEM)
                         .remove();
-                // 旧行刚刚被删掉了，它的指纹不该再挡住这一条（否则系统提示词会整条丢掉）
-                stored.remove(MessageConverter.fingerprint(message));
-            }
-            // 只写一次：MessageChatMemoryAdvisor 每轮都会把"请求里最后一条用户消息"再写一遍
-            // （原因见 MessageConverter.fingerprint 的注释），这里按指纹回绝重复写入
-            if (!stored.add(MessageConverter.fingerprint(message))) {
-                log.debug("跳过已存过的消息, conversationId={}, type={}", conversationId, message.getMessageType());
-                continue;
             }
             chatMessageRepository.save(MessageConverter.toChatMessage(message, conversationId));          // 全量入库：这里绝不裁剪
         }
-    }
-
-    /** 该会话已存消息的指纹集合（"同一会话里一模一样的消息只写一次"的判据） */
-    private Set<String> storedFingerprints(String conversationId) {
-        Set<String> fingerprints = new HashSet<>();
-        for (ChatMessage row : chatMessageRepository.lambdaQuery()
-                .eq(ChatMessage::getConversationId, conversationId)
-                .list()) {
-            fingerprints.add(MessageConverter.fingerprint(MessageConverter.toMessage(row)));
-        }
-        return fingerprints;
     }
 
     @NotNull

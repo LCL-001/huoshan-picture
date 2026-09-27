@@ -42,7 +42,11 @@ import static org.mockito.Mockito.*;
 class FlowWindowBasedChatMemoryTest {
 
     private static final String CHAT_ID = "chat-1";
-    private static final int BUDGET = 4096; // 与 DEFAULT_MAX_TOKEN 一致
+    /**
+     * 压缩分支的固定测试预算：分支逻辑（压缩/复用/降级/硬裁剪）不随生产默认值漂移，
+     * 所以显式传给 compress()，不再跟随 DEFAULT_MAX_TOKEN（2026-09-27 起默认已扩到 32768）
+     */
+    private static final int BUDGET = 4096;
 
     @Mock
     private ChatMessageRepository chatMessageRepository;
@@ -127,7 +131,7 @@ class FlowWindowBasedChatMemoryTest {
         mockSummaryQuery(null);                       // 库里没有旧摘要 → 必须调模型
         mockModelSummary("这是压缩出的摘要");
 
-        List<Message> result = memory.get(CHAT_ID);
+        List<Message> result = memory.compress(CHAT_ID, BUDGET);
 
         // 返回结构：1 system + 1 摘要 + 10 条最近 = 12 条
         assertEquals(12, result.size());
@@ -166,7 +170,7 @@ class FlowWindowBasedChatMemoryTest {
         existing.setLastMessageId(102L);
         mockSummaryQuery(existing);
 
-        List<Message> result = memory.get(CHAT_ID);
+        List<Message> result = memory.compress(CHAT_ID, BUDGET);
 
         assertEquals(12, result.size());   // 1 system + 1 摘要 + 10 新增
         assertTrue(result.get(1).getText().contains("这是上次的摘要"));
@@ -189,7 +193,7 @@ class FlowWindowBasedChatMemoryTest {
         mockSummaryQuery(null);
         when(chatModel.call(anyString())).thenThrow(new RuntimeException("模拟模型挂了"));
 
-        List<Message> result = memory.get(CHAT_ID);
+        List<Message> result = memory.compress(CHAT_ID, BUDGET);
 
         // 降级结果非空，第一条是 system，且总 token 没超预算（system 不计入裁剪预算）
         assertFalse(result.isEmpty());
@@ -217,7 +221,7 @@ class FlowWindowBasedChatMemoryTest {
         mockMessageQuery(history);
         mockSummaryQuery(null);
 
-        List<Message> result = memory.get(CHAT_ID);
+        List<Message> result = memory.compress(CHAT_ID, BUDGET);
 
         // 硬裁剪：从尾往前保留 3 条(3150)，第 4 条就超预算 → 1 system + 3 normal
         assertEquals(4, result.size());

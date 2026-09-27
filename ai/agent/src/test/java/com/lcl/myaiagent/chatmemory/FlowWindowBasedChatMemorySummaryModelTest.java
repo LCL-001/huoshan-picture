@@ -122,7 +122,7 @@ class FlowWindowBasedChatMemorySummaryModelTest {
     void unconfiguredAssistantDegradesToTrim() {
         FlowWindowBasedChatMemory memory = memoryWith(OpenAiChatModels.from(new OpenAiModelProperties()));
 
-        List<Message> result = memory.get(CHAT_ID);
+        List<Message> result = memory.compress(CHAT_ID, 4096);
 
         assertThat(REQUESTS)
                 .as("主脑没配，不该有任何请求发出去")
@@ -138,7 +138,6 @@ class FlowWindowBasedChatMemorySummaryModelTest {
         mockSummaryQuery();
         return new FlowWindowBasedChatMemory(chatMessageRepository, chatSummaryRepository, models);
     }
-
     /** 主脑 = 桩服务（MiMo 的协议根不带尾部 /v1，与 T6 口径一致） */
     private static OpenAiChatModels mimoModels() {
         OpenAiModelProperties properties = new OpenAiModelProperties();
@@ -188,7 +187,8 @@ class FlowWindowBasedChatMemorySummaryModelTest {
     }
 
     private ChatSummary compressAndCaptureSummary(FlowWindowBasedChatMemory memory) {
-        memory.get(CHAT_ID);
+        // 压缩分支的固定测试预算：不跟随生产默认值（2026-09-27 起默认 32768，本用例数据按 4096 反推）
+        memory.compress(CHAT_ID, 4096);
         ArgumentCaptor<ChatSummary> captor = ArgumentCaptor.forClass(ChatSummary.class);
         verify(chatSummaryRepository).saveOrUpdate(captor.capture());
         return captor.getValue();

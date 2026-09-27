@@ -93,7 +93,7 @@ public final class ChatHistoryAssembler {
                     answer = question;
                     continue;
                 }
-                // Memory Advisor 只持久化模型的 toolCall 决策行，不写工具响应行——
+                // 记忆写入只持久化模型的 toolCall 决策行，不写工具响应行——
                 // 每个非 askHuman 的 toolCall 生成一个步骤（后续 TOOL 行会用真实响应覆盖内容）
                 for (Object item : toolCalls(m)) {
                     if (item instanceof Map<?, ?> toolCall && toolCall.get("name") != null) {

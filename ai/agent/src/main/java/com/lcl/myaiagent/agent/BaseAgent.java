@@ -8,8 +8,11 @@ import com.lcl.myaiagent.agent.model.AgentState;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -67,11 +70,27 @@ public abstract class BaseAgent {
     // LLM模型
     private ChatClient chatClient;
 
-    // 记忆系统(Memory 自主维护)
+    // 记忆系统(本轮工作集，自主维护)：跨轮历史在 historyContext，发给模型的是两者拼接
     private List<Message> messageList = new ArrayList<>();
 
-    // 会话 ID：Advisor 读写外部 ChatMemory 时用它定位会话
+    // 会话 ID：跨轮记忆按它定位会话（loadConversationHistory / remember* 用）
     private String conversationId;
+
+    /**
+     * 跨轮记忆（2026-09-27 起显式读写，替代 MessageChatMemoryAdvisor）。
+     * <p>
+     * advisor 的语义是"每次模型调用都重读全量记忆、整段注入请求消息之前，再把请求里最后一条用户消息
+     * 回写一遍"。而本引擎的循环每轮都重提整段 messageList——两者叠加后，同一段上下文每轮在提示词里
+     * 出现两份（记忆视图一份 + messageList 一份）并逐轮膨胀；同一条用户消息每轮回写一次（入库侧靠
+     * 指纹去重兜住，提示词侧没人兜）。改为显式读写：运行开始读一次压缩视图作为固定前缀
+     * （{@link #historyContext}）、写一次用户消息；每步模型调用后写一次助手消息（ToolCallAgent.think）。
+     * 为 null 时（单测直接 new 的裸 agent）跳过全部记忆读写。
+     * </p>
+     */
+    private ChatMemory chatMemory;
+
+    /** 本轮装载的跨轮记忆前缀：运行开始读一次、整轮不变；发给模型的提示词 = 它 + messageList */
+    private List<Message> historyContext = List.of();
 
     // 运行期计数（R1 埋点）：超时与提前终止各一个计数器；不注入时为 null，循环照常跑
     private AgentRunMetrics metrics;
@@ -83,8 +102,8 @@ public abstract class BaseAgent {
     private int stuckCount = 0;
     private static final int MAX_STUCK_COUNT = 3;
 
-    // 卡死提示词前缀：该提示会作为 USER 消息进入对话并被持久化，
-    // 前端渲染历史时靠它识别并过滤 agent 内部提示
+    // 卡死提示词前缀：该提示只拼入本轮请求、不入库（2026-09-27 起，advisor 的回写移除后
+    // 内部提示不再落库）；前端历史里旧时代的内部提示行仍由 ChatHistoryAssembler 按前缀过滤
     public static final String STUCK_PROMPT_PREFIX = "观察到重复响应";
 
     /**
@@ -181,10 +200,15 @@ public abstract class BaseAgent {
         this.state = AgentState.RUNNING;
         // 重置循环计数器
         this.stuckCount = 0;
-        // 记录上下文
+        // 记录上下文（本轮工作集）；跨轮记忆的读写（有 DB 往返）放在下面 try 里，
+        // 故障沿用既有契约以 error 事件收尾，不让异步线程把异常吞掉
         this.messageList.add(new UserMessage(userPrompt));
 
         try {
+            // 跨轮记忆显式读写（替代 advisor 的每轮重读重注）：先读（压缩视图里还没有本轮消息，
+            // 顺序反了本轮提问会在前缀里重复一份），再写（用户消息只落一次库）
+            this.historyContext = loadConversationHistory();
+            this.rememberUserMessage(userPrompt);
             // 开场事件（T22）：本轮的环境说明先于循环产出，例如"搜图服务暂不可用"
             for (AgentEvent opening : openingEvents) {
                 listener.onEvent(opening);
@@ -236,6 +260,35 @@ public abstract class BaseAgent {
             // 清理资源
             this.cleanUp();
         }
+    }
+
+    /**
+     * 跨轮记忆读取（一次运行只调一次）：取压缩视图并去掉 system 行——
+     * system 每次模型调用由 {@code .system()} 现场提供，不能从历史前缀再来一份
+     */
+    private List<Message> loadConversationHistory() {
+        if (this.chatMemory == null || this.conversationId == null) {
+            return List.of();
+        }
+        return this.chatMemory.get(this.conversationId).stream()
+                .filter(message -> !(message instanceof SystemMessage))
+                .toList();
+    }
+
+    /** 用户消息写回：一次运行只落一次库（advisor 时代每轮回写、靠指纹去重兜底，现显式只写一次） */
+    private void rememberUserMessage(String userPrompt) {
+        if (this.chatMemory == null || this.conversationId == null) {
+            return;
+        }
+        this.chatMemory.add(this.conversationId, List.of(new UserMessage(userPrompt)));
+    }
+
+    /** 每步模型调用的产出写回一次（原 advisor after() 的职责收编到这里；工具响应行仍不落库） */
+    protected void rememberAssistantMessage(AssistantMessage assistantMessage) {
+        if (this.chatMemory == null || this.conversationId == null) {
+            return;
+        }
+        this.chatMemory.add(this.conversationId, List.of(assistantMessage));
     }
 
     /**

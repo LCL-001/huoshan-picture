@@ -12,7 +12,6 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -74,20 +73,17 @@ public class ToolCallAgent extends ReActAgent {
 
     /**
      * 调用 LLM，子类可覆盖以适配测试或不同 LLM 实现
+     * <p>
+     * 记忆不走 advisor（2026-09-27 起）：跨轮历史由 runLoop 装进 historyContext、think() 拼进请求，
+     * 每步产出由 rememberAssistantMessage 显式写回——advisor 的"每轮重读重注 + 回写最后一条用户消息"
+     * 在重提整段 messageList 的循环里会让上下文逐轮翻倍。
+     * </p>
      */
     protected ChatResponse callLlm(Prompt prompt) {
-        String conversationId = getConversationId();
         return getChatClient()
                 .prompt(prompt)
                 .system(getSystemPrompt())
                 .toolCallbacks(availableTools)
-                // 把会话 ID 传给记忆 Advisor：不传会用默认会话，
-                // 读到别的会话的记忆，本会话的水位线复用也不会生效
-                .advisors(a -> {
-                    if (conversationId != null) {
-                        a.param(ChatMemory.CONVERSATION_ID, conversationId);
-                    }
-                })
                 .call()
                 .chatResponse();
     }
@@ -121,8 +117,10 @@ public class ToolCallAgent extends ReActAgent {
      */
     @Override
     public boolean think() {
-        // 构建临时消息列表——NEXT_STEP_PROMPT 拼入请求但不持久化
-        List<Message> tempMessages = new ArrayList<>(getMessageList());
+        // 发给模型的完整上下文 = 跨轮记忆前缀（运行开始装载一次）+ 本轮工作集；
+        // NEXT_STEP_PROMPT 拼入请求但不持久化（卡死提示同理，见 BaseAgent.STUCK_PROMPT_PREFIX）
+        List<Message> tempMessages = new ArrayList<>(getHistoryContext());
+        tempMessages.addAll(getMessageList());
         if (getNextStepPrompt() != null && !getNextStepPrompt().isEmpty()) {
             tempMessages.add(new UserMessage(getNextStepPrompt()));
             setNextStepPrompt(null);
@@ -132,6 +130,8 @@ public class ToolCallAgent extends ReActAgent {
         // 记录响应，用于 Act
         this.toolCallChatResponse = chatResponse;
         AssistantMessage assistantMessage = chatResponse.getResult().getOutput();
+        // 每步产出写回记忆一次（advisor 时代由 after() 做，现显式做；工具响应行仍不落库）
+        rememberAssistantMessage(assistantMessage);
         // 输出提示信息
         String result = assistantMessage.getText();
 //            log.info(getName() + "的思考：" + result);

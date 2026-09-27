@@ -33,14 +33,16 @@ import static org.mockito.Mockito.*;
 /**
  * T3：水位线复用率测量（非功能测试，产出可引用的数字）。
  *
- * 模拟一次 20 步的 Agent 执行：每步先落一条用户消息、读一次记忆（对应
- * Memory Advisor 的步前读取），再落一条助手消息（对应步后写回）。
+ * 模拟 20 次连续会话运行：每次运行开始读一次记忆（显式读写后 compress 的调用粒度——
+ * advisor 时代是每步模型调用前各读一次，2026-09-27 起收敛到运行粒度），
+ * 运行结束新增一轮问答（用户 + 助手两行，按最小运行计）。
  * 用 Mockito 统计摘要模型 call 的真实次数，得出：
  *   读取总次数 / 摘要调用次数 / 复用命中次数 / 命中率，
  * 并与"无水位线基线"（每次超预算读取都重新摘要）做对比。
  *
  * 数据为固定尺寸（非随机），结果确定可复现；尺寸按 token 估算规则
- * （字符数 × 3 ÷ 2）反推，使预算在第十步左右被首次越过。
+ * （字符数 × 3 ÷ 2）反推，使小窗口预算在第十步左右被首次越过。
+ * 两个场景：4096 小窗口对照（水位线机制本身）与新默认预算（1M 主脑下的典型会话应零压缩）。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -117,10 +119,10 @@ class FlowWindowBasedChatMemoryMetricsTest {
     }
 
     @Test
-    @DisplayName("预算 4096：20 步执行，摘要调用远少于读取次数")
-    void measureReuseRateWithDefaultBudget() {
+    @DisplayName("小窗口对照（4096）：20 轮运行，摘要调用远少于读取次数")
+    void measureReuseRateWithSmallWindowBudget() {
         Measurement m = simulate(4096);
-        print("默认预算 4096", m);
+        print("小窗口对照 4096", m);
 
         assertTrue(m.calls() >= 1, "预算被越过，至少应发生一次压缩");
         assertTrue(m.hitRate() >= 60.0, "复用命中率应不低于 60%，实际=" + m.hitRate() + "%");
@@ -128,12 +130,14 @@ class FlowWindowBasedChatMemoryMetricsTest {
     }
 
     @Test
-    @DisplayName("预算 8192：余量变大，复用率显著上升（预算-复用率权衡）")
-    void measureReuseRateWithLargerBudget() {
-        Measurement m = simulate(8192);
-        print("加倍预算 8192", m);
+    @DisplayName("默认预算（32768，1M 主脑的成本护栏）：典型 20 轮会话全程零摘要调用")
+    void typicalSessionStaysWithinDefaultBudget() {
+        // 断言直接引用生产常量：默认值若再被调小，这里会红，逼着重新评估"典型会话是否又要付摘要钱"
+        Measurement m = simulate(FlowWindowBasedChatMemory.DEFAULT_MAX_TOKEN);
+        print("默认预算 " + FlowWindowBasedChatMemory.DEFAULT_MAX_TOKEN, m);
 
-        assertTrue(m.hitRate() >= 80.0, "加倍预算后命中率应显著上升，实际=" + m.hitRate() + "%");
+        assertEquals(0, m.calls(), "默认预算下典型 20 轮会话不应触发任何摘要压缩（全部零调用复用）");
+        assertEquals(100.0, m.hitRate(), 0.001, "全部读取都应命中零调用路径");
     }
 
     // ---------- 模拟器 ----------
@@ -165,7 +169,7 @@ class FlowWindowBasedChatMemoryMetricsTest {
 
     private void print(String scenario, Measurement m) {
         System.out.printf("""
-                        %n==== 水位线复用率测量（%s，%d 步模拟） ====
+                        %n==== 水位线复用率测量（%s，%d 轮运行模拟） ====
                         读取次数       : %d
                         摘要模型调用   : %d（复用命中 %d 次，命中率 %.0f%%）
                         无水位线基线   : 约 %d 次（每次超预算读取都重新摘要）

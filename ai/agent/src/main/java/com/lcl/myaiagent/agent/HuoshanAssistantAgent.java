@@ -4,7 +4,6 @@ import com.lcl.myaiagent.advisors.MyLoggerAdvisor;
 import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.model.AgentState;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -85,7 +84,6 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
             """;
 
     private final ChatModel scopeModel;
-    private final ChatMemory chatMemory;
     private boolean scopeChecked;
 
     /**
@@ -98,16 +96,16 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
                                  ChatMemory chatMemory) {
         super(tools);
         this.scopeModel = chatModel;
-        this.chatMemory = chatMemory;
-        // 会话 ID 必须在构建时定下来，供记忆 Advisor 逐步读写外部记忆
+        // 会话 ID 与记忆在构建时定下来：跨轮历史由 runLoop 读一次作前缀、每步产出显式写回
+        //（2026-09-27 起不走 MessageChatMemoryAdvisor，见 BaseAgent.chatMemory 的注释）
         this.setConversationId(conversationId);
+        this.setChatMemory(chatMemory);
         this.setName(NAME);
         this.setSystemPrompt(SYSTEM_PROMPT);
         this.setNextStepPrompt(NEXT_STEP_PROMPT_TEXT);
         this.setMaxSteps(20);
         ChatClient chatClient = ChatClient.builder(chatModel)
-                .defaultAdvisors(new MyLoggerAdvisor(),
-                        MessageChatMemoryAdvisor.builder(chatMemory).build())
+                .defaultAdvisors(new MyLoggerAdvisor())
                 .build();
         this.setChatClient(chatClient);
     }
@@ -132,9 +130,9 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
     private boolean isInScope() {
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(SCOPE_PROMPT));
-        chatMemory.get(getConversationId()).stream()
-                .filter(message -> !(message instanceof SystemMessage))
-                .forEach(messages::add);
+        // 跨轮记忆前缀 + 本轮消息 = 发给主脑的同一份上下文，不再单独读一遍记忆
+        //（advisor 移除后 historyContext 已含压缩视图，重复读只会把同一批行注入两遍）
+        messages.addAll(getHistoryContext());
         messages.addAll(getMessageList());
         ChatResponse response = scopeModel.call(new Prompt(messages));
         String decision = response.getResult().getOutput().getText();

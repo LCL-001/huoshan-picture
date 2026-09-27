@@ -59,7 +59,7 @@ public class AiController {
 
     /**
      * 流式运行一个按请求新建的 Agent，并统一做会话簿记：
-     * 消息落库由 Agent 内部的 Memory Advisor 在每步 LLM 调用后自动完成（读写双向），
+     * 消息落库由 Agent 内部的记忆读写完成（运行开始写用户消息、每步模型调用后写助手消息），
      * 控制器不追加；这里只做会话登记与首条消息的 AI 标题生成。
      */
     private SseEmitter streamAgent(BaseAgent agent, String message, String convId,
@@ -83,11 +83,10 @@ public class AiController {
         // LLM 调用才炸，且报的是 DashScope 的口径——照着那句话永远查不到"该配哪个 key"
         ThrowUtils.throwIf(!openAiChatModels.hasAssistant(), ErrorCode.SYSTEM_ERROR,
                 "图库助手模型未配置：请设置 app.ai.openai.assistant.api-key 与 model");
-        // 前端未传 chatId 时生成一个，避免所有匿名请求共用 advisor 的默认会话，
+        // 前端未传 chatId 时生成一个，避免所有匿名请求挤进同一个默认会话，
         // 造成不同用户的记忆串到同一个会话里
         final String convId = StrUtil.isBlank(chatId) ? UUID.randomUUID().toString() : chatId;
-        // 记忆由 Agent 内部的 Memory Advisor 读取（带 conversationId），
-        // 控制器不再手动加载历史，避免与 advisor 注入的记忆重复
+        // 记忆由 Agent 循环按 conversationId 显式读写，控制器不手动加载历史，避免与记忆前缀重复
         MyManus manus = new MyManus(allTools, openAiChatModels.assistant(), convId, flowWindowBasedChatMemory);
         return streamAgent(manus, message, convId, "manus", request);
     }

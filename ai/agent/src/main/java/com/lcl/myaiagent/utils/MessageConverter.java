@@ -111,7 +111,7 @@ public class MessageConverter {
      * 历史回放（**给模型的那条路**，见 {@code FlowWindowBasedChatMemory}）：把库里的行转成一条合法的消息序列。
      * <p>
      * 为什么要在这里"丢工具痕迹"（2026-09-14 T12 联调实测）：本引擎的记忆**从不持久化工具响应行**
-     * （Memory Advisor 只写模型的 toolCall 决策行，见 {@code ChatHistoryAssembler} 的口径注释），
+     * （记忆写入只落模型的 toolCall 决策行，见 {@code ChatHistoryAssembler} 的口径注释），
      * 所以回放出来的 assistant 消息必然是"带 tool_calls 却没有配对 tool 响应"的非法序列——
      * OpenAI 协议明确要求 assistant(tool_calls) 后面必须紧跟对应的 tool 消息，严格校验的服务端会直接回
      * 400 {@code "An assistant message with 'tool_calls' must be followed by tool messages"}。
@@ -153,35 +153,6 @@ public class MessageConverter {
             return new AssistantMessage(text);
         }
         return toMessage(row);
-    }
-
-    /**
-     * 消息指纹（**会话记忆去重**用）：类型 + 文本 + 工具调用 id + 工具响应 id。
-     * <p>
-     * 为什么需要它（2026-09-14 T12 后续修复）：写记忆的是 Spring AI 的 {@code MessageChatMemoryAdvisor}，
-     * 它在 {@code before()} 里每次调用都执行一次
-     * {@code chatMemory.add(conversationId, prompt.getUserMessage())}——而 {@code getUserMessage()}
-     * 取的是"请求里最后一条用户消息"。本引擎的 ReAct 循环每轮都把整段 messageList 重新提交，
-     * 最后一条用户消息长期就是那条原始提问（下一步提示第一轮用掉后即被置空），于是**每调一次模型
-     * 就把同一条用户消息再写一遍**（实测同一条被写了 3 次）。记忆层按指纹回绝重复，把这件事收敛成"只写一次"。
-     * </p>
-     * <p>
-     * 指纹带上工具调用/响应 id 是必须的：工具决策行的文本常常是空的，只有 metadata 不同——
-     * 只按"类型 + 文本"判重会把两步不同的工具调用误合并成一步（折叠条会丢步骤）。
-     * </p>
-     */
-    public static String fingerprint(Message message) {
-        StringBuilder builder = new StringBuilder(64)
-                .append(message.getMessageType().name())
-                .append('|')
-                .append(message.getText() == null ? "" : message.getText());
-        if (message instanceof AssistantMessage assistantMessage) {
-            assistantMessage.getToolCalls().forEach(toolCall -> builder.append("|tc:").append(toolCall.id()));
-        }
-        if (message instanceof ToolResponseMessage toolMessage) {
-            toolMessage.getResponses().forEach(response -> builder.append("|tr:").append(response.id()));
-        }
-        return builder.toString();
     }
 
     /**
