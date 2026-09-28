@@ -20,7 +20,7 @@
 
 两类结果都返回逐张的 `{pictureId, url, ok, tags[], category, message}`：`ok=false` 的那张带原因（超时/看图失败/没有图片地址），**不影响同一批里的其它张**。
 
-配置（`application.yaml` 的 `app.ai.vision.*`，密钥走环境变量不入库）：`base-url`（**协议根**，不要带 `/v1`）、`api-key`、`model`（例 `mimo-v2.5`）、`timeout-ms`（默认 45000）、`concurrency`（默认 4）、`max-per-request`（默认 8）。三项缺一，接口直接拒绝并给出"请设置 app.ai.vision…"的文案（fail-closed）。
+配置（`application.yaml` 的 `app.ai.vision.*`，密钥走环境变量不入库）：`base-url`（**协议根**，不要带 `/v1`）、`api-key`、`model`（例 `mimo-v2.6-flash`，2026-09-28 由 `mimo-v2.5` 升级）、`timeout-ms`（默认 45000）、`concurrency`（默认 4）、`max-per-request`（默认 8）。三项缺一，接口直接拒绝并给出"请设置 app.ai.vision…"的文案（fail-closed）。
 
 ## 怎么实现
 

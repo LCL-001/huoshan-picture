@@ -87,8 +87,8 @@ mysql -u root -p yu_picture -e "SHOW COLUMNS FROM picture LIKE 'sourceUrl';"
 | `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 是 | 默认 `jdbc:mysql://localhost:3306/huoshan_ai_agent`；用户名必须填写服务器实际创建的 MySQL 用户（本次宝塔真机为 `huoshan_ai_agent`，不能照抄旧示例 `huoshan_agent`）。**引擎不使用 Flyway，空库不会自建表**：先建库再执行 `deploy/sql/engine-schema.sql`（见第 5 节第 1 步）。口径与理由见 `docs/decisions/2026-09-16-flyway-removed.md` |
 | `HUOSHAN_BASE_URL` | 是 | 图库后端地址，默认 `http://localhost:8123/api` |
 | `HUOSHAN_HEADLESS_API_KEY` | 是 | **与后端 `AI_ENGINE_INTERNAL_API_KEY` 同值** |
-| `AI_OPENAI_BASE_URL` / `AI_OPENAI_API_KEY` / `AI_OPENAI_MODEL` | 是 | 主脑（当前 MiMo `mimo-v2.5`，base-url 不带尾部 `/v1`） |
-| `AI_OPENAI_VISION_BASE_URL` / `_API_KEY` / `_MODEL` | 看图打标要 | 视觉模型（MiMo 只有 `mimo-v2.5` 支持图片） |
+| `AI_OPENAI_BASE_URL` / `AI_OPENAI_API_KEY` / `AI_OPENAI_MODEL` | 是 | 主脑（当前 MiMo `mimo-v2.6-flash`，base-url 不带尾部 `/v1`） |
+| `AI_OPENAI_VISION_BASE_URL` / `_API_KEY` / `_MODEL` | 看图打标要 | 视觉模型（MiMo `mimo-v2.6-flash`，同样支持图片输入） |
 | `--app.ai.openai.assistant.extra-body.thinking.type=disabled`<br>`--app.ai.openai.vision.extra-body.thinking.type=disabled` | **是（陷阱 2）** | 入库配置里没有，必须显式给 |
 | `AI_MCP_IMAGE_SEARCH_URL` | 部署 MCP 时 | 默认 `http://localhost:8127` |
 | `AI_MCP_CLIENT_ENABLED` | 见右 | **不部署 MCP 就设 `false`**。不设且 MCP 不可达也能用（失败即降级 + 60s 冷却），但每个故障窗口的**第一次对话要白等约 20s** |
@@ -112,7 +112,7 @@ mysql -u root -p yu_picture -e "SHOW COLUMNS FROM picture LIKE 'sourceUrl';"
    `mysql -u root -p --default-character-set=utf8mb4 huoshan_ai_agent < deploy/sql/engine-schema.sql`
    脚本幂等（`create table if not exists`，可重复执行），自带 `set names utf8mb4`；**`--default-character-set=utf8mb4` 别省**——中文 Windows 上客户端默认字符集不是 utf8mb4，会在带中文默认值的列上报 `ERROR 1067`
 2. 起 MCP（8127）→ 看启动日志无异常
-3. 起引擎（8124）→ 日志里应出现 `OpenAI 协议模型就绪：config=app.ai.openai.assistant, baseUrl=..., model=mimo-v2.5 ... extraBodyKeys=[thinking]`（**`extraBodyKeys=[thinking]` 就是陷阱 2 的验收点**）
+3. 起引擎（8124）→ 日志里应出现 `OpenAI 协议模型就绪：config=app.ai.openai.assistant, baseUrl=..., model=mimo-v2.6-flash ... extraBodyKeys=[thinking]`（**`extraBodyKeys=[thinking]` 就是陷阱 2 的验收点**）
    - **引擎起不来时先看这两条**（2026-09-16 实测过，但都已**不再是默认形态的坑**）：`DashScope API key must be set` → 说明有人把入库配置的 `dashscope.enabled: false` 覆盖回 true 了；`Parameter 1 of constructor in FlowWindowBasedChatMemory required a bean of type ChatModel` → 说明 `spring.ai.model.chat` 被从 `none` 改回去了。**这两条都指向"默认配置被动过"，不要靠补一个 key 去绕**
 4. 起后端（8123，**显式 profile**）→ 日志无 fail-closed 警告
 5. 合并 nginx 片段 → `nginx -t` → `reload`
