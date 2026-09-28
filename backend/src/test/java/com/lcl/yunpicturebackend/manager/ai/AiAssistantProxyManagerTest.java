@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * T10 代理转发单测（docs/plan.md T10）：转发给引擎的请求形状（路径 / query / API key / 凭据组）、
- * SSE 事件流逐帧中继、以及"引擎错误与不可达都要变成用户看得见的一条 answer"。
+ * SSE 事件流逐帧中继、以及"引擎错误与不可达都要变成用户看得见的一条 error 帧"（T39 起不再合成 answer）。
  * 桩引擎是进程内 JDK HttpServer，不依赖外部服务、不依赖 MySQL/Redis，进门禁。
  */
 class AiAssistantProxyManagerTest {
@@ -232,7 +232,7 @@ class AiAssistantProxyManagerTest {
 
         assertThat(REQUESTS.get()).as("代理不得跟随携带内部密钥与用户令牌的重定向").isEqualTo(1);
         assertThat(frames).hasSize(2);
-        assertThat(frames.get(0)).contains("引擎响应异常");
+        assertThat(frames.get(0)).contains("\"event\":\"error\"").contains("引擎响应异常");
         assertThat(frames.get(1)).isEqualTo("[DONE]");
     }
     @Test
@@ -283,7 +283,7 @@ class AiAssistantProxyManagerTest {
     }
 
     @Test
-    void upstreamUnauthorizedErrorBecomesVisibleAnswer() {
+    void upstreamUnauthorizedErrorBecomesVisibleError() {
         stubStatus = 401;
         stubContentType = "application/json;charset=UTF-8";
         stubBody = "{\"code\":40100,\"data\":null,\"message\":\"内部接口未授权：缺少或错误的 X-Internal-Api-Key\"}";
@@ -293,12 +293,12 @@ class AiAssistantProxyManagerTest {
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).hasSize(2);
-        assertThat(frames.get(0)).contains("\"event\":\"answer\"").contains("内部接口未授权");
+        assertThat(frames.get(0)).contains("\"event\":\"error\"").contains("内部接口未授权");
         assertThat(frames.get(1)).isEqualTo("[DONE]");
     }
 
     @Test
-    void upstreamJsonErrorWithOkStatusAlsoBecomesVisibleAnswer() {
+    void upstreamJsonErrorWithOkStatusAlsoBecomesVisibleError() {
         stubStatus = 200;
         stubContentType = "application/json";
         stubBody = "{\"code\":50000,\"data\":null,\"message\":\"图库助手模型未配置：请设置 app.ai.openai.assistant.api-key 与 model\"}";
@@ -308,16 +308,16 @@ class AiAssistantProxyManagerTest {
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).hasSize(2);
-        assertThat(frames.get(0)).contains("图库助手模型未配置");
+        assertThat(frames.get(0)).contains("\"event\":\"error\"").contains("图库助手模型未配置");
         assertThat(frames.get(1)).isEqualTo("[DONE]");
     }
 
     /**
-     * 上游回 200 + 非 JSON 体（典型是网关的 HTML 错误页）：**原文不得进回答气泡**——
+     * 上游回 200 + 非 JSON 体（典型是网关的 HTML 错误页）：**原文不得进用户可见的文案**——
      * 用户只该看到通用文案，细节走日志。这是 2026-09-15 复核提升的 P2。
      */
     @Test
-    void nonJsonUpstreamErrorBodyDoesNotLeakIntoTheAnswer() {
+    void nonJsonUpstreamErrorBodyDoesNotLeakToTheUser() {
         stubStatus = 200;
         stubContentType = "text/html";
         stubBody = "<html><head><title>502 Bad Gateway</title></head><body>"
@@ -329,7 +329,7 @@ class AiAssistantProxyManagerTest {
 
         assertThat(frames).hasSize(2);
         assertThat(frames.get(0))
-                .contains("\"event\":\"answer\"")
+                .contains("\"event\":\"error\"")
                 .contains("引擎响应异常")
                 .as("非 JSON 的上游错误体不得把原文当文案发给用户")
                 .doesNotContain("Bad Gateway")
@@ -339,7 +339,7 @@ class AiAssistantProxyManagerTest {
     }
 
     @Test
-    void unreachableEngineBecomesVisibleAnswer() throws IOException {        int closedPort;
+    void unreachableEngineBecomesVisibleError() throws IOException {        int closedPort;
         try (ServerSocket socket = new ServerSocket(0)) {
             closedPort = socket.getLocalPort();
         }
@@ -350,8 +350,24 @@ class AiAssistantProxyManagerTest {
         List<String> frames = manager.emitter.awaitFrames();
 
         assertThat(frames).hasSize(2);
-        assertThat(frames.get(0)).contains("暂时不可用");
+        assertThat(frames.get(0)).contains("\"event\":\"error\"").contains("暂时不可用");
         assertThat(frames.get(1)).isEqualTo("[DONE]");
+    }
+
+    @Test
+    void interruptedStreamBeforeDoneStillEndsWithVisibleError() {
+        // 中继中断（流断在 [DONE] 之前）：已中继的回答保留，再补一条 error 帧 + [DONE] 收尾（T39）——
+        // 已知限制：此时"答案 + 错误同屏"，语义与 T39 前一致，只是错误不再伪装成 answer
+        stubBody = "data:{\"event\":\"answer\",\"content\":\"说了一半\"}\n\n";
+
+        RecordingManager manager = manager();
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
+        List<String> frames = manager.emitter.awaitFrames();
+
+        assertThat(frames).containsExactly(
+                "{\"event\":\"answer\",\"content\":\"说了一半\"}",
+                "{\"event\":\"error\",\"content\":\"图库助手响应意外中断，请重试\"}",
+                "[DONE]");
     }
 
     @Test

@@ -51,6 +51,9 @@
             <div v-if="turn.answer" class="assistant-bubble assistant-bubble--assistant">
               <AssistantText :text="turn.answer" />
             </div>
+            <div v-if="turn.error" class="assistant-bubble assistant-bubble--error">{{
+              turn.error
+            }}</div>
           </div>
         </div>
 
@@ -198,7 +201,7 @@ const send = async () => {
     ticket = await fetchAssistantTicket()
   } catch {
     turn.running = false
-    turn.answer = '助手暂时不可用（未能取得本次对话凭据），请稍后重试'
+    turn.error = '助手暂时不可用（未能取得本次对话凭据），请稍后重试'
     scrollToBottom()
     return
   }
@@ -214,9 +217,9 @@ const send = async () => {
     },
     onError: (text) => {
       // 协议保证每条流以 [DONE] 收尾（T8-hard），走到这里就是真出错：
-      // 已有回答时把原因追加在后面，避免用户只看到半截回答却不知道出了什么事
+      // 独立错误样式呈现（T39），不再混进回答气泡；已有回答时错误气泡出现在回答下方
       turn.running = false
-      turn.answer = turn.answer ? `${turn.answer}\n\n${text}` : text
+      turn.error = text
       scrollToBottom()
     },
     onNotice: (text) => {
@@ -344,6 +347,15 @@ onUnmounted(() => stream.stop())
   background: var(--app-surface);
   /* 助手回答交给 AssistantText 按块渲染（Markdown 子集），不再原样保留换行 */
   white-space: normal;
+}
+
+/* 失败以独立样式呈现（T39）：不是模型说的话，用虚线红框与回答气泡区分 */
+.assistant-bubble--error {
+  align-self: flex-start;
+  border: 1px dashed #d46b6b;
+  color: #a94442;
+  background: transparent;
+  font-size: 13px;
 }
 
 /* 引擎侧的能力降级提示（T22）：不是错误、也不是模型说的话，单独一行弱化展示 */

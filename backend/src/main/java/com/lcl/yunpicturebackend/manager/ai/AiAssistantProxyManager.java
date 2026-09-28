@@ -126,15 +126,15 @@ public class AiAssistantProxyManager {
             int status = connection.getResponseCode();
             String contentType = connection.getContentType();
             if (status != HttpURLConnection.HTTP_OK || contentType == null || !contentType.contains(SSE_CONTENT_TYPE)) {
-                sendErrorAsAnswer(emitter, describeUpstreamError(status, connection));
+                sendErrorAsError(emitter, describeUpstreamError(status, connection));
                 return;
             }
             if (!relay(emitter, connection.getInputStream())) {
-                sendErrorAsAnswer(emitter, "图库助手响应意外中断，请重试");
+                sendErrorAsError(emitter, "图库助手响应意外中断，请重试");
             }
         } catch (IOException e) {
             log.warn("AI 助手转发失败: {}", e.getMessage());
-            sendErrorAsAnswer(emitter, "图库助手引擎暂时不可用，请稍后重试");
+            sendErrorAsError(emitter, "图库助手引擎暂时不可用，请稍后重试");
         } finally {
             close(upstream);
         }
@@ -264,14 +264,14 @@ public class AiAssistantProxyManager {
     }
 
     /**
-     * 把失败合成一条 {@code answer} 事件 + {@code [DONE]} 后收尾。
-     * 代理不引入新的 SSE 事件类型（event 协议仍只有 step/answer/metrics/[DONE]），
-     * 也不给引擎加契约；这样前端能拿到人能读的原因，而不是"连接断开"。
+     * 把失败合成一条 {@code error} 事件 + {@code [DONE]} 后收尾（T39）。
+     * error 是 F13 协议的既有事件类型（引擎侧失败早已用它），代理侧不再伪装成模型说的话——
+     * 前端据此渲染独立错误样式；这里不引入新事件类型、不给引擎加契约。
      */
-    private void sendErrorAsAnswer(SseEmitter emitter, String text) {
+    private void sendErrorAsError(SseEmitter emitter, String text) {
         try {
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("event", "answer");
+            payload.put("event", "error");
             payload.put("content", text);
             emitter.send(objectMapper.writeValueAsString(payload), MediaType.TEXT_PLAIN);
             emitter.send(DONE_FLAG, MediaType.TEXT_PLAIN);
