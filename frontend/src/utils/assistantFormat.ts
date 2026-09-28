@@ -1,3 +1,5 @@
+import type { AssistantTurn } from './assistantSse'
+
 /** 引擎 step 事件里工具步骤的固定套语（BaseAgent：`工具 X 完成了它的任务！结果：<payload>`） */
 const TOOL_RESULT_MARK = '结果：'
 
@@ -165,4 +167,42 @@ const parseInline = (line: string): InlinePart[] => {
     parts.push({ type: 'text', value: line.slice(cursor) })
   }
   return parts.length > 0 ? parts : [{ type: 'text', value: line }]
+}
+
+/** 引擎历史消息（GET conversations/{chatId}/messages 的 data 元素）里前端用到的字段 */
+export interface HistoryMessage {
+  id: string
+  role: string
+  content: string
+  steps?: { name?: string; content: string }[] | null
+}
+
+/**
+ * 把引擎组装好的"轮"结构翻成页面 turns。ChatHistoryAssembler 保证 user/assistant 交替，
+ * 防御两处：开头就是 assistant（没有归属提问）跳过；同一轮出现连续 assistant 时
+ * answer 取最后一条文本、steps 只在非空时覆盖（空 steps 不擦除已还原的步骤）。
+ * 历史步骤固定按工具步骤渲染（引擎只入库工具决策与工具响应，没有"思考"独立行）。
+ */
+export const assembleHistoryTurns = (messages: HistoryMessage[]): AssistantTurn[] => {
+  const turns: AssistantTurn[] = []
+  for (const message of messages) {
+    if (message.role === 'user') {
+      turns.push({ question: message.content, answer: '', steps: [], running: false })
+      continue
+    }
+    if (message.role !== 'assistant' || turns.length === 0) {
+      continue
+    }
+    const turn = turns[turns.length - 1]
+    turn.answer = message.content
+    const steps = (message.steps ?? []).map((step) => ({
+      kind: 'tool' as const,
+      name: step.name,
+      content: step.content,
+    }))
+    if (steps.length > 0) {
+      turn.steps = steps
+    }
+  }
+  return turns
 }

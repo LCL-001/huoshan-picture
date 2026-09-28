@@ -5,6 +5,18 @@ export interface AssistantStep {
   content: string
 }
 
+/** 一问一答（含这一轮的步骤）：live 会话与历史回放共用同一种页面结构 */
+export interface AssistantTurn {
+  question: string
+  answer: string
+  steps: AssistantStep[]
+  /** 引擎侧的能力降级提示（T22，如"图片搜索服务暂时不可用"）：本轮环境与往常不同时才有 */
+  notice?: string
+  /** 失败原因（T39）：独立错误样式呈现，不再混进回答气泡 */
+  error?: string
+  running: boolean
+}
+
 export interface AssistantStreamHandlers {
   onStep: (step: AssistantStep) => void
   onAnswer: (content: string) => void

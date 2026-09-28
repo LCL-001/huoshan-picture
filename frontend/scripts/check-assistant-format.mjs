@@ -22,7 +22,7 @@ const { transform } = await import('esbuild')
 const { code } = await transform(fs.readFileSync(srcPath, 'utf8'), { loader: 'ts', format: 'esm' })
 const tmp = path.join(os.tmpdir(), `assistantFormat.check.${process.pid}.mjs`)
 fs.writeFileSync(tmp, code, 'utf8')
-const { parseAssistantText, summarizeToolResult, toolLabel } = await import(pathToFileURL(tmp).href)
+const { parseAssistantText, summarizeToolResult, toolLabel, assembleHistoryTurns } = await import(pathToFileURL(tmp).href)
 
 let failed = 0
 const check = (name, actual, expected) => {
@@ -93,6 +93,25 @@ const xss = parseAssistantText('<script>alert(1)</script>\n\n**<img src=x onerro
 checkTrue('no HTML fragments produced (data only; rendering is template interpolation)',
   xss.every((b) => b.items.every((parts) => parts.every((p) => allowed.has(p.type)))),
   JSON.stringify(xss))
+
+// ---------- 6. history turns (T38) ----------
+const historyTurns = assembleHistoryTurns([
+  { id: '0', role: 'assistant', content: '孤立回答', steps: null }, // 首个提问之前 → 跳过
+  { id: '1', role: 'user', content: '列出我的空间', steps: null },
+  { id: '2', role: 'assistant', content: '共 3 个空间',
+    steps: [{ name: 'listSpaces', content: '{"total":3}' }] },
+  { id: '3', role: 'assistant', content: '补充说明', steps: null }, // 同轮第二条：answer 覆盖、空 steps 不擦除
+  { id: '4', role: 'user', content: '看看图片', steps: null },
+  { id: '5', role: 'assistant', content: '共 5 张', steps: null },
+])
+check('history turn count', historyTurns.length, 2)
+check('orphan assistant before first question is dropped', historyTurns[0].question, '列出我的空间')
+check('last assistant text wins for answer', historyTurns[0].answer, '补充说明')
+check('empty steps do not erase restored steps', historyTurns[0].steps,
+  [{ kind: 'tool', name: 'listSpaces', content: '{"total":3}' }])
+check('second turn built from its own pair',
+  [historyTurns[1].question, historyTurns[1].answer], ['看看图片', '共 5 张'])
+check('steps null maps to empty array', historyTurns[1].steps, [])
 
 fs.rmSync(tmp, { force: true })
 console.log(failed === 0 ? '\nRESULT: PASS (assistant format)' : `\nRESULT: ${failed} FAILED`)

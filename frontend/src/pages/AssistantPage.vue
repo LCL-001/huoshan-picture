@@ -7,62 +7,87 @@
       </p>
     </header>
 
-    <a-card
-      class="assistant-card animate-fade-in-up stagger-dyn"
-      style="--stagger-i: 1"
-      :bordered="false"
-    >
-      <template #title>
-        <span class="assistant-card__title">对话</span>
-        <a-tag v-if="loginUserStore.loginUser.userName" color="blue">
-          {{ loginUserStore.loginUser.userName }}
-        </a-tag>
-      </template>
-      <template #extra>
-        <a-button size="small" :disabled="running" @click="startNewChat">新对话</a-button>
-      </template>
+    <div class="assistant-layout">
+      <ConversationSidebar
+        class="assistant-layout__desktop"
+        :conversations="conversations"
+        :active-chat-id="chatId"
+        :loading="conversationsLoading"
+        @select="openConversation"
+        @new-chat="startNewChat"
+      />
 
-      <div ref="listRef" class="assistant-list">
-        <!-- 空状态：示例问题点一下即填入输入框 -->
-        <div v-if="!turns.length" class="assistant-empty">
-          <h3>想从图库里做点什么？</h3>
-          <p>助手会按当前账号权限访问你的空间和图片，只处理与火山图库相关的事项。</p>
-          <div class="assistant-empty__samples">
-            <span v-for="sample in samples" :key="sample" @click="input = sample">{{
-              sample
-            }}</span>
+      <a-card
+        class="assistant-card animate-fade-in-up stagger-dyn"
+        style="--stagger-i: 1"
+        :bordered="false"
+      >
+        <template #title>
+          <span class="assistant-card__title">对话</span>
+          <a-tag v-if="loginUserStore.loginUser.userName" color="blue">
+            {{ loginUserStore.loginUser.userName }}
+          </a-tag>
+        </template>
+        <template #extra>
+          <a-button size="small" :disabled="running" @click="startNewChat">新对话</a-button>
+        </template>
+
+        <div ref="listRef" class="assistant-list">
+          <!-- 空状态：示例问题点一下即填入输入框 -->
+          <div v-if="!turns.length" class="assistant-empty">
+            <h3>想从图库里做点什么？</h3>
+            <p>助手会按当前账号权限访问你的空间和图片，只处理与火山图库相关的事项。</p>
+            <div class="assistant-empty__samples">
+              <span v-for="sample in samples" :key="sample" @click="input = sample">{{
+                sample
+              }}</span>
+            </div>
+          </div>
+
+          <div v-for="(turn, index) in turns" :key="index" class="assistant-turn">
+            <div class="assistant-bubble assistant-bubble--user">{{ turn.question }}</div>
+            <div v-if="turn.notice" class="assistant-notice">{{ turn.notice }}</div>
+            <StepTimeline :steps="turn.steps" :running="turn.running" />
+            <div v-if="turn.answer" class="assistant-bubble assistant-bubble--assistant">
+              <AssistantText :text="turn.answer" />
+            </div>
           </div>
         </div>
 
-        <div v-for="(turn, index) in turns" :key="index" class="assistant-turn">
-          <div class="assistant-bubble assistant-bubble--user">{{ turn.question }}</div>
-          <div v-if="turn.notice" class="assistant-notice">{{ turn.notice }}</div>
-          <StepTimeline :steps="turn.steps" :running="turn.running" />
-          <div v-if="turn.answer" class="assistant-bubble assistant-bubble--assistant">
-            <AssistantText :text="turn.answer" />
+        <div class="assistant-input">
+          <a-textarea
+            v-model:value="input"
+            :auto-size="{ minRows: 2, maxRows: 4 }"
+            :disabled="running"
+            :placeholder="
+              running
+                ? '助手正在回答，请稍候…（可点“停止”中断）'
+                : '输入与空间、图片、标签或素材搜索有关的问题…'
+            "
+            @press-enter="onPressEnter"
+          />
+          <div class="assistant-input__actions">
+            <span class="assistant-input__shortcut">Enter 发送 · Shift+Enter 换行</span>
+            <a-button v-if="running" danger @click="stop">停止</a-button>
+            <a-button v-else type="primary" :disabled="!input.trim()" @click="send">发送</a-button>
           </div>
         </div>
-      </div>
+      </a-card>
+    </div>
 
-      <div class="assistant-input">
-        <a-textarea
-          v-model:value="input"
-          :auto-size="{ minRows: 2, maxRows: 4 }"
-          :disabled="running"
-          :placeholder="
-            running
-              ? '助手正在回答，请稍候…（可点“停止”中断）'
-              : '输入与空间、图片、标签或素材搜索有关的问题…'
-          "
-          @press-enter="onPressEnter"
-        />
-        <div class="assistant-input__actions">
-          <span class="assistant-input__shortcut">Enter 发送 · Shift+Enter 换行</span>
-          <a-button v-if="running" danger @click="stop">停止</a-button>
-          <a-button v-else type="primary" :disabled="!input.trim()" @click="send">发送</a-button>
-        </div>
-      </div>
-    </a-card>
+    <!-- 移动端：侧栏收进抽屉，顶上一条入口 -->
+    <div class="assistant-mobile-bar">
+      <a-button size="small" @click="mobileListOpen = true">历史会话</a-button>
+    </div>
+    <a-drawer v-model:open="mobileListOpen" title="历史会话" placement="left" :width="280">
+      <ConversationSidebar
+        :conversations="conversations"
+        :active-chat-id="chatId"
+        :loading="conversationsLoading"
+        @select="openConversation"
+        @new-chat="startNewChat"
+      />
+    </a-drawer>
   </div>
 </template>
 
@@ -71,19 +96,16 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
 import { buildAssistantChatUrl, fetchAssistantTicket } from '@/api/assistantController.ts'
-import { AssistantStream, type AssistantStep } from '@/utils/assistantSse.ts'
+import {
+  fetchAssistantConversationMessages,
+  listAssistantConversations,
+  type AssistantConversationItem,
+} from '@/api/assistantConversation.ts'
+import { AssistantStream, type AssistantTurn } from '@/utils/assistantSse.ts'
+import { assembleHistoryTurns } from '@/utils/assistantFormat.ts'
 import AssistantText from '@/components/assistant/AssistantText.vue'
 import StepTimeline from '@/components/assistant/StepTimeline.vue'
-
-/** 一问一答（含这一轮的步骤），是本页唯一的会话结构 */
-interface AssistantTurn {
-  question: string
-  answer: string
-  steps: AssistantStep[]
-  /** 引擎侧的能力降级提示（T22，如"图片搜索服务暂时不可用"）：本轮环境与往常不同时才有 */
-  notice?: string
-  running: boolean
-}
+import ConversationSidebar from '@/components/assistant/ConversationSidebar.vue'
 
 const CHAT_ID_KEY = 'assistant-chat-id'
 const samples = [
@@ -102,8 +124,13 @@ const input = ref('')
 const listRef = ref<HTMLElement>()
 const running = computed(() => turns.value.some((turn) => turn.running))
 
-/** 对话串标识：同一 chatId 内助手记得上下文，"新对话"即换一个 */
-let chatId = ''
+/** 对话串标识：同一 chatId 内助手记得上下文，"新对话"即换一个；侧栏高亮也靠它 */
+const chatId = ref('')
+
+/** 会话列表（T38）：进页拉一次，发送成功后重拉，不做本地排序 */
+const conversations = ref<AssistantConversationItem[]>([])
+const conversationsLoading = ref(false)
+const mobileListOpen = ref(false)
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -112,6 +139,37 @@ const scrollToBottom = () => {
       el.scrollTop = el.scrollHeight
     }
   })
+}
+
+const refreshConversations = async () => {
+  conversationsLoading.value = true
+  try {
+    conversations.value = await listAssistantConversations()
+  } catch (e) {
+    // request.ts 拦截器已对 code!==0 做了用户可见提示；这里只降级为"列表空"，不打断对话
+    console.warn('加载会话列表失败', e)
+    conversations.value = []
+  } finally {
+    conversationsLoading.value = false
+  }
+}
+
+const openConversation = async (selected: string) => {
+  if (running.value || selected === chatId.value) {
+    return
+  }
+  stream.stop()
+  chatId.value = selected
+  sessionStorage.setItem(CHAT_ID_KEY, selected)
+  mobileListOpen.value = false
+  try {
+    const history = await fetchAssistantConversationMessages(selected)
+    turns.value = assembleHistoryTurns(history)
+  } catch (e) {
+    console.warn('加载历史会话失败', e)
+    turns.value = []
+  }
+  scrollToBottom()
 }
 
 const onPressEnter = (event: KeyboardEvent) => {
@@ -145,7 +203,7 @@ const send = async () => {
     return
   }
 
-  stream.start(buildAssistantChatUrl(question, chatId, ticket), {
+  stream.start(buildAssistantChatUrl(question, chatId.value, ticket), {
     onStep: (step) => {
       turn.steps.push(step)
       scrollToBottom()
@@ -168,6 +226,8 @@ const send = async () => {
     },
     onDone: () => {
       turn.running = false
+      // 发送成功后重拉列表（T38）：索引表此刻已有该会话，重拉最可靠
+      refreshConversations()
     },
   })
 }
@@ -182,9 +242,10 @@ const stop = () => {
 
 const startNewChat = () => {
   stop()
-  chatId = crypto.randomUUID()
-  sessionStorage.setItem(CHAT_ID_KEY, chatId)
+  chatId.value = crypto.randomUUID()
+  sessionStorage.setItem(CHAT_ID_KEY, chatId.value)
   turns.value = []
+  mobileListOpen.value = false
 }
 
 onMounted(() => {
@@ -193,8 +254,9 @@ onMounted(() => {
     router.replace(`/user/login?redirect=${encodeURIComponent('/assistant')}`)
     return
   }
-  chatId = sessionStorage.getItem(CHAT_ID_KEY) ?? crypto.randomUUID()
-  sessionStorage.setItem(CHAT_ID_KEY, chatId)
+  chatId.value = sessionStorage.getItem(CHAT_ID_KEY) ?? crypto.randomUUID()
+  sessionStorage.setItem(CHAT_ID_KEY, chatId.value)
+  refreshConversations()
 })
 
 onUnmounted(() => stream.stop())
@@ -360,7 +422,34 @@ onUnmounted(() => stream.stop())
   font-size: 12px;
 }
 
+/* ---------- 会话侧栏布局（T38） ---------- */
+
+.assistant-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.assistant-layout .assistant-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.assistant-mobile-bar {
+  display: none;
+  margin-bottom: 8px;
+}
+
 @media (max-width: 768px) {
+  /* 桌面侧栏隐藏，入口收进移动条 + 抽屉 */
+  .assistant-layout__desktop {
+    display: none;
+  }
+
+  .assistant-mobile-bar {
+    display: block;
+  }
+
   .assistant-list {
     height: 60vh;
   }
