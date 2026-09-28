@@ -17,7 +17,10 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -115,6 +118,22 @@ public class AiAssistantController {
         User loginUser = userService.getLoginUser(request);
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR);
         return ResultUtils.success(conversationService.listByUser(loginUser.getId(), page, pageSize));
+    }
+
+    /**
+     * 会话历史消息（T37）：归属判在本服务（索引表 user_id），引擎按 userId+chatId 派生确定性会话 id。
+     * 返回引擎响应体原文（不重新包一层）：引擎 BaseResponse 与本服务同构（code=0 成功），前端按 code 判读。
+     */
+    @ApiOperation("AI 助手会话历史消息")
+    @GetMapping(value = "/conversations/{chatId}/messages", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> conversationMessages(@PathVariable("chatId") String chatId,
+                                                       HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR);
+        conversationService.requireOwned(loginUser.getId(), chatId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(proxyManager.fetchConversationMessages(loginUser.getId(), chatId));
     }
 
     /**

@@ -4,6 +4,7 @@ import cn.dev33.satoken.SaManager;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.AiConversationVO;
 import com.lcl.yunpicturebackend.exception.BusinessException;
+import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantProxyManager;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantTicketManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
@@ -118,5 +119,37 @@ class AiAssistantConversationControllerTest {
 
         verify(conversationService).recordChat(100L, "chat-1", "你好");
         Mockito.verifyNoMoreInteractions(conversationService);
+    }
+
+    @Test
+    void messagesRequireLogin() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        when(userService.getLoginUser(any())).thenReturn(null);
+
+        assertThatThrownBy(() -> controller.conversationMessages("chat-1", request))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void messagesRejectForeignConversationWithoutUpstream() {
+        MockHttpServletRequest request = loggedInRequest();
+        Mockito.doThrow(new BusinessException(ErrorCode.NOT_FOUND_ERROR, "会话不存在或无权访问"))
+                .when(conversationService).requireOwned(100L, "foreign-chat");
+
+        assertThatThrownBy(() -> controller.conversationMessages("foreign-chat", request))
+                .isInstanceOf(BusinessException.class);
+        verify(proxyManager, never()).fetchConversationMessages(anyLong(), anyString());
+    }
+
+    @Test
+    void messagesRelayEngineBodyVerbatim() {
+        MockHttpServletRequest request = loggedInRequest();
+        when(proxyManager.fetchConversationMessages(100L, "chat-1"))
+                .thenReturn("{\"code\":0,\"data\":[]}");
+
+        var entity = controller.conversationMessages("chat-1", request);
+
+        assertThat(entity.getBody()).isEqualTo("{\"code\":0,\"data\":[]}");
+        verify(conversationService).requireOwned(100L, "chat-1");
     }
 }

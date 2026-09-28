@@ -389,6 +389,56 @@ class AiAssistantProxyManagerTest {
         assertThat(REQUESTS.get()).isZero();
     }
 
+    @Test
+    void fetchMessagesCarriesInternalKeyAndRelaysBody() throws IOException {
+        // T37：读历史走同一内部密钥信道，但**不带用户凭据组**（引擎读消息不碰图库）
+        stubContentType = "application/json";
+        stubBody = "{\"code\":0,\"data\":[{\"id\":\"1\",\"role\":\"user\",\"content\":\"hi\"}]}";
+
+        RecordingManager manager = manager();
+        String body = manager.fetchConversationMessages(123L, "chat-1");
+
+        assertThat(body).as("引擎响应体原文逐字透传，代理不重新包装").isEqualTo(stubBody);
+        assertThat(REQUESTS.get()).isEqualTo(1);
+        assertThat(stubMethod).isEqualTo("GET");
+        assertThat(stubUri).startsWith("/api/ai/huoshan/conversations/chat-1/messages");
+        assertThat(queryOf(stubUri)).containsEntry("userId", "123");
+        assertThat(stubApiKey).as("读历史与 /chat 同一内部密钥信道").isEqualTo(API_KEY);
+        assertThat(stubSatoken).as("读历史不转发用户 satoken").isNull();
+        assertThat(stubCookie).as("读历史不转发用户会话 Cookie").isNull();
+    }
+
+    @Test
+    void fetchMessagesThrowsOnNon200() {
+        stubStatus = 500;
+        stubContentType = "application/json";
+        stubBody = "{\"code\":50000,\"message\":\"boom\"}";
+
+        RecordingManager manager = manager();
+        assertThatThrownBy(() -> manager.fetchConversationMessages(123L, "chat-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("引擎暂时不可用")
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.SYSTEM_ERROR.getCode());
+    }
+
+    @Test
+    void fetchMessagesThrowsWhenEngineUnreachable() throws IOException {
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+
+        RecordingManager manager = new RecordingManager(
+                properties("http://127.0.0.1:" + closedPort + "/api", API_KEY), executor);
+
+        assertThatThrownBy(() -> manager.fetchConversationMessages(123L, "chat-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("引擎暂时不可用")
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.SYSTEM_ERROR.getCode());
+    }
+
     /** 记录型 emitter：不绑 servlet 响应，直接收集 send() 的负载，断言确定性 */
     private static class RecordingSseEmitter extends SseEmitter {
 

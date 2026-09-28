@@ -6,14 +6,20 @@ import com.lcl.myaiagent.agent.HuoshanAssistantAgent;
 import com.lcl.myaiagent.agent.HuoshanAssistantSession;
 import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.chatmemory.FlowWindowBasedChatMemory;
+import com.lcl.myaiagent.common.BaseResponse;
 import com.lcl.myaiagent.common.ErrorCode;
+import com.lcl.myaiagent.common.ResultUtils;
 import com.lcl.myaiagent.config.HuoshanAssistantProperties;
 import com.lcl.myaiagent.config.OpenAiChatModels;
 import com.lcl.myaiagent.exception.BusinessException;
 import com.lcl.myaiagent.exception.ThrowUtils;
+import com.lcl.myaiagent.model.po.ChatMessage;
+import com.lcl.myaiagent.model.vo.ChatMessageVO;
+import com.lcl.myaiagent.service.ChatMessageService;
 import com.lcl.myaiagent.tools.huoshan.HuoshanApiClient;
 import com.lcl.myaiagent.tools.huoshan.HuoshanToolFactory;
 import com.lcl.myaiagent.tools.mcp.McpToolCallbackResolver;
+import com.lcl.myaiagent.utils.ChatHistoryAssembler;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +29,7 @@ import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -73,6 +80,10 @@ public class HuoshanAssistantController {
     /** R1 埋点：超时与提前终止的计数（agent 每请求新建，所以由控制器注入） */
     @Resource
     private AgentRunMetrics agentRunMetrics;
+
+    /** T37：读历史要查 chat_message 行（只读，不写） */
+    @Resource
+    private ChatMessageService chatMessageService;
 
     /**
      * 图库助手对话（SSE）。
@@ -134,5 +145,34 @@ public class HuoshanAssistantController {
         return mcp.degraded()
                 ? agent.runStream(message, List.of(new AgentEvent.Notice(MCP_DEGRADED_NOTICE)))
                 : agent.runStream(message);
+    }
+
+    /**
+     * 读一场图库会话的历史（T37，只读）：凭确定性 conversationId 拉整串 chat_message，
+     * 由 ChatHistoryAssembler 组装成前端"轮 + steps"视图。归属已由图库代理判过（索引表 user_id），
+     * 引擎沿用 /chat 的信任模型：持服务间密钥的调用方可信 + UUID 派生天然按用户隔离。
+     * 无行返回空列表（索引有行而引擎行被清理时，前端按"暂无消息"处理）。
+     */
+    @GetMapping("/conversations/{chatId}/messages")
+    public BaseResponse<List<ChatMessageVO>> conversationMessages(@PathVariable("chatId") String chatId,
+                                                                  String userId) {
+        ThrowUtils.throwIf(StrUtil.isBlank(chatId), ErrorCode.PARAMS_ERROR, "chatId 不能为空");
+        String owner;
+        try {
+            owner = HuoshanAssistantSession.owner(userId);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, e.getMessage());
+        }
+        String conversationId = HuoshanAssistantSession.conversationId(owner, chatId);
+        log.info("图库助手读历史, owner={}, conversationId={}", owner, conversationId);
+        return ResultUtils.success(ChatHistoryAssembler.assemble(listRows(conversationId)));
+    }
+
+    /** 查询缝隙（测试用）：ChatMessageService 的 lambdaQuery 链难以 mock，抽出来替换 */
+    protected List<ChatMessage> listRows(String conversationId) {
+        return chatMessageService.lambdaQuery()
+                .eq(ChatMessage::getConversationId, conversationId)
+                .orderByAsc(ChatMessage::getId)
+                .list();
     }
 }

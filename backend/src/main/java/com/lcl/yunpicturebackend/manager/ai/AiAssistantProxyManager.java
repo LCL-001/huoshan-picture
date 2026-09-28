@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lcl.yunpicturebackend.config.AiAssistantProperties;
+import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -166,6 +167,60 @@ public class AiAssistantProxyManager {
             url.append("&chatId=").append(encode(request.chatId()));
         }
         return url.toString();
+    }
+
+    /** 引擎读历史端点（T37）：与 /chat 同一内部密钥信道；读历史不需要用户凭据（引擎不碰图库） */
+    private static final String ENGINE_MESSAGES_PATH = "/ai/huoshan/conversations";
+
+    /**
+     * 按 chatId 拉一场会话的历史消息（T37）。返回引擎响应体原文（BaseResponse JSON），
+     * 由前端按 code 判读——代理不重新包装，避免 data 里再嵌一层转义 JSON。
+     */
+    public String fetchConversationMessages(Long userId, String chatId) {
+        String baseUrl = requireConfigured(properties.getEngineBaseUrl(), "图库助手引擎地址未配置");
+        String apiKey = requireConfigured(properties.getInternalApiKey(), "图库助手引擎密钥未配置");
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(messagesUrl(baseUrl, userId, chatId)).openConnection();
+            connection.setRequestMethod("GET");
+            // 与 /chat 同口径：绝不跟随重定向，避免内部密钥外泄
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty(INTERNAL_API_KEY_HEADER, apiKey);
+            connection.setConnectTimeout(toMillis(properties.getConnectTimeout()));
+            connection.setReadTimeout(toMillis(properties.getReadTimeout()));
+            int status = connection.getResponseCode();
+            if (status != HttpURLConnection.HTTP_OK) {
+                log.warn("AI 助手读历史响应异常, status={}", status);
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "引擎暂时不可用，请稍后重试");
+            }
+            return readAll(connection.getInputStream());
+        } catch (IOException e) {
+            log.warn("AI 助手读历史失败: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "引擎暂时不可用，请稍后重试");
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private String messagesUrl(String baseUrl, Long userId, String chatId) {
+        return StrUtil.removeSuffix(baseUrl, "/") + ENGINE_MESSAGES_PATH
+                + "/" + encode(chatId) + "/messages?userId=" + userId;
+    }
+
+    private String readAll(InputStream body) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(body, StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(line);
+            }
+            return sb.toString();
+        }
     }
 
     /**
