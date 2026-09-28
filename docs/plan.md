@@ -1,6 +1,6 @@
 # Plan — 火山图库（huoshan-picture）
 
-<!-- freshness: { owner: "lcl", reviewed: "2026-09-18" } -->
+<!-- freshness: { owner: "lcl", reviewed: "2026-09-28" } -->
 
 > 任务粒度：一个任务 = 一次可测试的改动 = 一个 commit。每个任务必须标注允许触碰的文件范围。
 > **本文件是索引**：只留活跃任务 + 当前里程碑；实施记录、红绿输出、证据写 `docs/plans/records/`，这里只留指针。已收口里程碑整批结转 `docs/plans/archive/`（见文末「归档」）。
@@ -46,6 +46,12 @@
 - [x] T35（2026-09-28 用户指定）**助手模型升级为 `mimo-v2.6-flash`**（字据）：主脑与 visionTagger 两组同换——官方"图片理解"支持列表含该型号、输入模态含图像，旧口径"图像输入仅 v2.5 支持"已失效；base-url 与关思考模式两条口径不变，零代码改动。
   - 范围：本机三份不入库 yaml（引擎 `local` / `prod`、backend `local`）+ 入库的默认值与示例（`application-prod.yaml.example`、`.env.example`、`backend/src/main/resources/application.yaml` 与 `application-local.yaml.example` 的注释示例）+ 引用同步（`deploy/prod-checklist.md` / F12 / F14）。**线上 prod 不在范围**——型号由服务器环境变量决定。
   - 依据、代价与待验证见 `docs/decisions/2026-09-28-model-upgrade.md`；实施记录与"未做真机冒烟"的缺口见 `docs/plans/records/T35-模型升级.md`；**速度实测补记**（解码 110.3 vs 59.1 tok/s、TTFT 1.4s vs 5.7s，8 次测量无重叠）见 `docs/plans/records/T35-速度实测.md`。
+
+- [ ] T36（2026-09-28 字据，设计与全部口径见 `docs/designs/2026-09-28-助手快赢包设计.md`）**AI 助手会话索引与列表端点**：新表 `ai_conversation`（user_id + chat_id 唯一索引，跟随 is_delete 惯例，SQL 入 backend/sql）；`/api/ai/assistant/chat` 门槛全过后建流前同步 upsert（标题 = 首条消息截断，已存在只刷 update_time 不覆盖标题）；`GET /api/ai/assistant/conversations` 按登录用户分页直出。v1 不做重命名/删除。验收：单测钉 upsert 三语义（首条定标题 / 不覆盖标题 / 刷时间）+ 列表用户隔离 + 未登录 40100（Mockito，不依赖 MySQL）；部署约束：新表 DDL 先于新 jar。
+- [ ] T37 **引擎只读消息端点 + 代理透传**：引擎 `GET /api/ai/huoshan/conversations/{chatId}/messages`（内部密钥信道；userId 归一化 → 确定性 conversationId → `ChatHistoryAssembler` 组装，空返回空列表；零 DDL 零新依赖）；backend `GET /api/ai/assistant/conversations/{chatId}/messages` 先验索引归属（40400 零上游）再透传（userId 取自登录态，不收浏览器参数）。验收：引擎侧派生/组装/空态断言；backend 侧归属校验零上游 + 透传形状断言。
+- [ ] T38 **前端会话侧栏 + 历史回放 + 续聊**：桌面左侧栏 / 移动抽屉；点会话拉历史按轮 + steps 渲染（中文别名与摘要复用 `assistantFormat.ts`，详情 = 截断原文）；选中即把 chatId 写回 sessionStorage 续聊；发送成功后重拉列表。新纯函数进 `check:assistant-format` 断言；type-check 净增 0。
+- [ ] T39 **失败独立呈现**：代理侧合成失败（引擎非 SSE / 连接读取失败 / 流中断）由 answer 改发协议既有 error 帧（仍以 [DONE] 收尾）；前端把 event=error 分流为独立消息类型与错误样式，不再混入助手气泡。引擎侧行为不动（EOF 无 [DONE] 的同屏语义保留，仅呈现形态变化）。验收：代理帧形状断言 + 前端分流断言。
+- [ ] T40 **工具摘要补分支**：`assistantFormat.ts` 的 `summarizeToolResult` 增 visionTagger / searchImage 两类载荷一句话中文摘要（现退化"已完成"）；`check:assistant-format` 补真机样例断言。
 
 ## 未决与非任务事项（不建任务）
 
