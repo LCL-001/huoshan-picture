@@ -45,7 +45,7 @@
 
 - [x] T35（2026-09-28 用户指定）**助手模型升级为 `mimo-v2.6-flash`**（字据）：主脑与 visionTagger 两组同换——官方"图片理解"支持列表含该型号、输入模态含图像，旧口径"图像输入仅 v2.5 支持"已失效；base-url 与关思考模式两条口径不变，零代码改动。
   - 范围：本机三份不入库 yaml（引擎 `local` / `prod`、backend `local`）+ 入库的默认值与示例（`application-prod.yaml.example`、`.env.example`、`backend/src/main/resources/application.yaml` 与 `application-local.yaml.example` 的注释示例）+ 引用同步（`deploy/prod-checklist.md` / F12 / F14）。**线上 prod 不在范围**——型号由服务器环境变量决定。
-  - 依据、代价与待验证见 `docs/decisions/2026-09-28-model-upgrade.md`；实施记录与"未做真机冒烟"的缺口见 `docs/plans/records/T35-模型升级.md`。
+  - 依据、代价与待验证见 `docs/decisions/2026-09-28-model-upgrade.md`；实施记录与"未做真机冒烟"的缺口见 `docs/plans/records/T35-模型升级.md`；**速度实测补记**（解码 110.3 vs 59.1 tok/s、TTFT 1.4s vs 5.7s，8 次测量无重叠）见 `docs/plans/records/T35-速度实测.md`。
 
 ## 未决与非任务事项（不建任务）
 
