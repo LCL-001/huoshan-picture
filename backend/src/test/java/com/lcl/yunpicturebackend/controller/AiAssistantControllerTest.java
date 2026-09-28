@@ -9,6 +9,7 @@ import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantProxyManager;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantTicketManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
+import com.lcl.yunpicturebackend.service.IAiConversationService;
 import com.lcl.yunpicturebackend.service.IUserService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,7 +61,8 @@ class AiAssistantControllerTest {
         userService = mock(IUserService.class);
         proxyManager = mock(AiAssistantProxyManager.class);
         ticketManager = mock(AiAssistantTicketManager.class);
-        controller = new AiAssistantController(userService, proxyManager, ticketManager, "satoken", "SESSION");
+        controller = new AiAssistantController(userService, proxyManager, ticketManager, "satoken", "SESSION",
+                mock(IAiConversationService.class));
         when(proxyManager.chat(any(), any(), any(), any(), any(), any())).thenReturn(new SseEmitter());
         // 常规用例里 TOKEN 就是 USER_ID 真实登录产出的那把，TICKET 就是发给 USER_ID 的那张票
         seedSpaceToken(TOKEN, USER_ID);

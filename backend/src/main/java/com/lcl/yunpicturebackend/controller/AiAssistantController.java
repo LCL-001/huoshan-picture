@@ -5,11 +5,13 @@ import com.lcl.yunpicturebackend.common.BaseResponse;
 import com.lcl.yunpicturebackend.common.ResultUtils;
 import com.lcl.yunpicturebackend.constant.UserConstant;
 import com.lcl.yunpicturebackend.domain.po.User;
+import com.lcl.yunpicturebackend.domain.vo.AiConversationVO;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantProxyManager;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantTicketManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
+import com.lcl.yunpicturebackend.service.IAiConversationService;
 import com.lcl.yunpicturebackend.service.IUserService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -18,11 +20,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
+import java.util.List;
 
 /**
  * AI 助手代理端点（T10）：浏览器只与本服务说话，本服务带凭据组转发到引擎（ai/agent）。
@@ -48,6 +52,7 @@ public class AiAssistantController {
     private final IUserService userService;
     private final AiAssistantProxyManager proxyManager;
     private final AiAssistantTicketManager ticketManager;
+    private final IAiConversationService conversationService;
     /** 与图库 sa-token 配置同名，避免第二处硬编码 token 名 */
     private final String tokenName;
     /** 与图库 Spring Session 的会话 Cookie 名一致（默认 SESSION） */
@@ -57,12 +62,14 @@ public class AiAssistantController {
                                  AiAssistantProxyManager proxyManager,
                                  AiAssistantTicketManager ticketManager,
                                  @Value("${sa-token.token-name:satoken}") String tokenName,
-                                 @Value("${server.servlet.session.cookie.name:SESSION}") String sessionCookieName) {
+                                 @Value("${server.servlet.session.cookie.name:SESSION}") String sessionCookieName,
+                                 IAiConversationService conversationService) {
         this.userService = userService;
         this.proxyManager = proxyManager;
         this.ticketManager = ticketManager;
         this.tokenName = tokenName;
         this.sessionCookieName = sessionCookieName;
+        this.conversationService = conversationService;
     }
 
     /**
@@ -90,8 +97,24 @@ public class AiAssistantController {
         checkTicket(ticket, caller.user());
 
         log.info("AI 助手对话开始, userId={}, chatId={}", caller.user().getId(), chatId);
+        // T36：会话索引（首条消息定标题，已存在只刷时间）。同步单行毫秒级；真机若见建流抖动再异步化
+        conversationService.recordChat(caller.user().getId(), chatId, message);
         return proxyManager.chat(message, caller.user().getId(), chatId, caller.satoken(),
                 caller.sessionCookie(), callerRole(caller.user()));
+    }
+
+    /**
+     * 会话列表（T36）：数据只来自索引表，读多聊少，直出即可。
+     * 纯 GET 无副作用 ⇒ 不需要 ticket（R5 的票只约束"GET 有副作用"的对话端点）。
+     */
+    @ApiOperation("AI 助手会话列表")
+    @GetMapping("/conversations")
+    public BaseResponse<List<AiConversationVO>> conversations(@RequestParam(defaultValue = "1") long page,
+                                                              @RequestParam(defaultValue = "20") long pageSize,
+                                                              HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR);
+        return ResultUtils.success(conversationService.listByUser(loginUser.getId(), page, pageSize));
     }
 
     /**

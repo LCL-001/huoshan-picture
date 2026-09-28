@@ -69,13 +69,16 @@
 | 项 | 来源 | 顺序 | 不做会怎样 |
 |---|---|---|---|
 | 执行 `backend/sql/add_picture_source_url.sql`（`picture` 加 `sourceUrl` 列 + 前缀索引） | T29（`docs/decisions/2026-09-18-source-url-dedupe.md`） | **先于新 jar** | URL 导入与批量抓取的判重查询报 `Unknown column 'sourceUrl'`；文件上传不受影响（不写该列） |
+| 执行 `backend/sql/create_ai_conversation.sql`（新表 `ai_conversation`；幂等，`create table if not exists`） | T36（`docs/designs/2026-09-28-助手快赢包设计.md`） | **先于新 jar** | 助手对话建流前的索引写入与会话列表查询报表不存在，`/ai/assistant/chat`、`/ai/assistant/conversations` 全部报错 |
 | `application-prod.yaml` 的 JDBC URL 补 `rewriteBatchedStatements=true` | T28（`docs/decisions/2026-09-18-batch-crawl-persist.md`） | 随 jar | 批量抓取仍是"一个事务 + N 条 INSERT"，功能正常，只是少一次合并 |
 
 执行示例（在服务器上）：
 
 ```bash
 mysql -u root -p --default-character-set=utf8mb4 yu_picture < backend/sql/add_picture_source_url.sql
+mysql -u root -p --default-character-set=utf8mb4 yu_picture < backend/sql/create_ai_conversation.sql
 mysql -u root -p yu_picture -e "SHOW COLUMNS FROM picture LIKE 'sourceUrl';"
+mysql -u root -p yu_picture -e "SHOW TABLES LIKE 'ai_conversation';"
 ```
 
 ## 3. 引擎（`ai/agent`，新进程）
