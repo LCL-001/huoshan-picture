@@ -43,6 +43,10 @@
   - 依据：查询的 scope 两两不相交，且图片的空间归属创建后不可变（编辑 DTO 无 `spaceId` 字段、替换时空间不一致直接拒）⇒ 一次写入最多影响一个 scope。
   - 讲解见 `docs/features/F4-图片列表多级缓存.md`；实施记录与证据见 `docs/plans/records/T34-缓存失效按空间切.md`。
 
+- [ ] T35（2026-09-28 用户指定）**助手模型升级为 `mimo-v2.6-flash`**（字据）：主脑与 visionTagger 两组同换——官方"图片理解"支持列表含该型号、输入模态含图像，旧口径"图像输入仅 v2.5 支持"已失效；base-url 与关思考模式两条口径不变，零代码改动。
+  - 范围：本机三份不入库 yaml（引擎 `local` / `prod`、backend `local`）+ 入库的默认值与示例（`application-prod.yaml.example`、`.env.example`）+ 引用同步（`deploy/prod-checklist.md` / F12 / F14）。**线上 prod 不在范围**——型号由服务器环境变量决定。
+  - 依据、代价与待验证见 `docs/decisions/2026-09-28-model-upgrade.md`。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。

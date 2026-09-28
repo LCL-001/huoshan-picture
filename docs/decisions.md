@@ -52,7 +52,7 @@
 | 2026-09-14 | **T12 联调发现并修复：记忆回放必须剥掉"未配对的工具调用痕迹"（否则 DeepSeek 严格校验下第二轮工具调用必 400）**：现象——真机跑"帮我整理空间里的图"，第一次 `listSpaces` 成功，紧接着**第二次模型调用直接 400**：`An assistant message with 'tool… | [理由与证据](decisions/2026-09-14-T12.md) | 生效 |
 | 2026-09-14 | 工具入参剥离包裹引号（T12 实测）：`cleanList` 增加成对引号拆除（`"`/`'`/反引号，可套多层）；不按逗号拆分元素（URL 逗号合法，启发式拆分风险大于收益，记为脆弱点） | [理由与证据](decisions/2026-09-14-T12-2.md) | 生效 |
 | 2026-09-15 | **会话记忆按指纹去重（修"同一条用户消息被反复入库"）**：现象——`chat_message` 里同一条用户消息有 **3 份**… | [理由与证据](decisions/2026-09-15-topic01.md) | 生效 |
-| 2026-09-15 | **图库助手模型由 DeepSeek 换成小米 MiMo（`mimo-v2.5`，用户指定）**：① base-url = `https://api.xiaomimimo.com`（协议根；MiMo 文档给的请求地址是 `https://api.xiaomimimo.com/v1/chat/completions`，S… | [理由与证据](decisions/2026-09-15-topic02.md) | 生效 |
+| 2026-09-15 | **图库助手模型由 DeepSeek 换成小米 MiMo（`mimo-v2.5`，用户指定）**：① base-url = `https://api.xiaomimimo.com`（协议根；MiMo 文档给的请求地址是 `https://api.xiaomimimo.com/v1/chat/completions`，S… | [理由与证据](decisions/2026-09-15-topic02.md) | 已废弃（2026-09-28 型号升级） |
 | 2026-09-15 | **T8-hard 循环收敛（用户拍板：T8-c 纳入本轮、`MyManusTest` 直接删、`runSummary()` 保留）**：① `BaseAgent.run()` 退役，`runStream()` 成为唯一运行入口，两套循环收敛到 `runLoop(String, AgentEventListener)`… | [理由与证据](decisions/2026-09-15-T8.md) | 生效 |
 | 2026-09-15 | **T8-c：失败与超时改发显式 `error` 事件，原始异常不再进事件流（规则 12 先红后绿）**：① 新增 `AgentEvent.Error` 与监听器 `event=error` 帧；② `ToolCallAgent.think()` 与 `ReActAgent.step()` **不再吞异常**——原 `… | [理由与证据](decisions/2026-09-15-T8-2.md) | 生效 |
 | 2026-09-15 | **T8-hard 独立 review：有条件通过**（P2 已由 T14 收口、P3 已由 T21 收口；完整处置与观察见详情） | [理由与证据](decisions/2026-09-15-T8-3.md) | 生效 |
@@ -88,3 +88,4 @@
 | 2026-09-18 | **T28/T29/T30 独立 review：有条件通过**：① `sourceUrl` 超长会在整批原子下放大成整批 500，已修（T31）；② 0 张路径真机冒烟交用户执行。另 4 项判为已知限制并关闭、prod JDBC 开关维持既有决定 | [报告要点与未验证项](decisions/2026-09-18-review-batch-crawl.md) | 生效 |
 | 2026-09-27 | **记忆读写去 advisor 化（T32，用户提出）**：移除 `MessageChatMemoryAdvisor`（每轮重读全量注入 + 回写最后一条用户消息），改为循环显式读写——运行开始读一次压缩视图作前缀、写一次用户消息，每步写一次助手消息；指纹去重随之退役；压缩预算 4096→32768（主脑 1M 上下文） | [理由与影响](decisions/2026-09-27-memory-explicit-rw.md) | 生效 |
 | 2026-09-27 | **循环检测重写为双信号滑窗（T33）**：废弃 OpenManus 式"assistant 文本全局计数"（空文本决策行致盲、合法重复误报），改为循环签名（工具签名优先）+ 最近 4 步滑窗 ≥2 判卡死；纠偏 1 次后即强停；RUNNING 才检测（修双 answer） | [理由与调研](decisions/2026-09-27-loop-detection-dual-signal.md) | 生效 |
+| 2026-09-28 | **助手模型升级为 `mimo-v2.6-flash`（T35，用户指定）**：主脑与 vision 两组同换——官方"图片理解"支持列表含该型号、输入模态含图像，旧口径"图像输入仅 v2.5 支持"已失效；base-url 与关思考模式口径不变，零代码改动；线上 prod 型号另由服务器环境变量决定 | [理由与待验证](decisions/2026-09-28-model-upgrade.md) | 生效 |
