@@ -65,7 +65,7 @@ app:
       assistant:
         base-url: ${AI_OPENAI_BASE_URL:https://api.xiaomimimo.com}
         api-key: ${AI_OPENAI_API_KEY:}
-        model: ${AI_OPENAI_MODEL:mimo-v2.5}
+        model: ${AI_OPENAI_MODEL:mimo-v2.6-flash}
         temperature: 0.4
         timeout: 60s
         extra-body:
@@ -74,7 +74,7 @@ app:
       vision:
         base-url: ${AI_OPENAI_VISION_BASE_URL:https://api.xiaomimimo.com}
         api-key: ${AI_OPENAI_VISION_API_KEY:}
-        model: ${AI_OPENAI_VISION_MODEL:mimo-v2.5}
+        model: ${AI_OPENAI_VISION_MODEL:mimo-v2.6-flash}
         temperature: 0.2
         timeout: 120s
         extra-body:

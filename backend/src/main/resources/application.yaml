@@ -130,7 +130,7 @@ app:
       base-url: ${AI_VISION_BASE_URL:}
       # 密钥不入库，走环境变量；三项缺一即视为未配置，两个打标接口直接拒绝（fail-closed）
       api-key: ${AI_VISION_API_KEY:}
-      # 例：mimo-v2.5（该厂商当前唯一支持图片输入的型号）
+      # 例：mimo-v2.6-flash（该厂商 v2.6 系列与 v2.5 都支持图片输入，2026-09-28 核实）
       model: ${AI_VISION_MODEL:}
       # 单张看图的连接/读取超时（毫秒）：单张耗时上界，也是"一张挂死不拖垮整批"的兜底
       timeout-ms: 45000
