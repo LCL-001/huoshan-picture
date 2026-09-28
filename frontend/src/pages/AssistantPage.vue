@@ -158,7 +158,8 @@ const refreshConversations = async () => {
 }
 
 const openConversation = async (selected: string) => {
-  if (running.value || selected === chatId.value) {
+  // 只拦"运行中"；当前会话必须允许重入——刷新后 chatId 未变但气泡区是空的，点侧栏靠这里重载历史
+  if (running.value) {
     return
   }
   stream.stop()
