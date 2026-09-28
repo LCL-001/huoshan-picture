@@ -35,7 +35,7 @@
 - [x] F12 图库助手档 3 工具与联调：写类工具与看图打标工具集（讲解见 `docs/features/F12-图库助手档3工具与联调.md`）
 - [x] F13 对话循环与 SSE 事件协议：循环收敛与协议契约（讲解见 `docs/features/F13-对话循环与SSE事件协议.md`）
 - [x] F14 AI 打标：管理员两步式打标（讲解见 `docs/features/F14-AI打标.md`）
-- [ ] F15 助手快赢包（T36–T40）：会话列表与历史回看续聊（backend `ai_conversation` 索引表 + 引擎只读消息端点 + 前端会话侧栏）、失败以独立错误样式呈现（代理改发协议既有 error 帧）、visionTagger/searchImage 工具步骤摘要。设计与已知限制见 `docs/designs/2026-09-28-助手快赢包设计.md`
+- [ ] F15 助手快赢包（T36–T39）：会话列表与历史回看续聊（backend `ai_conversation` 索引表 + 引擎只读消息端点 + 前端会话侧栏）、失败以独立错误样式呈现（代理改发协议既有 error 帧）。设计与已知限制见 `docs/designs/2026-09-28-助手快赢包设计.md`
 
 ## 技术方案
 
