@@ -125,9 +125,16 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private static final String OUT_PAINTING_PENDING = "PENDING";
 
     /**
-     * 图片列表缓存版本号的 Redis key
+     * 图片列表缓存版本号的 Redis key 前缀。实际 key 按 scope 分开（见 {@link #cacheVersionKey}）：
+     * 空间图库是该空间 id，公共图库是 {@link #CACHE_SCOPE_PUBLIC}。
      */
-    private static final String PICTURE_LIST_CACHE_VERSION_KEY = "huoshantuku:listPictureVOByPage:version";
+    private static final String PICTURE_LIST_CACHE_VERSION_KEY_PREFIX = "huoshantuku:listPictureVOByPage:version";
+
+    /**
+     * 公共图库（spaceId 为空）的缓存 scope 名。
+     * 用字符串而不是 0，避免与"空间 id 恰好是 0"撞成同一个 scope。
+     */
+    static final String CACHE_SCOPE_PUBLIC = "public";
 
     /**
      * 来源地址最大长度：与 backend/sql/add_picture_source_url.sql 里 {@code sourceUrl varchar(1024)} 对齐。
@@ -345,8 +352,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         if (finalOldPicture != null && ObjUtil.notEqual(finalOldPicture.getUrl(), picture.getUrl())) {
             this.cleanupPictureFile(finalOldPicture);
         }
-        // 清除缓存
-        this.clearPictureListCache();
+        // 清除缓存：本次写入只影响这张图所在的空间（finalSpaceId 为空即公共图库）
+        this.clearPictureListCache(cacheScopeOf(finalSpaceId));
         return PictureVO.objToVo(picture);
     }
 
@@ -532,7 +539,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         persistPicturesInBatch(picturesToSave);
         if (CollUtil.isNotEmpty(picturesToSave)) {
             // 清缓存也只做一次：逐张清会在批量执行期间把列表缓存反复打穿
-            this.clearPictureListCache();
+            // 批量抓取一律进公共图库（请求体没有 spaceId），所以只失效 public 这一个 scope
+            this.clearPictureListCache(CACHE_SCOPE_PUBLIC);
             log.info("批量入库成功，图片 ID: {}",
                     picturesToSave.stream().map(Picture::getId).collect(Collectors.toList()));
         }
@@ -744,8 +752,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         updatePicture.setReviewTime(new Date());
         boolean success = this.updateById(updatePicture);
         ThrowUtils.throwIf(!success, ErrorCode.OPERATION_ERROR);
-        // 清除缓存
-        this.clearPictureListCache();
+        // 清除缓存：审核改的是这张图的可见性，只影响它所在的空间
+        this.clearPictureListCache(cacheScopeOf(oldPicture.getSpaceId()));
     }
 
     @Override
@@ -790,8 +798,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             Page<PictureVO> pictureVOPage = JSONUtil.toBean(cachedValue, new TypeReference<Page<PictureVO>>() {}, false);
             return pictureVOPage;
         }
-        // Redis key 携带版本号：清理缓存时只需将版本号 +1，旧 key 靠 TTL 自然过期
-        long cacheVersion = getListCacheVersion();
+        // Redis key 携带版本号，且版本号按 scope（空间 / 公共图库）分开：
+        // 清理缓存时只需把该 scope 的版本号 +1，旧 key 靠 TTL 自然过期；
+        // 写一个空间不会连累其它空间与公共图库的缓存
+        long cacheVersion = getListCacheVersion(cacheScopeOf(pictureQueryRequest.getSpaceId()));
         String key = String.format("huoshantuku:listPictureVOByPage:%d:%s", cacheVersion, hashKey);
         // 本地缓存中没有，再从分布式缓存（Redis）中获取
         cachedValue = getFromRedisCache(key);
@@ -950,39 +960,77 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     }
 
     /**
-     * 清空图片列表缓存
+     * 列表缓存失效的 scope：空间图库是该空间 id，公共图库是 {@link #CACHE_SCOPE_PUBLIC}。
+     * <p>
+     * 读路径从查询请求的 spaceId 推导、写路径从被写图片的 spaceId 推导，两侧共用本方法，
+     * 避免读写口径不一致导致"该失效的没失效"。
+     * <p>
+     * 之所以能按空间切分：查询的 scope 两两不相交（spaceId 为空时只查公共图库，不会跨空间），
+     * 且图片的空间归属创建后不可变（编辑接口没有 spaceId 字段；替换时空间不一致直接拒）
+     * ——所以一次写入最多只影响一个 scope。
      */
-    private void clearPictureListCache() {
+    static String cacheScopeOf(Long spaceId) {
+        return spaceId == null ? CACHE_SCOPE_PUBLIC : String.valueOf(spaceId);
+    }
+
+    /**
+     * 某个 scope 的版本号 key。
+     * <p>
+     * 刻意不设 TTL：计数器一旦过期归零，上一世代的旧 key 会重新变得可达，等于复活陈旧数据。
+     */
+    static String cacheVersionKey(String scope) {
+        return PICTURE_LIST_CACHE_VERSION_KEY_PREFIX + ":" + scope;
+    }
+
+    /**
+     * 清空单个 scope 的图片列表缓存（绝大多数写路径只影响一个空间）
+     */
+    private void clearPictureListCache(String scope) {
+        clearPictureListCache(Collections.singleton(scope));
+    }
+
+    /**
+     * 清空图片列表缓存
+     *
+     * @param scopes 本次写入影响的 scope，见 {@link #cacheScopeOf}
+     */
+    private void clearPictureListCache(Collection<String> scopes) {
         // 事务提交后再失效缓存，避免"清缓存 → 并发请求回源读到未提交旧数据 → 旧数据写回缓存"的竞态
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    doClearPictureListCache();
+                    doClearPictureListCache(scopes);
                 }
             });
         } else {
-            doClearPictureListCache();
+            doClearPictureListCache(scopes);
         }
     }
 
     /**
-     * 实际清理图片列表缓存
+     * 实际清理图片列表缓存：逐个 scope 自增版本号，再清本实例本地缓存并广播。
+     * <p>
+     * 版本号 +1 使该 scope 所有旧版本 key 立即失效，旧 key 靠 TTL 自然过期
+     * （避免使用 KEYS 通配符全库扫描阻塞 Redis）。
+     * <p>
+     * 本地层仍是全清：本地缓存不按空间分片，这是既定取舍（见 docs/features/F4-图片列表多级缓存.md）。
+     * 因此广播报文也不必带 scope——对端收到就是清空自己整个 L1，不需要知道是哪个空间。
      */
-    private void doClearPictureListCache() {
-        // 版本号 +1 使所有旧版本 key 立即失效，旧 key 靠 TTL 自然过期
-        // 避免使用 KEYS 通配符全库扫描阻塞 Redis
-        stringRedisTemplate.opsForValue().increment(PICTURE_LIST_CACHE_VERSION_KEY);
+    private void doClearPictureListCache(Collection<String> scopes) {
+        for (String scope : scopes) {
+            stringRedisTemplate.opsForValue().increment(cacheVersionKey(scope));
+        }
         // 先自增版本号再广播：其它实例收到广播清空本地缓存后回源，读到的是新版本 key，
         // 不会把旧数据写回本地。广播失败时由本地 TTL（5~10 分钟）兜底
         pictureListCacheInvalidator.invalidateAll();
     }
 
     /**
-     * 获取图片列表缓存的当前版本号
+     * 获取某个 scope 的图片列表缓存版本号
      */
-    private long getListCacheVersion() {
-        String version = stringRedisTemplate.opsForValue().get(PICTURE_LIST_CACHE_VERSION_KEY);
+    private long getListCacheVersion(String scope) {
+        String version = stringRedisTemplate.opsForValue().get(cacheVersionKey(scope));
         return version != null ? Long.parseLong(version) : 0L;
     }
 
@@ -1018,8 +1066,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         });
         // 异步清除 cos 中的图片资源
         this.cleanupPictureFile(oldPicture);
-        // 清除缓存
-        clearPictureListCache();
+        // 清除缓存：删除只影响这张图所在的空间
+        clearPictureListCache(cacheScopeOf(oldPicture.getSpaceId()));
     }
 
     @Override
@@ -1050,8 +1098,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         boolean result = this.updateById(picture);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         // 编辑元数据不涉及文件变更，不能清理 COS 中的图片资源
-        // 清除缓存
-        this.clearPictureListCache();
+        // 清除缓存：scope 必须取旧记录——新实体是按 DTO 拷的，其 spaceId 恒为 null，
+        // 拿它推导会把空间图库写成公共图库，导致该空间的列表不刷新
+        this.clearPictureListCache(cacheScopeOf(oldPicture.getSpaceId()));
     }
 
     @Override
@@ -1094,8 +1143,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             tagService.upsertVocabulary(
                     Collections.singletonList(pictureEditRequest.getCategory()), TagTypeEnum.CATEGORY);
         }
-        // 清除缓存
-        this.clearPictureListCache();
+        // 清除缓存：同上，scope 取旧记录的 spaceId（新实体按 DTO 拷，spaceId 恒为 null）
+        this.clearPictureListCache(cacheScopeOf(oldPicture.getSpaceId()));
     }
 
     /**
@@ -1344,8 +1393,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         // 6. 操作数据库，批量更新
         boolean update = this.updateBatchById(pictureList);
         ThrowUtils.throwIf(!update, ErrorCode.OPERATION_ERROR);
-        // 7. 清除列表缓存，避免批量改分类/标签/名称后列表脏读
-        this.clearPictureListCache();
+        // 7. 清除列表缓存，避免批量改分类/标签/名称后列表脏读。
+        // 选图时已按 spaceId 过滤，所以改动只落在请求指定的这一个空间上
+        this.clearPictureListCache(cacheScopeOf(spaceId));
     }
 
     /**
@@ -1565,7 +1615,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         if (CollUtil.isNotEmpty(vocabularyCategories)) {
             tagService.upsertVocabulary(new ArrayList<>(vocabularyCategories), TagTypeEnum.CATEGORY);
         }
-        clearPictureListCache();
+        // 一次打标可能跨多个 scope（选中的图来自不同空间，也可能含公共图库），逐个失效；
+        // 去重后再自增，避免同一个 scope 的版本号被连加多次
+        clearPictureListCache(pictureMap.values().stream()
+                .map(picture -> cacheScopeOf(picture.getSpaceId()))
+                .collect(Collectors.toSet()));
         long written = results.stream().filter(PictureAiTagSuggestionVO::isOk).count();
         log.info("AI 打标落库：adminId={}, requested={}, written={}", loginUser.getId(), items.size(), written);
         return results;
