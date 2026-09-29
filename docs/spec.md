@@ -18,6 +18,7 @@
 ## 现有方案调研（vibe-scout）
 
 > 存量与一期的选型结论：接入前既有选型见 `docs/decisions/legacy-stack.md`；一期各选型见 `docs/decisions/` 与 `docs/designs/2026-09-13-图库智能体一期设计.md`。
+> 助手范围围栏改进的轮子调研（2026-09-28，起因 = T36–T39 冒烟的门卫历史污染误拒）：候选与"借鉴"裁决见 `docs/designs/2026-09-28-助手范围围栏开源调研.md`——借鉴 NeMo Guardrails 的"门卫输入只看当前消息 + 拒绝作为对话一等公民"，未采纳引入护栏框架本体；生效决定待门卫改进立项字据时转入 `docs/decisions.md`。
 
 ## 功能需求
 
