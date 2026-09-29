@@ -17,7 +17,12 @@ import java.util.List;
  * </p>
  * <p>
  * T17 起**看图打标只挂给管理员会话**（用户 2026-09-15 拍板：普通用户的助手摘掉只读打标，
- * 打标是管理员能力）。两个写工具的实现暂时保留，但在确定性用户确认门完成前不装配给模型。
+ * 打标是管理员能力）。
+ * </p>
+ * <p>
+ * T27.6 确认门：写路径以"准备"语义回归——只挂 {@link PrepareBatchEditPicturesTool} /
+ * {@link PrepareUrlImportPicturesTool}（提交操作计划、零写库），原直接写工具已删除；
+ * 真正的写入由用户在确认卡片上确认后由后端原子消费既存计划执行。
  * </p>
  */
 public final class HuoshanToolFactory {
@@ -26,18 +31,22 @@ public final class HuoshanToolFactory {
     }
 
     /**
+     * @param client          图库 API 客户端（per-request，携带调用者凭据组）
+     * @param chatId          图库侧会话 id：prepare 端点要求操作绑定会话（T27.5 确认门口径）
      * @param visionModel     多模态模型（见 OpenAiChatModels.vision()）；**为 null 时不挂 visionTagger**——
      *                        没配视觉模型就该让模型看到"手上没有这个工具"，而不是给它一个每次都报错的工具
      * @param canTagPictures  调用者是否管理员（见 {@code HuoshanAssistantSession.isAdmin}）：为 false 时不挂
      *                        visionTagger——普通用户的助手看不到、也调不到看图打标（T17）
      * @param extraTools      额外工具（T9：搜图 MCP 服务的工具回调）；MCP 没配就是空数组
      */
-    public static ToolCallback[] assistantTools(HuoshanApiClient client, ChatModel visionModel,
+    public static ToolCallback[] assistantTools(HuoshanApiClient client, String chatId, ChatModel visionModel,
                                                 boolean canTagPictures, ToolCallback... extraTools) {
         List<Object> tools = new ArrayList<>(List.of(
                 new ListSpacesTool(client),
                 new ListPicturesTool(client),
-                new GetTagCategoryTool(client)
+                new GetTagCategoryTool(client),
+                new PrepareBatchEditPicturesTool(client, chatId),
+                new PrepareUrlImportPicturesTool(client, chatId)
         ));
         if (visionModel != null && canTagPictures) {
             tools.add(new VisionTaggerTool(client, visionModel));

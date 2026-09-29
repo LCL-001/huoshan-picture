@@ -218,6 +218,22 @@ class SseEventProtocolContractTest {
         }
 
         @Test
+        @DisplayName("confirmation_required 帧（T27.6 确认门）：operationType/operationId/digest/summary + event 字段")
+        void confirmationFrameFields() throws Exception {
+            RecordingSseEmitter emitter = emit(new AgentEvent.Confirmation(
+                    "batch_edit", "op-1", "d1", List.of("目标空间 id：30", "图片：2 张")));
+
+            JsonNode confirmation = jsonOf(emitter, 0);
+            assertThat(confirmation.get("event").asText()).isEqualTo("confirmation_required");
+            assertThat(confirmation.get("operationType").asText()).isEqualTo("batch_edit");
+            assertThat(confirmation.get("operationId").asText()).isEqualTo("op-1");
+            assertThat(confirmation.get("digest").asText()).isEqualTo("d1");
+            assertThat(confirmation.get("summary").get(0).asText()).isEqualTo("目标空间 id：30");
+            assertThat(confirmation.get("summary").get(1).asText()).isEqualTo("图片：2 张");
+            assertThat(confirmation.has("kind")).isFalse();
+        }
+
+        @Test
         @DisplayName("终止帧是原始文本 [DONE]（不是 JSON），并触发 complete()")
         void doneFrameIsRawText() {
             RecordingSseEmitter emitter = emit(new AgentEvent.Answer("完成"), new AgentEvent.Done());

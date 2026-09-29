@@ -4,6 +4,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.model.AgentState;
@@ -37,6 +38,9 @@ import java.util.stream.Collectors;
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class ToolCallAgent extends ReActAgent {
+
+    /** 待确认载荷解析用（T27.6）：仅内存比较与事件组装，不参与持久化 */
+    private static final ObjectMapper CONFIRMATION_MAPPER = new ObjectMapper();
 
     /**
      * 可用的工具回调数组，包含所有可供智能体调用的工具
@@ -203,13 +207,50 @@ public class ToolCallAgent extends ReActAgent {
                     StrUtil.isNotBlank(assistantText) ? assistantText : "任务结束"));
         }
         log.info("{} completed tools: {}", getName(), String.join(",", toolNames));
+        // T27.6 确认门：prepare 类工具返回的"待确认操作"载荷翻成确认卡片事件（排在工具步之前——
+        // 用户先看到要确认什么，再看过程步）。识别按载荷形状（status=pending_confirmation 且带
+        // operationId/digest），循环不需要知道图库工具叫什么。
+        List<AgentEvent> confirmations = toolResponseMessage.getResponses().stream()
+                .map(ToolResponseMessage.ToolResponse::responseData)
+                .map(ToolCallAgent::normalizeToolResponseData)
+                .map(ToolCallAgent::confirmationEventOf)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
         // 模型在发起工具调用前的自然语言推理：前端折叠区作为"思考"步骤展示，空则不发这一帧
-        List<AgentEvent> events = new ArrayList<>(2);
+        List<AgentEvent> events = new ArrayList<>(confirmations.size() + 2);
         if (StrUtil.isNotBlank(assistantText)) {
             events.add(AgentEvent.Step.think(assistantText));
         }
+        events.addAll(confirmations);
         events.add(AgentEvent.Step.tool(String.join("、", toolNames), results));
         return events;
+    }
+
+    /**
+     * 工具返回里若带"待确认操作"载荷（prepare 类工具成功提交计划），翻成确认卡片事件；
+     * 其余返回（错误 JSON、普通工具结果、非 JSON）一律返回 null。
+     * plan 摘要行原样进卡片——它由工具在提交前生成，与后端存储的执行计划同源。
+     */
+    private static AgentEvent.Confirmation confirmationEventOf(String responseData) {
+        if (responseData == null || !responseData.startsWith("{")) {
+            return null;
+        }
+        try {
+            JsonNode node = CONFIRMATION_MAPPER.readTree(responseData);
+            if (!"pending_confirmation".equals(node.path("status").asText(null))
+                    || node.path("operationId").asText("").isEmpty()
+                    || node.path("digest").asText("").isEmpty()) {
+                return null;
+            }
+            List<String> summary = new ArrayList<>();
+            for (JsonNode line : node.path("summary")) {
+                summary.add(line.asText());
+            }
+            return new AgentEvent.Confirmation(node.path("operationType").asText(""),
+                    node.path("operationId").asText(), node.path("digest").asText(), summary);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
     }
 
     /**

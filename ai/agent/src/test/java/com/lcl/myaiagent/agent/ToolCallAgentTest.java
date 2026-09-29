@@ -3,6 +3,7 @@ package com.lcl.myaiagent.agent;
 import com.lcl.myaiagent.agent.event.AgentEvent;
 import com.lcl.myaiagent.agent.model.AgentState;
 import com.lcl.myaiagent.tools.AskHumanTool;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -202,6 +203,73 @@ class ToolCallAgentTest {
             assertThat(agent.getState()).isEqualTo(AgentState.FINISHED);
             assertThat(events).hasSize(1);
             assertThat(((AgentEvent.Answer) events.get(0)).content()).isEqualTo("assistant-text");
+        }
+
+        @Test
+        @DisplayName("T27.6 确认门：prepare 载荷 → 思考帧 + 确认卡片帧 + 工具帧（卡片在过程步之前）")
+        void shouldEmitConfirmationForPendingConfirmationPayload() {
+            setUpAgent(List.of(toolCall("prepareBatchEditPictures", "{}")));
+            agent.think();
+
+            mockToolExecution(ToolResponseMessage.builder()
+                    .responses(List.of(toolResponse("prepareBatchEditPictures", """
+                            {"status":"pending_confirmation","operationType":"batch_edit",
+                            "operationId":"op-123","digest":"d1",
+                            "summary":["目标空间 id：30","图片：2 张","分类 → 风景"],
+                            "note":"待确认"}""")))
+                    .build());
+
+            List<AgentEvent> events = agent.act();
+
+            assertThat(events).hasSize(3);
+            AgentEvent.Confirmation confirmation = (AgentEvent.Confirmation) events.get(1);
+            assertThat(confirmation.operationType()).isEqualTo("batch_edit");
+            assertThat(confirmation.operationId()).isEqualTo("op-123");
+            assertThat(confirmation.digest()).isEqualTo("d1");
+            assertThat(confirmation.summary()).containsExactly("目标空间 id：30", "图片：2 张", "分类 → 风景");
+            assertThat(((AgentEvent.Step) events.get(2)).kind()).isEqualTo(AgentEvent.Step.KIND_TOOL);
+        }
+
+        @Test
+        @DisplayName("T27.6 确认门：带引号包裹的 prepare 载荷同样能翻成确认卡片（Spring AI 序列化形态）")
+        void shouldEmitConfirmationForQuotedPendingConfirmationPayload() throws Exception {
+            setUpAgent(List.of(toolCall("prepareUrlImportPictures", "{}")));
+            agent.think();
+
+            // Spring AI 会把工具返回的字符串再做一层 JSON 序列化（带引号 + 转义），act() 先还原再识别
+            String plain = """
+                    {"status":"pending_confirmation","operationType":"url_import",
+                    "operationId":"op-9","digest":"d9","summary":["入库 URL：2 条"]}""";
+            String quoted = new ObjectMapper().writeValueAsString(plain);
+            mockToolExecution(ToolResponseMessage.builder()
+                    .responses(List.of(toolResponse("prepareUrlImportPictures", quoted)))
+                    .build());
+
+            List<AgentEvent> events = agent.act();
+
+            AgentEvent.Confirmation confirmation = (AgentEvent.Confirmation) events.get(1);
+            assertThat(confirmation.operationType()).isEqualTo("url_import");
+            assertThat(confirmation.operationId()).isEqualTo("op-9");
+        }
+
+        @Test
+        @DisplayName("T27.6 确认门：普通工具结果与错误 JSON 不产确认卡片")
+        void shouldNotEmitConfirmationForOrdinaryResults() throws Exception {
+            setUpAgent(List.of(toolCall("listSpaces", "{}")));
+            agent.think();
+
+            String errorJson = new ObjectMapper().writeValueAsString(
+                    "{\"error\":true,\"code\":40000,\"message\":\"缺少 spaceId\"}");
+            mockToolExecution(ToolResponseMessage.builder()
+                    .responses(List.of(
+                            toolResponse("listSpaces", "共 2 个空间"),
+                            toolResponse("prepareBatchEditPictures", errorJson)))
+                    .build());
+
+            List<AgentEvent> events = agent.act();
+
+            assertThat(events).hasSize(2);
+            assertThat(events).noneMatch(event -> event instanceof AgentEvent.Confirmation);
         }
     }
 

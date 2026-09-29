@@ -1,7 +1,9 @@
 package com.lcl.myaiagent.tools.huoshan;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.lcl.myaiagent.tools.huoshan.dto.PrepareOperationResult;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -32,6 +34,21 @@ final class HuoshanToolSupport {
             log.error("图库工具调用异常", e);
             return errorJson(-1, "调用图库接口失败，请稍后重试");
         }
+    }
+
+    /**
+     * prepare 端点返回的 {operationId, operationType, digest} → 待确认操作结果（T27.6 两个 prepare 工具共用）。
+     * note 是给模型的转述指引：如实告知"待确认、未改动"，防止模型把提交当成已执行。
+     */
+    static PrepareOperationResult pendingConfirmation(String operationType, JsonNode data, List<String> summary) {
+        PrepareOperationResult result = new PrepareOperationResult();
+        result.setStatus(PrepareOperationResult.STATUS_PENDING_CONFIRMATION);
+        result.setOperationType(operationType);
+        result.setOperationId(data.path("operationId").asText(null));
+        result.setDigest(data.path("digest").asText(null));
+        result.setSummary(summary);
+        result.setNote("这是待确认操作：还没有改动任何数据。请提醒用户核对确认卡片内容并点击确认后才会执行，确认结果会展示在确认卡片上；不要重复提交同一操作。");
+        return result;
     }
 
     private static String errorJson(int code, String message) {

@@ -1,5 +1,6 @@
 package com.lcl.myaiagent.agent.event;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -13,7 +14,7 @@ import java.util.Map;
  * {@code BaseAgent.lastStepKind} / {@code lastThinkText} / {@code lastToolNames} 三个受保护字段
  * 在"子类 → 循环"之间传递分类与明细的旁路，已由本接口取代。
  */
-public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, AgentEvent.Metrics, AgentEvent.Error, AgentEvent.Notice, AgentEvent.Done {
+public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, AgentEvent.Metrics, AgentEvent.Error, AgentEvent.Notice, AgentEvent.Confirmation, AgentEvent.Done {
 
     /**
      * 过程步（进前端折叠区）。
@@ -74,6 +75,16 @@ public sealed interface AgentEvent permits AgentEvent.Step, AgentEvent.Answer, A
      * </p>
      */
     record Notice(String content) implements AgentEvent {
+    }
+
+    /**
+     * 待确认写操作卡片（T27.6 确认门）：prepare 类工具成功提交操作计划后，把"用户将要确认什么"
+     * 连同确认凭据推给前端渲染确认卡片。卡片展示的 summary 与后端存储的执行计划同源；
+     * 真正的写入只能由用户确认触发（backend 原子消费并按既存计划执行）——模型只提交计划，
+     * 永远不能替用户授权。
+     */
+    record Confirmation(String operationType, String operationId, String digest,
+                        List<String> summary) implements AgentEvent {
     }
 
     /** 一条流的终止帧。每条流恰好一个，且必须是最后一帧。 */

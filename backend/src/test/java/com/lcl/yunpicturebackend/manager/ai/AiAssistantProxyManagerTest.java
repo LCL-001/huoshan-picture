@@ -183,6 +183,23 @@ class AiAssistantProxyManagerTest {
                 .isEqualTo(UserConstant.DEFAULT_ROLE);
     }
 
+    /** T27.6 确认门：confirmation_required 帧对代理是陌生事件类型，必须逐字透传（协议三处同步的代理侧断言） */
+    @Test
+    void relaysConfirmationRequiredFramesVerbatim() {
+        stubBody = "data:{\"event\":\"confirmation_required\",\"operationType\":\"batch_edit\","
+                + "\"operationId\":\"op-1\",\"digest\":\"d1\",\"summary\":[\"目标空间 id：30\",\"图片：2 张\"]}\n\n"
+                + "data:[DONE]\n\n";
+
+        RecordingManager manager = manager();
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
+        List<String> frames = manager.emitter.awaitFrames();
+
+        assertThat(frames).containsExactly(
+                "{\"event\":\"confirmation_required\",\"operationType\":\"batch_edit\","
+                        + "\"operationId\":\"op-1\",\"digest\":\"d1\",\"summary\":[\"目标空间 id：30\",\"图片：2 张\"]}",
+                "[DONE]");
+    }
+
     @Test
     void forwardsConfiguredCredentialNamesInsteadOfHardCodedDefaults() {
         stubBody = "data:[DONE]\n\n";

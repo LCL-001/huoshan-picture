@@ -119,42 +119,16 @@ public class HuoshanApiClient {
     }
 
     /**
-     * 批量编辑（图库 POST /picture/edit/batch，T7 档 3）：一次改一批图片的分类/标签/名称。
-     * <p>
-     * id 按字符串进 body，与 {@link #listPictures} 的 spaceId 同口径：图库那边是 {@code List<Long>}，
-     * Jackson 会把纯数字字符串强转成 Long，位数原样保留；保持"字符串进出"这一条，后续改动不容易在这里出岔子。
-     * </p>
-     *
-     * @return 图库的批量更新结果（只代表"提交成功"，不代表逐张都改到了——不属于该空间的 id 会被静默跳过）
+     * 提交待确认写操作计划（T27.6 确认门，图库 POST /ai/assistant/operations/prepare）：
+     * 后端只存计划零写库，返回 {operationId, operationType, digest} 供确认卡片与确认请求使用。
+     * 真正的写入由用户在确认卡片上确认后、由后端原子消费既存计划触发——引擎没有直接写路径。
+     * 凭据组照旧随请求带（prepare 端点与对话用同一套登录门槛）。
      */
-    public boolean batchEditPictures(String spaceId, List<String> pictureIds, String category,
-                                     List<String> tags, String nameRule) {
+    public JsonNode prepareOperation(String chatId, JsonNode plan) {
         ObjectNode body = MAPPER.createObjectNode();
-        body.put("spaceId", spaceId);
-        ArrayNode idArray = body.putArray("pictureIdList");
-        pictureIds.forEach(idArray::add);
-        if (category != null && !category.isBlank()) {
-            body.put("category", category);
-        }
-        if (tags != null && !tags.isEmpty()) {
-            ArrayNode tagArray = body.putArray("tags");
-            tags.forEach(tagArray::add);
-        }
-        if (nameRule != null && !nameRule.isBlank()) {
-            body.put("nameRule", nameRule);
-        }
-        return postForData("/picture/edit/batch", body).asBoolean(false);
-    }
-
-    /**
-     * 按 URL 上传单张图片（图库 POST /picture/upload/url，T7 档 3）。
-     * 图库侧自己下载该 URL（仅 http/https、单张 ≤2M、JPEG/PNG/WEBP），批量由工具内部循环调用本方法。
-     */
-    public PictureItem uploadByUrl(String spaceId, String fileUrl) {
-        ObjectNode body = MAPPER.createObjectNode();
-        body.put("spaceId", spaceId);
-        body.put("fileUrl", fileUrl);
-        return toPictureItem(postForData("/picture/upload/url", body));
+        body.put("chatId", chatId);
+        body.set("plan", plan);
+        return postForData("/ai/assistant/operations/prepare", body);
     }
 
     /**

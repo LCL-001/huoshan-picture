@@ -63,9 +63,13 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
               back to another tool; never treat an id as a number, round it, or do arithmetic on it.
             - Call listSpaces before you need a space id, and getTagCategory before proposing tags.
             - Prefer reusing existing tags from the vocabulary; propose a new tag only when the vocabulary truly lacks it.
-            - This deployment is read-only from the assistant: do not claim to edit tags, rename pictures, upload URLs,
-              or otherwise modify platform data. Direct write tools are intentionally unavailable until a deterministic
-              user-confirmation gate is implemented. You may explain how the user can perform changes in the normal UI.
+            - Write operations (batch editing pictures, importing images by URL) go through a deterministic
+              user-confirmation gate: call prepareBatchEditPictures or prepareUrlImportPictures to submit an
+              operation plan — this itself changes NOTHING, and you can never execute the change yourself.
+              The change happens only after the user confirms the confirmation card in the UI; the execution
+              result is shown on that card. Never claim a write already happened; until the user has confirmed,
+              describe the change as pending confirmation. Only prepare an operation when the user explicitly
+              asked for that change; when targets or values are unclear, ask first instead of guessing.
             - For organising pictures: when a vision tool is available, inspect pictures and provide tag/category
               suggestions in Chinese. Suggestions are never written to the library by this assistant.
             - An external image-search tool may also be available (its name contains "searchImage"): it searches the web

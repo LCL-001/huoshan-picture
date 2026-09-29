@@ -137,7 +137,7 @@ public class HuoshanAssistantController {
         // T22：降级时在**本轮开头**给用户一条可见提示——原先只有日志，用户会以为是"助手搜不了"这件事本身
         McpToolCallbackResolver.McpTools mcp = mcpToolCallbackResolver.resolve(mcpToolCallbackProvider::getIfAvailable);
         ToolCallback[] tools = HuoshanToolFactory.assistantTools(
-                huoshanProperties.apiClient(satoken, sessionId), visionModel, canTagPictures, mcp.callbacks());
+                huoshanProperties.apiClient(satoken, sessionId), chatId, visionModel, canTagPictures, mcp.callbacks());
         HuoshanAssistantAgent agent = new HuoshanAssistantAgent(tools, openAiChatModels.assistant(),
                 conversationId, flowWindowBasedChatMemory);
         // R1 埋点：超时与"用户停止/断连"各计一次，供上线后按实测决定是否要换 connector

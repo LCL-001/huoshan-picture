@@ -20,9 +20,9 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * T7 工具装配单测（docs/plan.md T7）：首次公开部署的图库助手工具集 = 三个只读工具，写类工具在确定性确认门完成前不装配，
- * **配了视觉模型、且调用者是管理员时**才多挂 visionTagger（T17 角色裁剪）；
- * 且**不含**任何删除类与文件/终端类工具
+ * T7 工具装配单测（docs/plan.md T7）：图库助手工具集 = 三个只读工具 + 两个 prepare 写工具（T27.6 确认门：
+ * 只挂"准备"语义，真正写入由用户确认后由后端执行；原直接写工具已删除），**配了视觉模型、且调用者是
+ * 管理员时**才多挂 visionTagger（T17 角色裁剪）；且**不含**任何删除类与文件/终端类工具
  * （一期不注册删除类工具，整理只增改不删；图库助手只挂图库工具集 + MCP 搜图，设计文档 L69/L97）。
  */
 class HuoshanToolFactoryTest {
@@ -42,33 +42,39 @@ class HuoshanToolFactoryTest {
         };
     }
 
+    private static final String CHAT_ID = "chat-factory-1";
+
     @Test
-    void withoutVisionModelTheToolSetIsReadOnlyUntilConfirmationGateExists() {
-        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), null, true));
+    void withoutVisionModelTheToolSetIsReadOnlyPlusPrepareTools() {
+        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), CHAT_ID, null, true));
 
         assertThat(names)
                 .as("没配视觉模型就不挂 visionTagger：宁可让模型看见没有这个工具，也别给它一个每次报错的工具")
                 .containsExactlyInAnyOrder(
-                        "listSpaces", "listPictures", "getTagCategory");
+                        "listSpaces", "listPictures", "getTagCategory",
+                        "prepareBatchEditPictures", "prepareUrlImportPictures");
     }
 
     @Test
     void withVisionModelAndAdminTheToolSetAddsVisionTagger() {
-        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), visionStub(), true));
+        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), CHAT_ID, visionStub(), true));
 
         assertThat(names).containsExactlyInAnyOrder(
-                "listSpaces", "listPictures", "getTagCategory", "visionTagger");
+                "listSpaces", "listPictures", "getTagCategory",
+                "prepareBatchEditPictures", "prepareUrlImportPictures",
+                "visionTagger");
     }
 
     /** T17 装配断言（plan T17 验收）：普通用户的会话拿不到看图打标工具——连 visionTagger 这个名字都不出现 */
     @Test
     void visionTaggerIsNotMountedForNonAdminEvenWithVisionModelConfigured() {
-        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), visionStub(), false));
+        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), CHAT_ID, visionStub(), false));
 
         assertThat(names)
                 .as("看图打标是管理员能力（用户 2026-09-15 拍板）：普通用户的助手不该有这个工具")
                 .containsExactlyInAnyOrder(
-                        "listSpaces", "listPictures", "getTagCategory");
+                        "listSpaces", "listPictures", "getTagCategory",
+                        "prepareBatchEditPictures", "prepareUrlImportPictures");
         assertThat(names).noneMatch(name -> name.toLowerCase().contains("vision"));
     }
 
@@ -76,7 +82,7 @@ class HuoshanToolFactoryTest {
     void extraToolsSuchAsTheMcpSearchToolAreAppended() {
         ToolCallback[] mcpTools = ToolCallbacks.from(new StubMcpSearchTool());
 
-        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), visionStub(), true, mcpTools));
+        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), CHAT_ID, visionStub(), true, mcpTools));
 
         assertThat(names)
                 .as("T9：搜图 MCP 服务的工具必须并进图库助手工具集")
@@ -96,7 +102,7 @@ class HuoshanToolFactoryTest {
 
     @Test
     void assistantToolSetHasNoDeletionOrShellTools() {
-        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), visionStub(), true));
+        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), CHAT_ID, visionStub(), true));
 
         assertThat(names)
                 .as("一期口径：不注册删除类工具，也不把文件/终端类工具挂给图库助手")
@@ -105,6 +111,16 @@ class HuoshanToolFactoryTest {
                         || name.toLowerCase().contains("terminal")
                         || name.equals("readFile")
                         || name.equals("writeFile"));
+    }
+
+    /** T27.6 负向控制：直接写工具已删除，模型即使构造旧工具名也无处执行（装配层保证） */
+    @Test
+    void directWriteToolsAreGoneAfterConfirmationGate() {
+        Set<String> names = namesOf(HuoshanToolFactory.assistantTools(client(), CHAT_ID, visionStub(), true));
+
+        assertThat(names)
+                .as("T27.6：直接写工具不得再出现在装配清单里——写入只经确认门执行")
+                .doesNotContain("batchEditPictures", "batchUploadByUrl");
     }
 
     private static Set<String> namesOf(ToolCallback[] tools) {

@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 三个设计取舍：
  * 1. **看图收在工具内**：模型只给 id 列表，工具自己去图库取图片地址、自己逐张调多模态模型——
  *    单步完成 N 张（步数友好），也免得让模型复制粘贴长 URL（那是它最容易出错的环节）；
- * 2. **只给建议、不落库**：落库由 {@code batchEditPictures} 承担，且要等用户确认（设计文档 L58）；
+ * 2. **只给建议、不落库**：落库由 {@code prepareBatchEditPictures} 生成待确认操作、用户确认后由后端执行（设计文档 L58）；
  * 3. **提示词注入当前词表**：优先复用已有标签/分类，词表缺词才提议新标签——词表有分寸地生长（设计文档 L63）。
  * </p>
  * <p>
@@ -110,7 +110,8 @@ public class VisionTaggerTool {
             工具会自己去取图片地址并看图（多张并发，一次最多 8 张，要整理更多就先分批），
             返回 JSON：requested/suggested/skipped/suggestions[]/note，
             suggestions[] 与传入的 id 列表**顺序一一对应**，每条含 pictureId、ok、tags[]、category，失败时还有 message。
-            建议**不会自动落库**：拿到建议后，先把要采用的部分讲给用户，用户确认后再调 batchEditPictures 落库。
+            建议**不会自动落库**：拿到建议后，先把要采用的部分讲给用户，用户确认要用哪些后，
+            再用 prepareBatchEditPictures 生成待确认操作（用户还需在确认卡片上确认才真正写入）。
             """)
     public String visionTagger(
             @ToolParam(description = "空间 id（字符串，原样复制 listSpaces 返回的 items[].id）") String spaceId,
@@ -159,7 +160,7 @@ public class VisionTaggerTool {
         }
         result.setSuggested((int) result.getSuggestions().stream().filter(VisionTagSuggestion::isOk).count());
         if (result.getNote() == null) {
-            result.setNote("以上仅为建议，尚未写入图库；请把要采用的部分告诉用户，确认后再调 batchEditPictures。");
+            result.setNote("以上仅为建议，尚未写入图库；请把要采用的部分告诉用户，确认后用 prepareBatchEditPictures 生成待确认操作。");
         }
         return result;
     }
