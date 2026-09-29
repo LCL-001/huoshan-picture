@@ -25,7 +25,7 @@
 | `ai/agent/.../agent/BaseAgent.java` | 唯一循环 `runLoop(prompt, listener)`；`runStream()` 变薄壳（备 emitter + 挂连接回调 + 异步驱动循环）；`createEmitter()` 测试缝；失败文案与超时判定（沿 cause 链） |
 | `ai/agent/.../agent/ReActAgent.java` | think→act 流转；**不再吞异常**（失败沿栈上抛给循环统一收尾） |
 | `ai/agent/.../agent/ToolCallAgent.java` | `think()` 调模型、`act()` 执行工具并**组装事件**（思考帧 + 工具帧，或一条回答帧） |
-| `ai/agent/.../agent/event/AgentEvent.java` | 事件协议本体：`Step` / `Answer` / `Metrics` / `Error` / `Notice` / `Done`（record 组件名即帧字段名） |
+| `ai/agent/.../agent/event/AgentEvent.java` | 事件协议本体：`Step` / `Answer` / `Metrics` / `Error` / `Notice` / `Confirmation`（T27.6） / `Done`（record 组件名即帧字段名） |
 | `ai/agent/.../agent/event/AgentEventListener.java` | 事件消费者接口（替代原先的受保护字段通道） |
 | `ai/agent/.../agent/event/SseAgentEventListener.java` | 事件 → SSE 帧；`Done` → 原始文本 `[DONE]` + `complete()`；写失败回调整停止标记 |
 | `ai/agent/.../test/.../event/SseEventProtocolContractTest.java` | **协议契约**（帧级 / 循环级 / runStream 级 / 断流） |
@@ -62,6 +62,7 @@ runLoop
 | `Metrics(map)` | `{"event":"metrics", …map 平铺}` |
 | `Error(t)` | `{"event":"error","content":t}` |
 | `Notice(t)`（T22） | `{"event":"notice","content":t}` |
+| `Confirmation(type,id,digest,summary)`（T27.6） | `{"event":"confirmation_required","operationType":…,"operationId":…,"digest":…,"summary":[…]}` |
 | `Done()` | `[DONE]`（**原始文本，不是 JSON**） |
 
 ### 关键设计与理由
