@@ -5,6 +5,7 @@ import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.AiConversationVO;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
+import com.lcl.yunpicturebackend.manager.ai.AiAssistantOperationManager;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantProxyManager;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantTicketManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
@@ -59,7 +60,7 @@ class AiAssistantConversationControllerTest {
         ticketManager = mock(AiAssistantTicketManager.class);
         conversationService = mock(IAiConversationService.class);
         controller = new AiAssistantController(userService, proxyManager, ticketManager,
-                "satoken", "SESSION", conversationService);
+                "satoken", "SESSION", conversationService, mock(AiAssistantOperationManager.class));
     }
 
     @AfterEach

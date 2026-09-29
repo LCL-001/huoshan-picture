@@ -28,4 +28,7 @@ public class AiAssistantProperties {
 
     /** 读取超时（含流空闲）：必须大于引擎 SseEmitter 的 300s，否则正常长对话会被代理提前掐断 */
     private Duration readTimeout = Duration.ofMinutes(6);
+
+    /** 待执行操作（T27.5 确认门）在 Redis 的有效期：确认卡片出现后须在该窗口内完成确认 */
+    private Duration operationTtl = Duration.ofMinutes(10);
 }

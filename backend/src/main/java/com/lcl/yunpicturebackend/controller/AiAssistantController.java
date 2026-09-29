@@ -4,10 +4,15 @@ import cn.hutool.core.util.StrUtil;
 import com.lcl.yunpicturebackend.common.BaseResponse;
 import com.lcl.yunpicturebackend.common.ResultUtils;
 import com.lcl.yunpicturebackend.constant.UserConstant;
+import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationConfirmRequest;
+import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPrepareRequest;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.AiConversationVO;
+import com.lcl.yunpicturebackend.domain.vo.AiOperationPrepareVO;
+import com.lcl.yunpicturebackend.domain.vo.AiOperationResultVO;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
+import com.lcl.yunpicturebackend.manager.ai.AiAssistantOperationManager;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantProxyManager;
 import com.lcl.yunpicturebackend.manager.ai.AiAssistantTicketManager;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
@@ -22,6 +27,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -56,6 +62,7 @@ public class AiAssistantController {
     private final AiAssistantProxyManager proxyManager;
     private final AiAssistantTicketManager ticketManager;
     private final IAiConversationService conversationService;
+    private final AiAssistantOperationManager operationManager;
     /** 与图库 sa-token 配置同名，避免第二处硬编码 token 名 */
     private final String tokenName;
     /** 与图库 Spring Session 的会话 Cookie 名一致（默认 SESSION） */
@@ -66,13 +73,15 @@ public class AiAssistantController {
                                  AiAssistantTicketManager ticketManager,
                                  @Value("${sa-token.token-name:satoken}") String tokenName,
                                  @Value("${server.servlet.session.cookie.name:SESSION}") String sessionCookieName,
-                                 IAiConversationService conversationService) {
+                                 IAiConversationService conversationService,
+                                 AiAssistantOperationManager operationManager) {
         this.userService = userService;
         this.proxyManager = proxyManager;
         this.ticketManager = ticketManager;
         this.tokenName = tokenName;
         this.sessionCookieName = sessionCookieName;
         this.conversationService = conversationService;
+        this.operationManager = operationManager;
     }
 
     /**
@@ -134,6 +143,36 @@ public class AiAssistantController {
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(proxyManager.fetchConversationMessages(loginUser.getId(), chatId));
+    }
+
+    /**
+     * 写操作准备（T27.5 确认门第一步）：引擎带用户凭据提交规范化操作计划，本端点只做
+     * 轻量形状校验并存入 Redis（**零写库**），返回 operationId 与 digest 供确认环节使用。
+     * <p>
+     * 登录门槛与 chat 相同（{@link #requireTrustedCaller}）。不要求一次性 ticket：
+     * R5 的票针对的是"跨站顶层导航能触发 GET"的对话端点，本端点是 POST
+     * （SameSite=Lax 下跨站 POST 带不来凭据组），与 /ticket 端点本身同一先例。
+     */
+    @ApiOperation("AI 助手写操作准备（只存计划，零写库）")
+    @PostMapping("/operations/prepare")
+    public BaseResponse<AiOperationPrepareVO> prepareOperation(@RequestBody AiOperationPrepareRequest prepareRequest,
+                                                               HttpServletRequest request) {
+        TrustedCaller caller = requireTrustedCaller(request);
+        return ResultUtils.success(operationManager.prepare(caller.user().getId(), prepareRequest));
+    }
+
+    /**
+     * 写操作确认（T27.5 确认门第二步）：请求只携带 operationId + chatId + digest，
+     * **绝不接受任何可替换的业务 payload**；管理器把"用户/会话/摘要全匹配 + 单次删除消费"
+     * 做成一个原子脚本，消费成功后用服务端保存的原始计划执行——loginUser 取自本次请求
+     * 的登录态，空间 RBAC、额度与 URL 安全校验全部由既有 picture service 判定，确认不绕过它们。
+     */
+    @ApiOperation("AI 助手写操作确认（原子消费并执行既存计划）")
+    @PostMapping("/operations/confirm")
+    public BaseResponse<AiOperationResultVO> confirmOperation(@RequestBody AiOperationConfirmRequest confirmRequest,
+                                                              HttpServletRequest request) {
+        TrustedCaller caller = requireTrustedCaller(request);
+        return ResultUtils.success(operationManager.confirm(caller.user(), confirmRequest));
     }
 
     /**
