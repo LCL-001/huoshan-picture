@@ -1,4 +1,5 @@
 import type { AssistantTurn } from './assistantSse'
+import type { AssistantOperationResult } from '@/api/assistantController.ts'
 
 /** 引擎 step 事件里工具步骤的固定套语（BaseAgent：`工具 X 完成了它的任务！结果：<payload>`） */
 const TOOL_RESULT_MARK = '结果：'
@@ -11,6 +12,8 @@ const TOOL_LABELS: Record<string, string> = {
   visionTagger: '看图打标建议',
   batchEditPictures: '批量修改图片',
   batchUploadByUrl: '按 URL 入库',
+  prepareBatchEditPictures: '生成批量修改待确认操作',
+  prepareUrlImportPictures: '生成 URL 入库待确认操作',
   searchImage: '联网搜图',
 }
 
@@ -41,6 +44,10 @@ export const summarizeToolResult = (content: string, name?: string): string => {
   if (payload.error === true) {
     const reason = typeof payload.message === 'string' ? payload.message : '未知原因'
     return `失败：${reason}`
+  }
+  // prepare 工具的成功返回（T27.6 确认门）：计划已提交待确认，如实说明"还没改动任何数据"
+  if (payload.status === 'pending_confirmation') {
+    return '已生成待确认操作（未改动数据）'
   }
   // 打标只给建议、不落库，摘要里必须如实说清（与工具自己的 note 同口径）
   if (typeof payload.suggested === 'number') {
@@ -167,6 +174,51 @@ const parseInline = (line: string): InlinePart[] => {
     parts.push({ type: 'text', value: line.slice(cursor) })
   }
   return parts.length > 0 ? parts : [{ type: 'text', value: line }]
+}
+
+/** 待确认操作类型 → 卡片标题；认不出就退回通用说法（不暴露内部类型名） */
+export const assistantConfirmationTitle = (operationType: string): string => {
+  if (operationType === 'batch_edit') {
+    return '批量编辑图片'
+  }
+  if (operationType === 'url_import') {
+    return '按 URL 入库'
+  }
+  return '写操作'
+}
+
+/**
+ * 确认执行结果 → 卡片上的结果行（T27.7）。
+ * 如实呈现"提交了几张 / 成功几条"：batch_edit 只代表提交成功（图库按空间与图片过滤，
+ * 不逐张确认），url_import 逐条上报；失败原因取后端的用户安全文案，最多列 5 条。
+ */
+export const describeAssistantOperationResult = (result: AssistantOperationResult): string[] => {
+  const requested = typeof result.requestedCount === 'number' ? result.requestedCount : null
+  const lines: string[] = []
+  if (result.operationType === 'url_import') {
+    const succeeded = typeof result.succeededCount === 'number' ? result.succeededCount : 0
+    const failed = typeof result.failedCount === 'number' ? result.failedCount : 0
+    lines.push(
+      result.success
+        ? `入库完成：成功 ${succeeded} / ${requested ?? succeeded + failed} 条`
+        : `入库未完全成功：成功 ${succeeded} 条，未成功 ${failed} 条`,
+    )
+  } else if (requested !== null) {
+    lines.push(result.success ? `执行完成：已提交 ${requested} 张` : '执行未完成')
+  } else {
+    lines.push(result.success ? '执行完成' : '执行未完成')
+  }
+  if (result.message) {
+    lines.push(result.message)
+  }
+  const failures = (result.items ?? []).filter((item) => !item.ok && item.message)
+  for (const item of failures.slice(0, 5)) {
+    lines.push(`未成功原因：${item.message}`)
+  }
+  if (failures.length > 5) {
+    lines.push(`…另有 ${failures.length - 5} 条未成功原因略`)
+  }
+  return lines
 }
 
 /** 引擎历史消息（GET conversations/{chatId}/messages 的 data 元素）里前端用到的字段 */

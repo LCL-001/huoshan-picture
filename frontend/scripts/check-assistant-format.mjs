@@ -17,12 +17,28 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const srcPath = path.join(here, '..', 'src', 'utils', 'assistantFormat.ts')
+const ssePath = path.join(here, '..', 'src', 'utils', 'assistantSse.ts')
 
 const { transform } = await import('esbuild')
-const { code } = await transform(fs.readFileSync(srcPath, 'utf8'), { loader: 'ts', format: 'esm' })
-const tmp = path.join(os.tmpdir(), `assistantFormat.check.${process.pid}.mjs`)
-fs.writeFileSync(tmp, code, 'utf8')
-const { parseAssistantText, summarizeToolResult, toolLabel, assembleHistoryTurns } = await import(pathToFileURL(tmp).href)
+const transpile = async (srcPath) => {
+  const { code } = await transform(fs.readFileSync(srcPath, 'utf8'), { loader: 'ts', format: 'esm' })
+  const tmp = path.join(os.tmpdir(), `${path.basename(srcPath, '.ts')}.check.${process.pid}.mjs`)
+  fs.writeFileSync(tmp, code, 'utf8')
+  const loaded = await import(pathToFileURL(tmp).href)
+  fs.rmSync(tmp, { force: true })
+  return loaded
+}
+const format = await transpile(srcPath)
+const sse = await transpile(ssePath)
+const {
+  parseAssistantText,
+  summarizeToolResult,
+  toolLabel,
+  assembleHistoryTurns,
+  assistantConfirmationTitle,
+  describeAssistantOperationResult,
+} = format
+const { parseAssistantConfirmation } = sse
 
 let failed = 0
 const check = (name, actual, expected) => {
@@ -113,6 +129,52 @@ check('second turn built from its own pair',
   [historyTurns[1].question, historyTurns[1].answer], ['看看图片', '共 5 张'])
 check('steps null maps to empty array', historyTurns[1].steps, [])
 
-fs.rmSync(tmp, { force: true })
+// ---------- T27.7 confirmation card (SSE frame parsing + card copy + result lines) ----------
+check('confirmation frame parsed (fields verbatim)',
+  parseAssistantConfirmation({
+    event: 'confirmation_required',
+    operationType: 'batch_edit',
+    operationId: 'op-1',
+    digest: 'd1',
+    summary: ['target space 30', '2 pictures'],
+  }),
+  { operationType: 'batch_edit', operationId: 'op-1', digest: 'd1', summary: ['target space 30', '2 pictures'] })
+checkTrue('confirmation without digest is rejected',
+  parseAssistantConfirmation({ event: 'confirmation_required', operationId: 'op', summary: [] }) === null)
+checkTrue('confirmation without operationId is rejected',
+  parseAssistantConfirmation({ event: 'confirmation_required', digest: 'd', summary: [] }) === null)
+checkTrue('non-confirmation event is rejected',
+  parseAssistantConfirmation({ event: 'step', operationId: 'op', digest: 'd', summary: [] }) === null)
+checkTrue('non-array summary is rejected',
+  parseAssistantConfirmation({ event: 'confirmation_required', operationId: 'op', digest: 'd', summary: 'x' }) === null)
+
+check('confirmation titles',
+  [assistantConfirmationTitle('batch_edit'), assistantConfirmationTitle('url_import'), assistantConfirmationTitle('mystery')],
+  ['\u6279\u91cf\u7f16\u8f91\u56fe\u7247', '\u6309 URL \u5165\u5e93', '\u5199\u64cd\u4f5c'])
+
+check('result lines: url_import full success',
+  describeAssistantOperationResult({
+    operationType: 'url_import', success: true, requestedCount: 2, succeededCount: 2, failedCount: 0,
+  }),
+  ['\u5165\u5e93\u5b8c\u6210\uff1a\u6210\u529f 2 / 2 \u6761'])
+check('result lines: url_import partial, reasons capped at 5',
+  describeAssistantOperationResult({
+    operationType: 'url_import', success: false, requestedCount: 8, succeededCount: 2, failedCount: 6,
+    items: [3, 4, 5, 6, 7, 8].map((n) => ({ ok: false, message: `reason-${n}` })),
+  }),
+  ['\u5165\u5e93\u672a\u5b8c\u5168\u6210\u529f\uff1a\u6210\u529f 2 \u6761\uff0c\u672a\u6210\u529f 6 \u6761',
+    '\u672a\u6210\u529f\u539f\u56e0\uff1areason-3',
+    '\u672a\u6210\u529f\u539f\u56e0\uff1areason-4',
+    '\u672a\u6210\u529f\u539f\u56e0\uff1areason-5',
+    '\u672a\u6210\u529f\u539f\u56e0\uff1areason-6',
+    '\u672a\u6210\u529f\u539f\u56e0\uff1areason-7',
+    '\u2026\u53e6\u6709 1 \u6761\u672a\u6210\u529f\u539f\u56e0\u7565'])
+check('result lines: batch_edit submit-only semantics',
+  describeAssistantOperationResult({ operationType: 'batch_edit', success: true, requestedCount: 3 }),
+  ['\u6267\u884c\u5b8c\u6210\uff1a\u5df2\u63d0\u4ea4 3 \u5f20'])
+check('result lines: backend message carried through',
+  describeAssistantOperationResult({ operationType: 'batch_edit', success: true, requestedCount: 1, message: 'note-here' }),
+  ['\u6267\u884c\u5b8c\u6210\uff1a\u5df2\u63d0\u4ea4 1 \u5f20', 'note-here'])
+
 console.log(failed === 0 ? '\nRESULT: PASS (assistant format)' : `\nRESULT: ${failed} FAILED`)
 process.exit(failed === 0 ? 0 : 1)

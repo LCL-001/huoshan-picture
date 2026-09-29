@@ -3,7 +3,7 @@
     <header class="page-header animate-fade-in-up">
       <h2 class="page-title">AI 助手</h2>
       <p class="page-subtitle">
-        专注于火山图库：帮你查询空间和图片、查看标签、搜索图片素材。当前助手只提供查询和建议，不会直接修改图库。
+        专注于火山图库：查询空间和图片、查看标签、搜索素材，也能把整理与入库生成待确认操作——你在确认卡片上确认后才会执行。
       </p>
     </header>
 
@@ -48,6 +48,40 @@
             <div class="assistant-bubble assistant-bubble--user">{{ turn.question }}</div>
             <div v-if="turn.notice" class="assistant-notice">{{ turn.notice }}</div>
             <StepTimeline :steps="turn.steps" :running="turn.running" />
+            <!-- 确认卡片（T27.7）：只在实时流出现；展示的 summary 与后端执行的计划同源 -->
+            <div
+              v-for="card in turn.confirmations ?? []"
+              :key="card.operationId"
+              class="assistant-confirm-card"
+            >
+              <div class="assistant-confirm-card__title">
+                待确认：{{ assistantConfirmationTitle(card.operationType) }}
+              </div>
+              <ul class="assistant-confirm-card__summary">
+                <li v-for="line in card.summary" :key="line">{{ line }}</li>
+              </ul>
+              <div class="assistant-confirm-card__actions">
+                <template v-if="cardView(card.operationId).status === 'pending'">
+                  <a-button size="small" type="primary" @click="confirmOperation(card)">
+                    确认执行
+                  </a-button>
+                  <a-button size="small" @click="cancelOperation(card)">取消</a-button>
+                </template>
+                <a-button
+                  v-else-if="cardView(card.operationId).status === 'confirming'"
+                  size="small"
+                  type="primary"
+                  loading
+                >
+                  确认中
+                </a-button>
+              </div>
+              <div
+                v-if="cardView(card.operationId).resultText?.length"
+                class="assistant-confirm-card__result"
+                >{{ cardView(card.operationId).resultText?.join('\n') }}</div
+              >
+            </div>
             <div v-if="turn.answer" class="assistant-bubble assistant-bubble--assistant">
               <AssistantText :text="turn.answer" />
             </div>
@@ -98,14 +132,18 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
-import { buildAssistantChatUrl, fetchAssistantTicket } from '@/api/assistantController.ts'
+import { buildAssistantChatUrl, confirmAssistantOperation, fetchAssistantTicket } from '@/api/assistantController.ts'
 import {
   fetchAssistantConversationMessages,
   listAssistantConversations,
   type AssistantConversationItem,
 } from '@/api/assistantConversation.ts'
-import { AssistantStream, type AssistantTurn } from '@/utils/assistantSse.ts'
-import { assembleHistoryTurns } from '@/utils/assistantFormat.ts'
+import { AssistantStream, type AssistantConfirmation, type AssistantTurn } from '@/utils/assistantSse.ts'
+import {
+  assembleHistoryTurns,
+  assistantConfirmationTitle,
+  describeAssistantOperationResult,
+} from '@/utils/assistantFormat.ts'
 import AssistantText from '@/components/assistant/AssistantText.vue'
 import StepTimeline from '@/components/assistant/StepTimeline.vue'
 import ConversationSidebar from '@/components/assistant/ConversationSidebar.vue'
@@ -142,6 +180,54 @@ const scrollToBottom = () => {
       el.scrollTop = el.scrollHeight
     }
   })
+}
+
+// ---------- 确认卡片状态簿记（T27.7） ----------
+
+type ConfirmationCardStatus = 'pending' | 'confirming' | 'done' | 'cancelled' | 'failed'
+interface ConfirmationCardView {
+  status: ConfirmationCardStatus
+  resultText?: string[]
+}
+
+const CANCELLED_NOTE = '已取消：本次操作不会执行（未确认的操作会自动过期作废）'
+const CONFIRM_FAILURE_FALLBACK = '操作可能已过期，请重新让助手生成待确认操作'
+
+/** 按 operationId 簿记卡片状态：默认 pending；确认中即时定格，双击/重放被状态挡住 */
+const confirmationCards = ref<Record<string, ConfirmationCardView>>({})
+
+const cardView = (operationId: string): ConfirmationCardView =>
+  confirmationCards.value[operationId] ?? { status: 'pending' }
+
+const confirmOperation = async (card: AssistantConfirmation) => {
+  if (cardView(card.operationId).status !== 'pending') {
+    return
+  }
+  confirmationCards.value[card.operationId] = { status: 'confirming' }
+  try {
+    // 只回传卡片上展示过的 operationId + 当前会话 + digest——实际执行的是后端保存的原始计划
+    const result = await confirmAssistantOperation(card.operationId, chatId.value, card.digest)
+    confirmationCards.value[card.operationId] = {
+      status: 'done',
+      resultText: describeAssistantOperationResult(result),
+    }
+  } catch (e) {
+    // 后端失败文案是用户安全口径（过期/已处理/RBAC），原样展示；网络异常退固定文案
+    const reason = e instanceof Error && e.message ? e.message : CONFIRM_FAILURE_FALLBACK
+    confirmationCards.value[card.operationId] = {
+      status: 'failed',
+      resultText: [`确认未完成：${reason}`],
+    }
+  }
+  scrollToBottom()
+}
+
+const cancelOperation = (card: AssistantConfirmation) => {
+  if (cardView(card.operationId).status !== 'pending') {
+    return
+  }
+  // 纯客户端取消：不发请求，操作留在后端等 TTL 过期自动作废（原子消费保证它不会被执行）
+  confirmationCards.value[card.operationId] = { status: 'cancelled', resultText: [CANCELLED_NOTE] }
 }
 
 const refreshConversations = async () => {
@@ -226,6 +312,11 @@ const send = async () => {
     onNotice: (text) => {
       // 能力降级提示（T22）：单独一行，不混进回答里——它不是模型说的话
       turn.notice = text
+      scrollToBottom()
+    },
+    onConfirmation: (confirmation) => {
+      // 待确认操作（T27.7）：进卡片列表，一次对话可能生成多个操作
+      turn.confirmations = [...(turn.confirmations ?? []), confirmation]
       scrollToBottom()
     },
     onDone: () => {
@@ -368,6 +459,45 @@ onUnmounted(() => stream.stop())
   border-radius: var(--app-radius-md);
   font-size: 12px;
   opacity: 0.85;
+}
+
+/* 确认卡片（T27.7）：用户即将授权的写操作，视觉上要有"需要你拍板"的分量 */
+.assistant-confirm-card {
+  align-self: flex-start;
+  max-width: 82%;
+  padding: 10px 12px;
+  border: 1px solid var(--app-primary);
+  border-left-width: 4px;
+  border-radius: var(--app-radius-md);
+  background: var(--app-primary-softer);
+}
+
+.assistant-confirm-card__title {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-primary);
+}
+
+.assistant-confirm-card__summary {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.assistant-confirm-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.assistant-confirm-card__result {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ---------- 空状态 ---------- */

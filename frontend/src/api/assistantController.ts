@@ -6,6 +6,46 @@ const ASSISTANT_CHAT_PATH = '/api/ai/assistant/chat'
 /** 一次性凭据端点（R5）：每次建流前先取一张票 */
 const ASSISTANT_TICKET_PATH = '/api/ai/assistant/ticket'
 
+/** 写操作确认端点（T27.7 确认门）：卡片确认后原子消费待执行操作 */
+const ASSISTANT_CONFIRM_PATH = '/api/ai/assistant/operations/confirm'
+
+/** 写操作确认的执行结果（backend AiOperationResultVO 直出形态） */
+export interface AssistantOperationResult {
+  operationType: string
+  success: boolean
+  /** 计划涉及的条目数（batch_edit = 图片张数；url_import = URL 条数） */
+  requestedCount?: number
+  /** url_import：成功条数 */
+  succeededCount?: number
+  /** url_import：未成功条数（含因登录态失效未尝试的条目） */
+  failedCount?: number
+  /** url_import 逐条结果（batch_edit 为空列表） */
+  items?: { ok: boolean; message?: string }[]
+  /** 面向用户的补充说明 */
+  message?: string
+}
+
+/**
+ * 确认执行一个待确认写操作（T27.7）。
+ *
+ * 请求只携带 operationId + chatId + digest——三者都来自确认卡片上展示的内容，
+ * **绝不携带任何业务 payload**：实际执行的是后端保存的原始计划，digest 钉死
+ * "用户确认时看到的 = 实际执行的"。并发/重放由后端原子消费保证恰好一次。
+ */
+export const confirmAssistantOperation = async (
+  operationId: string,
+  chatId: string,
+  digest: string,
+): Promise<AssistantOperationResult> => {
+  const response = await myAxios.post(ASSISTANT_CONFIRM_PATH, { operationId, chatId, digest })
+  const result = response.data?.data
+  if (response.data?.code !== 0 || !result) {
+    // 后端的失败文案都是用户安全口径（如"操作不存在、已过期或已处理"），原样上抛给卡片展示
+    throw new Error(response.data?.message || '操作确认失败，请稍后重试')
+  }
+  return result
+}
+
 /**
  * 取一张一次性凭据（R5）。
  *

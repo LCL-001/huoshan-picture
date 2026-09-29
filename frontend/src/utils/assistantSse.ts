@@ -5,6 +5,15 @@ export interface AssistantStep {
   content: string
 }
 
+/** 待确认写操作（T27.6/T27.7 确认门，对应引擎 SSE 的 confirmation_required 事件） */
+export interface AssistantConfirmation {
+  operationType: string
+  operationId: string
+  digest: string
+  /** 卡片逐行展示的内容（与后端存储的执行计划同源） */
+  summary: string[]
+}
+
 /** 一问一答（含这一轮的步骤）：live 会话与历史回放共用同一种页面结构 */
 export interface AssistantTurn {
   question: string
@@ -14,6 +23,8 @@ export interface AssistantTurn {
   notice?: string
   /** 失败原因（T39）：独立错误样式呈现，不再混进回答气泡 */
   error?: string
+  /** 待确认操作（T27.7 确认卡片）：只在实时流出现，历史回放不重建 */
+  confirmations?: AssistantConfirmation[]
   running: boolean
 }
 
@@ -23,15 +34,42 @@ export interface AssistantStreamHandlers {
   onError: (messageText: string) => void
   /** 引擎侧的能力降级提示（T22，如"搜图服务暂不可用"）：可选实现，没实现就静默忽略 */
   onNotice?: (messageText: string) => void
+  /** 待确认写操作（T27.7 确认卡片）：可选实现 */
+  onConfirmation?: (confirmation: AssistantConfirmation) => void
   onDone: () => void
 }
 
-/** 引擎事件协议里 data 帧的 JSON 形状（event 字段区分 step/answer/metrics/error/notice） */
+/** 引擎事件协议里 data 帧的 JSON 形状（event 字段区分 step/answer/metrics/error/notice/confirmation_required） */
 interface AssistantEventPayload {
   event?: string
   kind?: string
   name?: string
   content?: string
+  operationType?: string
+  operationId?: string
+  digest?: string
+  summary?: string[]
+}
+
+/**
+ * confirmation_required 帧 → 待确认操作（T27.7）。形状不满足（event 不对、缺凭据字段、
+ * summary 不是数组）一律返回 null——卡片只因为完整合法的确认载荷而出现。
+ */
+export const parseAssistantConfirmation = (payload: AssistantEventPayload): AssistantConfirmation | null => {
+  if (payload.event !== 'confirmation_required') {
+    return null
+  }
+  const operationId = payload.operationId ?? ''
+  const digest = payload.digest ?? ''
+  if (!operationId || !digest || !Array.isArray(payload.summary)) {
+    return null
+  }
+  return {
+    operationType: payload.operationType ?? '',
+    operationId,
+    digest,
+    summary: payload.summary.map(String),
+  }
 }
 
 const DONE_FLAG = '[DONE]'
@@ -83,6 +121,12 @@ export class AssistantStream {
       } else if (payload.event === 'notice') {
         // 能力降级提示（T22）：不是失败，只是"本轮环境与往常不同"，照常继续
         handlers.onNotice?.(payload.content ?? '')
+      } else if (payload.event === 'confirmation_required') {
+        // 待确认写操作（T27.7）：形状校验在 parseAssistantConfirmation 里，不合法就当没收到
+        const confirmation = parseAssistantConfirmation(payload)
+        if (confirmation) {
+          handlers.onConfirmation?.(confirmation)
+        }
       }
       // metrics：图库助手当前不发（引擎侧未覆盖 runSummary），真发了也不渲染
     }
