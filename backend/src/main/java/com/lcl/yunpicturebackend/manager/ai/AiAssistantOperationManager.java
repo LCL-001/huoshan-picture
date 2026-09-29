@@ -124,9 +124,9 @@ public class AiAssistantOperationManager {
      */
     public AiOperationPrepareVO prepare(Long userId, AiOperationPrepareRequest prepareRequest) {
         ThrowUtils.throwIf(prepareRequest == null || StrUtil.isBlank(prepareRequest.getChatId()),
-                ErrorCode.PARAMS_ERROR, "chatId 不能为空");
+                ErrorCode.PARAMS_ERROR, "会话标识不能为空");
         AiOperationPlan plan = prepareRequest.getPlan();
-        ThrowUtils.throwIf(plan == null, ErrorCode.PARAMS_ERROR, "plan 不能为空");
+        ThrowUtils.throwIf(plan == null, ErrorCode.PARAMS_ERROR, "缺少操作计划");
         normalizePlan(plan);
         String planJson = serializePlan(plan);
         String digest = DigestUtil.sha1Hex(planJson);
@@ -195,7 +195,7 @@ public class AiAssistantOperationManager {
         ThrowUtils.throwIf(batchEdit.getSpaceId() == null, ErrorCode.PARAMS_ERROR, "缺少目标空间");
         List<Long> pictureIdList = batchEdit.getPictureIdList();
         ThrowUtils.throwIf(pictureIdList == null || pictureIdList.isEmpty(),
-                ErrorCode.PARAMS_ERROR, "缺少图片 id 列表");
+                ErrorCode.PARAMS_ERROR, "缺少要修改的图片");
         ThrowUtils.throwIf(pictureIdList.size() > MAX_PICTURE_IDS_PER_CALL,
                 ErrorCode.PARAMS_ERROR, "单次批量编辑最多 " + MAX_PICTURE_IDS_PER_CALL + " 张");
         batchEdit.setCategory(trimToNull(batchEdit.getCategory()));

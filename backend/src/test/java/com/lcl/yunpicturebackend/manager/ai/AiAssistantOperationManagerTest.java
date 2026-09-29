@@ -86,7 +86,7 @@ class AiAssistantOperationManagerTest {
 
         assertThatThrownBy(() -> manager.prepare(USER_ID, request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("chatId");
+                .hasMessageContaining("会话标识");
         verifyNoInteractions(stringRedisTemplate, pictureService);
     }
 
