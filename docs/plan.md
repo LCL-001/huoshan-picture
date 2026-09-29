@@ -51,7 +51,7 @@
 - [x] T37 **引擎只读消息端点 + 代理透传**：引擎 `GET /api/ai/huoshan/conversations/{chatId}/messages`（内部密钥信道；userId 归一化 → 确定性 conversationId → `ChatHistoryAssembler` 组装，空返回空列表；零 DDL 零新依赖）；backend `GET /api/ai/assistant/conversations/{chatId}/messages` 先验索引归属（40400 零上游）再透传（userId 取自登录态，不收浏览器参数）。验收：引擎侧派生/组装/空态断言；backend 侧归属校验零上游 + 透传形状断言。
 - [x] T38 **前端会话侧栏 + 历史回放 + 续聊**：桌面左侧栏 / 移动抽屉；点会话拉历史按轮 + steps 渲染（中文别名与摘要复用 `assistantFormat.ts`，详情 = 截断原文）；选中即把 chatId 写回 sessionStorage 续聊；发送成功后重拉列表。新纯函数进 `check:assistant-format` 断言；type-check 净增 0。
 - [x] T39 **失败独立呈现**：代理侧合成失败（引擎非 SSE / 连接读取失败 / 流中断）由 answer 改发协议既有 error 帧（仍以 [DONE] 收尾）；前端把 event=error 分流为独立消息类型与错误样式，不再混入助手气泡。引擎侧行为不动（EOF 无 [DONE] 的同屏语义保留，仅呈现形态变化）。验收：代理帧形状断言 + 前端分流断言。
-  - 四任务实施记录、提交清单与门禁数字见 `docs/plans/records/T36-T39-助手快赢包.md`（子代理驱动执行，每任务一笔 commit：`e8551cc` / `97116ba` / `bc021b8` / `1dc503f`）；**真机冒烟已过**（同记录：`local,test` 双 profile 全链路 + DB 行序列核对，冒烟修复 `03b2450`），spec F15 已勾；2026-09-29 部署完成（prod DDL + backend + 引擎[T32/T33/T37 同车] + 前端产物；backend 新端点未登录 40100、前端 bundle 含快赢包特征串两项线上已验证，引擎与 DDL 为用户确认）。
+  - 四任务实施记录、提交清单与门禁数字见 `docs/plans/records/T36-T39-助手快赢包.md`（子代理驱动执行，每任务一笔 commit：`e8551cc` / `97116ba` / `bc021b8` / `1dc503f`）；**真机冒烟已过**（同记录：`local,test` 双 profile 全链路 + DB 行序列核对，冒烟修复 `03b2450`），spec F15 已勾；2026-09-29 部署完成并线上实测通过（prod DDL + backend + 前端 + 引擎[T32/T33/T37 同车]；首启漏更引擎 jar 曾致读历史 404"引擎暂时不可用"，当日补部署恢复；DDL 由索引归属校验间接证明）。
 
 > 勘误（2026-09-28 计划期）：原 T40（visionTagger/searchImage 工具摘要分支）经核实**已实现且断言入库**（`frontend/scripts/check-assistant-format.mjs`），撤销；F12 已知限制 5 系陈旧条目已订正。
 
