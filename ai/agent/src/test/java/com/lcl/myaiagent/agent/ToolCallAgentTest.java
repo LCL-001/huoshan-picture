@@ -239,7 +239,7 @@ class ToolCallAgentTest {
             // Spring AI 会把工具返回的字符串再做一层 JSON 序列化（带引号 + 转义），act() 先还原再识别
             String plain = """
                     {"status":"pending_confirmation","operationType":"url_import",
-                    "operationId":"op-9","digest":"d9","summary":["入库 URL：2 条"]}""";
+                    "operationId":"op-9","digest":"d9","summary":["图片直链：2 条"]}""";
             String quoted = new ObjectMapper().writeValueAsString(plain);
             mockToolExecution(ToolResponseMessage.builder()
                     .responses(List.of(toolResponse("prepareUrlImportPictures", quoted)))

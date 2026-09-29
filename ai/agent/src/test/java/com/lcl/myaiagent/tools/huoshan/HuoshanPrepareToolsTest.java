@@ -223,7 +223,7 @@ class HuoshanPrepareToolsTest {
         assertThat(resultNode.path("status").asText()).isEqualTo("pending_confirmation");
         assertThat(resultNode.path("operationId").asText()).isEqualTo("op-1");
         assertThat(resultNode.path("summary").toString())
-                .contains("目标空间 id：30").contains("入库 URL：2 条");
+                .contains("目标空间 id：30").contains("图片直链：2 条");
     }
 
     @Test
@@ -241,7 +241,7 @@ class HuoshanPrepareToolsTest {
         urls.setCharAt(urls.length() - 1, ']');
         assertThat(MAPPER.readTree(invoke(callbacks, "prepareUrlImportPictures",
                 "{\"spaceId\":\"30\",\"fileUrlList\":" + urls + "}")).path("message").asText())
-                .contains("一次最多入库");
+                .contains("一次最多导入");
 
         assertThat(REQUESTS).as("本地校验失败不得发出任何请求").isEmpty();
     }

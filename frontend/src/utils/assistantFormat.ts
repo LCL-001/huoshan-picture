@@ -11,9 +11,9 @@ const TOOL_LABELS: Record<string, string> = {
   getTagCategory: '读取标签词表',
   visionTagger: '看图打标建议',
   batchEditPictures: '批量修改图片',
-  batchUploadByUrl: '按 URL 入库',
+  batchUploadByUrl: '按 URL 导入',
   prepareBatchEditPictures: '生成批量修改待确认操作',
-  prepareUrlImportPictures: '生成 URL 入库待确认操作',
+  prepareUrlImportPictures: '生成 URL 导入待确认操作',
   searchImage: '联网搜图',
 }
 
@@ -55,7 +55,7 @@ export const summarizeToolResult = (content: string, name?: string): string => {
   }
   if (typeof payload.succeeded === 'number') {
     const failed = typeof payload.failed === 'number' ? payload.failed : 0
-    return failed > 0 ? `入库 ${payload.succeeded} 张（失败 ${failed}）` : `入库 ${payload.succeeded} 张`
+    return failed > 0 ? `导入 ${payload.succeeded} 张（失败 ${failed}）` : `导入 ${payload.succeeded} 张`
   }
   // 批编只代表"提交成功"，工具自己也只承诺到这一步（不属于该空间的 id 会被静默跳过）
   if (typeof payload.requestedCount === 'number') {
@@ -182,7 +182,7 @@ export const assistantConfirmationTitle = (operationType: string): string => {
     return '批量编辑图片'
   }
   if (operationType === 'url_import') {
-    return '按 URL 入库'
+    return '按 URL 导入'
   }
   return '写操作'
 }
@@ -200,8 +200,8 @@ export const describeAssistantOperationResult = (result: AssistantOperationResul
     const failed = typeof result.failedCount === 'number' ? result.failedCount : 0
     lines.push(
       result.success
-        ? `入库完成：成功 ${succeeded} / ${requested ?? succeeded + failed} 条`
-        : `入库未完全成功：成功 ${succeeded} 条，未成功 ${failed} 条`,
+        ? `导入完成：成功 ${succeeded} / ${requested ?? succeeded + failed} 条`
+        : `导入未完全成功：成功 ${succeeded} 条，未成功 ${failed} 条`,
     )
   } else if (requested !== null) {
     lines.push(result.success ? `执行完成：已提交 ${requested} 张` : '执行未完成')

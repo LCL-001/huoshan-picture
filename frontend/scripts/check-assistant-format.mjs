@@ -74,7 +74,7 @@ check('seven hashes is not a heading', parseAssistantText('####### 七')[0].kind
 
 // ---------- 2. tool labels ----------
 check('visionTagger has a label', toolLabel('visionTagger'), '看图打标建议')
-check('batchUploadByUrl has a label', toolLabel('batchUploadByUrl'), '按 URL 入库')
+check('batchUploadByUrl has a label', toolLabel('batchUploadByUrl'), '\u6309 URL \u5bfc\u5165')
 check('unknown tool falls back to its name', toolLabel('someNewTool'), 'someNewTool')
 check('blank tool name', toolLabel(undefined), '未知工具')
 
@@ -86,9 +86,9 @@ check('visionTagger summary', summarizeToolResult(wrap('visionTagger',
   '{"spaceId":"2047963180567228418","requested":1,"suggested":1,"skipped":0,"suggestions":[{"pictureId":"2047963421827788801","url":"https://x/y.webp","ok":true,"tags":["创意","高清"],"category":"素材","message":null}],"note":"以上仅为建议，尚未写入图库。"}'),
   'visionTagger'), '建议 1 张（未写入图库）')
 check('batch upload, all ok', summarizeToolResult(wrap('batchUploadByUrl',
-  '{"spaceId":"1","requested":3,"succeeded":3,"failed":0,"skipped":0,"items":[]}'), 'batchUploadByUrl'), '入库 3 张')
+  '{"spaceId":"1","requested":3,"succeeded":3,"failed":0,"skipped":0,"items":[]}'), 'batchUploadByUrl'), '\u5bfc\u5165 3 \u5f20')
 check('batch upload, partial failure reported', summarizeToolResult(wrap('batchUploadByUrl',
-  '{"spaceId":"1","requested":3,"succeeded":2,"failed":1,"skipped":0,"items":[]}'), 'batchUploadByUrl'), '入库 2 张（失败 1）')
+  '{"spaceId":"1","requested":3,"succeeded":2,"failed":1,"skipped":0,"items":[]}'), 'batchUploadByUrl'), '\u5bfc\u5165 2 \u5f20\uff08\u5931\u8d25 1\uff09')
 check('batch edit only claims submission', summarizeToolResult(wrap('batchEditPictures',
   '{"spaceId":"1","requestedCount":2,"appliedFields":["tags"],"success":true,"note":"n"}'), 'batchEditPictures'), '提交 2 张')
 check('searchImage counts URLs (not JSON)', summarizeToolResult(
@@ -150,19 +150,19 @@ checkTrue('non-array summary is rejected',
 
 check('confirmation titles',
   [assistantConfirmationTitle('batch_edit'), assistantConfirmationTitle('url_import'), assistantConfirmationTitle('mystery')],
-  ['\u6279\u91cf\u7f16\u8f91\u56fe\u7247', '\u6309 URL \u5165\u5e93', '\u5199\u64cd\u4f5c'])
+  ['\u6279\u91cf\u7f16\u8f91\u56fe\u7247', '\u6309 URL \u5bfc\u5165', '\u5199\u64cd\u4f5c'])
 
 check('result lines: url_import full success',
   describeAssistantOperationResult({
     operationType: 'url_import', success: true, requestedCount: 2, succeededCount: 2, failedCount: 0,
   }),
-  ['\u5165\u5e93\u5b8c\u6210\uff1a\u6210\u529f 2 / 2 \u6761'])
+  ['\u5bfc\u5165\u5b8c\u6210\uff1a\u6210\u529f 2 / 2 \u6761'])
 check('result lines: url_import partial, reasons capped at 5',
   describeAssistantOperationResult({
     operationType: 'url_import', success: false, requestedCount: 8, succeededCount: 2, failedCount: 6,
     items: [3, 4, 5, 6, 7, 8].map((n) => ({ ok: false, message: `reason-${n}` })),
   }),
-  ['\u5165\u5e93\u672a\u5b8c\u5168\u6210\u529f\uff1a\u6210\u529f 2 \u6761\uff0c\u672a\u6210\u529f 6 \u6761',
+  ['\u5bfc\u5165\u672a\u5b8c\u5168\u6210\u529f\uff1a\u6210\u529f 2 \u6761\uff0c\u672a\u6210\u529f 6 \u6761',
     '\u672a\u6210\u529f\u539f\u56e0\uff1areason-3',
     '\u672a\u6210\u529f\u539f\u56e0\uff1areason-4',
     '\u672a\u6210\u529f\u539f\u56e0\uff1areason-5',
@@ -175,6 +175,26 @@ check('result lines: batch_edit submit-only semantics',
 check('result lines: backend message carried through',
   describeAssistantOperationResult({ operationType: 'batch_edit', success: true, requestedCount: 1, message: 'note-here' }),
   ['\u6267\u884c\u5b8c\u6210\uff1a\u5df2\u63d0\u4ea4 1 \u5f20', 'note-here'])
+
+// ---------- T41: user-facing copy must not leak internal jargon ----------
+// "入库" is internal vocabulary; the gallery's own copy says "导入" (UrlPictureUpload.vue: 粘贴图片直链，点击提交即可导入).
+const JARGON = '\u5165\u5e93'
+const userFacingCopy = [
+  toolLabel('batchUploadByUrl'),
+  toolLabel('batchEditPictures'),
+  toolLabel('prepareUrlImportPictures'),
+  toolLabel('prepareBatchEditPictures'),
+  summarizeToolResult(wrap('batchUploadByUrl', '{"spaceId":"1","requested":3,"succeeded":1,"failed":2,"skipped":0,"items":[]}'), 'batchUploadByUrl'),
+  assistantConfirmationTitle('url_import'),
+  assistantConfirmationTitle('batch_edit'),
+  ...describeAssistantOperationResult({ operationType: 'url_import', success: true, requestedCount: 2, succeededCount: 2, failedCount: 0 }),
+  ...describeAssistantOperationResult({ operationType: 'url_import', success: false, requestedCount: 4, succeededCount: 1, failedCount: 3, items: [{ ok: false, message: 'x' }] }),
+]
+checkTrue('no internal jargon in user-facing copy',
+  userFacingCopy.every((text) => !String(text).includes(JARGON)),
+  JSON.stringify(userFacingCopy))
+check('prepareUrlImportPictures label', toolLabel('prepareUrlImportPictures'),
+  '\u751f\u6210 URL \u5bfc\u5165\u5f85\u786e\u8ba4\u64cd\u4f5c')
 
 // ---------- T27.9 confirm-failure copy (transport failure: no English axios text, warn "may have run") ----------
 // Optional call so a missing wiring shows up as a clean FAIL instead of a TypeError abort.

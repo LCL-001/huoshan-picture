@@ -186,7 +186,7 @@ public class AiAssistantOperationManager {
             normalizeBatchEdit(plan.getBatchEdit());
         } else {
             ThrowUtils.throwIf(plan.getBatchEdit() != null, ErrorCode.PARAMS_ERROR, "计划与操作类型不匹配");
-            ThrowUtils.throwIf(plan.getUrlImport() == null, ErrorCode.PARAMS_ERROR, "缺少 URL 入库计划");
+            ThrowUtils.throwIf(plan.getUrlImport() == null, ErrorCode.PARAMS_ERROR, "缺少 URL 导入计划");
             normalizeUrlImport(plan.getUrlImport());
         }
     }
@@ -217,7 +217,7 @@ public class AiAssistantOperationManager {
         List<String> fileUrls = urlImport.getFileUrls();
         ThrowUtils.throwIf(fileUrls == null || fileUrls.isEmpty(), ErrorCode.PARAMS_ERROR, "缺少 URL 列表");
         ThrowUtils.throwIf(fileUrls.size() > MAX_URLS_PER_CALL,
-                ErrorCode.PARAMS_ERROR, "单次入库最多 " + MAX_URLS_PER_CALL + " 条");
+                ErrorCode.PARAMS_ERROR, "单次导入最多 " + MAX_URLS_PER_CALL + " 条");
         List<String> normalized = fileUrls.stream()
                 .filter(StrUtil::isNotBlank)
                 .map(String::trim)

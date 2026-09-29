@@ -3,7 +3,7 @@
     <header class="page-header animate-fade-in-up">
       <h2 class="page-title">AI 助手</h2>
       <p class="page-subtitle">
-        专注于火山图库：查询空间和图片、查看标签、搜索素材，也能把整理与入库生成待确认操作——你在确认卡片上确认后才会执行。
+        专注于火山图库：查询空间和图片、查看标签、搜索素材，也能把图片整理与导入生成待确认操作——你在确认卡片上确认后才会执行。
       </p>
     </header>
 
