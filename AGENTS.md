@@ -1,6 +1,6 @@
 # AGENTS.md — 火山图库（huoshan-picture）
 
-<!-- freshness: { owner: "lcl", reviewed: "2026-09-18" } -->
+<!-- freshness: { owner: "lcl", reviewed: "2026-09-28" } -->
 <!-- 本文件预算 ≤150 行；每行都要能通过"删掉它，AI 会犯新错吗"测试。事故叙事与规则来历见 docs/workflow-history.md。 -->
 
 > 本文件是所有 AI 编码工具（ZCode / Cursor / Claude Code…）的统一契约。接手任何新会话，先完成"接手流程"再动代码。用 Claude Code 时可在 CLAUDE.md 里写一行 `@AGENTS.md` 引入本文件；Cursor 原生读取 AGENTS.md。
