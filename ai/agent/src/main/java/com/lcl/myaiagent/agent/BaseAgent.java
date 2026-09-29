@@ -195,12 +195,12 @@ public abstract class BaseAgent {
     protected void runLoop(String userPrompt, AgentEventListener listener, List<AgentEvent> openingEvents) {
         // 校验：不抛异常，失败以事件告知消费端（端点是 SSE，客户端读不到 HTTP 错误体）
         if (this.state != AgentState.IDLE) {
-            listener.onEvent(new AgentEvent.Answer("错误：无法从该状态运行代理：" + this.state));
+            listener.onEvent(new AgentEvent.Answer("助手正忙，请稍后再试"));
             listener.onEvent(new AgentEvent.Done());
             return;
         }
         if (StrUtil.isBlank(userPrompt)) {
-            listener.onEvent(new AgentEvent.Answer("错误：用户提示不能为空。"));
+            listener.onEvent(new AgentEvent.Answer("这条消息是空的，请重新输入"));
             listener.onEvent(new AgentEvent.Done());
             return;
         }
@@ -230,11 +230,11 @@ public abstract class BaseAgent {
                     listener.onEvent(event);
                 }
                 // 每一步 step 执行完都要检查是否陷入循环；本步已给出最终回答（FINISHED）时不再检测——
-                // 循环已自然结束，重复的收尾回答不该被追加一句"检测到循环"（T33 修复双 answer）
+                // 循环已自然结束，重复的收尾回答不该被追加一句"助手重复了同样的步骤"（T33 修复双 answer）
                 if (this.state != AgentState.FINISHED && isStuck()) {
                     handleStuckState();
                     if (this.state == AgentState.FINISHED) {
-                        listener.onEvent(new AgentEvent.Answer("检测到循环，智能体已终止"));
+                        listener.onEvent(new AgentEvent.Answer("助手重复了同样的步骤，已停止本次回答"));
                         break;
                     }
                 }
@@ -250,7 +250,7 @@ public abstract class BaseAgent {
                 // state 已是 FINISHED，不该再补一条上限提示（卡死终止落在同一步时同理）
                 if (this.state == AgentState.RUNNING && this.currentStep >= this.maxSteps) {
                     this.state = AgentState.FINISHED;
-                    listener.onEvent(new AgentEvent.Answer("执行结束：达到最大步骤 (" + this.maxSteps + ")"));
+                    listener.onEvent(new AgentEvent.Answer("这次回答达到步数上限（" + this.maxSteps + " 步）"));
                 }
                 emitMetrics(listener);
             }

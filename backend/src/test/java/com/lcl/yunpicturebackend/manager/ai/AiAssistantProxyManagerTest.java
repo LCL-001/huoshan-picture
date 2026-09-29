@@ -256,7 +256,7 @@ class AiAssistantProxyManagerTest {
 
         assertThat(REQUESTS.get()).as("代理不得跟随携带内部密钥与用户令牌的重定向").isEqualTo(1);
         assertThat(frames).hasSize(2);
-        assertThat(frames.get(0)).contains("\"event\":\"error\"").contains("引擎响应异常");
+        assertThat(frames.get(0)).contains("\"event\":\"error\"").contains("助手响应异常");
         assertThat(frames.get(1)).isEqualTo("[DONE]");
     }
     @Test
@@ -354,7 +354,7 @@ class AiAssistantProxyManagerTest {
         assertThat(frames).hasSize(2);
         assertThat(frames.get(0))
                 .contains("\"event\":\"error\"")
-                .contains("引擎响应异常")
+                .contains("助手响应异常")
                 .as("非 JSON 的上游错误体不得把原文当文案发给用户")
                 .doesNotContain("Bad Gateway")
                 .doesNotContain("nginx")
@@ -554,7 +554,7 @@ class AiAssistantProxyManagerTest {
         RecordingManager manager = manager();
         assertThatThrownBy(() -> manager.fetchConversationMessages(123L, "chat-1"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("引擎暂时不可用")
+                .hasMessageContaining("助手暂时不可用")
                 .extracting(e -> ((BusinessException) e).getCode())
                 .isEqualTo(ErrorCode.SYSTEM_ERROR.getCode());
     }
@@ -571,7 +571,7 @@ class AiAssistantProxyManagerTest {
 
         assertThatThrownBy(() -> manager.fetchConversationMessages(123L, "chat-1"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("引擎暂时不可用")
+                .hasMessageContaining("助手暂时不可用")
                 .extracting(e -> ((BusinessException) e).getCode())
                 .isEqualTo(ErrorCode.SYSTEM_ERROR.getCode());
     }

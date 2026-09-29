@@ -296,7 +296,7 @@ class SseEventProtocolContractTest {
             assertSingleDoneLast(listener);
             assertThat(events).hasSize(4);
             assertThat(listener.joinedAnswers().lines().count()).isEqualTo(3);
-            assertThat(listener.joinedAnswers()).contains("执行结束：达到最大步骤 (2)");
+            assertThat(listener.joinedAnswers()).contains("这次回答达到步数上限（2 步）");
         }
 
         @Test
@@ -312,7 +312,7 @@ class SseEventProtocolContractTest {
             RecordingAgentEventListener listener = run(agent, "问一句");
 
             assertSingleDoneLast(listener);
-            assertThat(listener.lastAnswer()).isEqualTo("检测到循环，智能体已终止");
+            assertThat(listener.lastAnswer()).isEqualTo("助手重复了同样的步骤，已停止本次回答");
         }
 
         @Test
@@ -324,7 +324,7 @@ class SseEventProtocolContractTest {
             RecordingAgentEventListener listener = run(agent, "问一句");
 
             assertThat(listener.events()).hasSize(2);
-            assertThat(listener.joinedAnswers()).contains("无法从该状态运行代理");
+            assertThat(listener.joinedAnswers()).contains("助手正忙");
             assertThat(listener.count(AgentEvent.Done.class)).isEqualTo(1);
             assertThat(agent.stepCalls()).isZero();
         }
@@ -337,7 +337,7 @@ class SseEventProtocolContractTest {
             RecordingAgentEventListener listener = run(agent, "   ");
 
             assertThat(listener.events()).hasSize(2);
-            assertThat(listener.joinedAnswers()).contains("用户提示不能为空");
+            assertThat(listener.joinedAnswers()).contains("这条消息是空的");
             assertThat(listener.count(AgentEvent.Done.class)).isEqualTo(1);
         }
 
@@ -352,7 +352,7 @@ class SseEventProtocolContractTest {
             RecordingAgentEventListener listener = run(agent, "问一句");
 
             assertSingleDoneLast(listener);
-            assertThat(listener.joinedAnswers()).doesNotContain("达到最大步骤");
+            assertThat(listener.joinedAnswers()).doesNotContain("步数上限");
             assertThat(listener.count(AgentEvent.Metrics.class)).isZero();
         }
 
@@ -412,7 +412,7 @@ class SseEventProtocolContractTest {
 
             assertThat(emitter.awaitCompletion(5_000)).isTrue();
             assertThat(emitter.payloads()).hasSize(2);
-            assertThat(jsonOf(emitter, 0).get("content").asText()).contains("无法从该状态运行代理");
+            assertThat(jsonOf(emitter, 0).get("content").asText()).contains("助手正忙");
             assertThat(emitter.payloads().get(1)).isEqualTo("[DONE]");
             assertThat(agent.stepCalls()).isZero();
         }

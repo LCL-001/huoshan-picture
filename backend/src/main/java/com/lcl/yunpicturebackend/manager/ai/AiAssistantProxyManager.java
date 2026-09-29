@@ -145,7 +145,7 @@ public class AiAssistantProxyManager {
             }
         } catch (IOException e) {
             log.warn("AI 助手转发失败: {}", e.getMessage());
-            sendErrorAsError(emitter, "图库助手引擎暂时不可用，请稍后重试");
+            sendErrorAsError(emitter, "助手暂时不可用，请稍后重试");
         } finally {
             upstream.disconnect();
         }
@@ -202,12 +202,12 @@ public class AiAssistantProxyManager {
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) {
                 log.warn("AI 助手读历史响应异常, status={}", status);
-                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "引擎暂时不可用，请稍后重试");
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "助手暂时不可用，请稍后重试");
             }
             return readAll(connection.getInputStream());
         } catch (IOException e) {
             log.warn("AI 助手读历史失败: {}", e.getMessage());
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "引擎暂时不可用，请稍后重试");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "助手暂时不可用，请稍后重试");
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -297,9 +297,9 @@ public class AiAssistantProxyManager {
     private String describeUpstreamError(int status, HttpURLConnection connection) {
         String message = extractMessage(readErrorBody(connection));
         if (message != null) {
-            return "图库助手引擎拒绝了本次请求：" + message;
+            return "助手未能处理本次请求：" + message;
         }
-        return "图库助手引擎响应异常（HTTP " + status + "）";
+        return "助手响应异常（错误码 " + status + "）";
     }
 
     /**

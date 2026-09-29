@@ -177,7 +177,7 @@ class AiAssistantControllerTest {
 
         assertThatThrownBy(() -> controller.chat(MESSAGE, null, TICKET, request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("缺少 satoken")
+                .hasMessageContaining("登录信息不完整")
                 .extracting(e -> ((BusinessException) e).getCode())
                 .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
         verifyNoInteractions(proxyManager);
@@ -225,7 +225,7 @@ class AiAssistantControllerTest {
 
         assertThatThrownBy(() -> controller.chat(MESSAGE, null, TICKET, request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("缺少 satoken")
+                .hasMessageContaining("登录信息不完整")
                 .extracting(e -> ((BusinessException) e).getCode())
                 .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
         verifyNoInteractions(proxyManager);
@@ -243,7 +243,7 @@ class AiAssistantControllerTest {
 
         assertThatThrownBy(() -> controller.chat(MESSAGE, null, TICKET, request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("缺少会话 Cookie")
+                .hasMessageContaining("登录信息不完整")
                 .extracting(e -> ((BusinessException) e).getCode())
                 .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
         verifyNoInteractions(proxyManager);

@@ -66,7 +66,7 @@ export const fetchAssistantTicket = async () => {
   const response = await myAxios.post(ASSISTANT_TICKET_PATH)
   const ticket = response.data?.data
   if (response.data?.code !== 0 || typeof ticket !== 'string' || !ticket) {
-    throw new Error(response.data?.message || '未能取得本次对话凭据')
+    throw new Error(response.data?.message || '未能开始本次对话，请刷新页面后重试')
   }
   return ticket
 }

@@ -287,7 +287,7 @@ const send = async () => {
     ticket = await fetchAssistantTicket()
   } catch {
     turn.running = false
-    turn.error = '助手暂时不可用（未能取得本次对话凭据），请稍后重试'
+    turn.error = '助手暂时不可用，请刷新页面后重试'
     scrollToBottom()
     return
   }

@@ -110,13 +110,13 @@ class BaseAgentTest {
             RecordingAgentEventListener listener = runLoop(agent, "test");
 
             assertThat(listener.joinedAnswers()).isEqualTo("final-answer");
-            assertThat(listener.joinedAnswers()).doesNotContain("达到最大步骤");
+            assertThat(listener.joinedAnswers()).doesNotContain("步数上限");
         }
 
         /**
          * 上一个用例用的是 maxSteps=10，正好绕开了这个边界：最终回答**恰好落在第 maxSteps 步**时，
          * {@code step()} 已把状态置成 FINISHED，但 {@code currentStep >= maxSteps} 同时成立，
-         * 于是回答气泡里会多一句"执行结束：达到最大步骤 (N)"。
+         * 于是回答气泡里会多一句"这次回答达到步数上限（N 步）"。
          */
         @Test
         @DisplayName("最终回答恰好落在第 maxSteps 步时，不再多补一条上限提示")
@@ -161,7 +161,7 @@ class BaseAgentTest {
             agent.runLoop("", listener, List.of(new AgentEvent.Notice("图片搜索服务暂时不可用")));
 
             assertThat(listener.events()).noneMatch(AgentEvent.Notice.class::isInstance);
-            assertThat(listener.joinedAnswers()).contains("用户提示不能为空");
+            assertThat(listener.joinedAnswers()).contains("这条消息是空的");
         }
     }
 
@@ -245,7 +245,7 @@ class BaseAgentTest {
 
             RecordingAgentEventListener listener = runLoop(agent, "test");
 
-            assertThat(listener.joinedAnswers()).contains("无法从该状态运行代理");
+            assertThat(listener.joinedAnswers()).contains("助手正忙");
             assertThat(agent.getMessageList()).isEmpty();
             assertThat(agent.getCurrentStep()).isZero();
         }
@@ -257,7 +257,7 @@ class BaseAgentTest {
 
             RecordingAgentEventListener listener = runLoop(agent, "");
 
-            assertThat(listener.joinedAnswers()).contains("用户提示不能为空");
+            assertThat(listener.joinedAnswers()).contains("这条消息是空的");
         }
 
         @Test
@@ -267,7 +267,7 @@ class BaseAgentTest {
 
             RecordingAgentEventListener listener = runLoop(agent, null);
 
-            assertThat(listener.joinedAnswers()).contains("用户提示不能为空");
+            assertThat(listener.joinedAnswers()).contains("这条消息是空的");
         }
     }
 
@@ -285,7 +285,7 @@ class BaseAgentTest {
 
             RecordingAgentEventListener listener = runLoop(agent, "hello");
 
-            assertThat(listener.joinedAnswers()).contains("达到最大步骤");
+            assertThat(listener.joinedAnswers()).contains("步数上限");
         }
 
         @Test
@@ -297,7 +297,7 @@ class BaseAgentTest {
 
             RecordingAgentEventListener listener = runLoop(agent, "test");
 
-            assertThat(listener.joinedAnswers()).contains("达到最大步骤 (3)");
+            assertThat(listener.joinedAnswers()).contains("步数上限（3 步）");
         }
 
         @Test
@@ -334,7 +334,7 @@ class BaseAgentTest {
 
             RecordingAgentEventListener listener = runLoop(agent, "test");
 
-            assertThat(listener.joinedAnswers()).contains("检测到循环，智能体已终止");
+            assertThat(listener.joinedAnswers()).contains("助手重复了同样的步骤");
         }
 
         @Test
@@ -350,7 +350,7 @@ class BaseAgentTest {
 
         /**
          * 与 {@code shouldDetectStuckAndTerminate} 同形，但把 maxSteps 压到"卡死终止恰好落在最后一步"：
-         * 旧代码会在"检测到循环，智能体已终止"之后再补一条上限提示（同源，非卡死本身的问题）。
+         * 旧代码会在"助手重复了同样的步骤"之后再补一条上限提示（同源，非卡死本身的问题）。
          */
         @Test
         @DisplayName("卡死终止恰好落在第 maxSteps 步时，不再多补一条上限提示")
@@ -367,16 +367,16 @@ class BaseAgentTest {
 
             RecordingAgentEventListener listener = runLoop(agent, "test");
 
-            assertThat(listener.joinedAnswers()).contains("检测到循环，智能体已终止");
-            assertThat(listener.joinedAnswers()).doesNotContain("达到最大步骤");
+            assertThat(listener.joinedAnswers()).contains("助手重复了同样的步骤");
+            assertThat(listener.joinedAnswers()).doesNotContain("步数上限");
         }
 
         /**
          * T33：循环检测只在"循环还要继续"（state 仍 RUNNING）时进行——本步已给出最终回答时，
-         * 重复的收尾回答不该被追加一句"检测到循环，智能体已终止"（旧实现会在真回答后面双 answer）。
+         * 重复的收尾回答不该被追加一句"助手重复了同样的步骤"（旧实现会在真回答后面双 answer）。
          */
         @Test
-        @DisplayName("本步已给出最终回答时，不再补发『检测到循环』")
+        @DisplayName("本步已给出最终回答时，不再补发『助手重复了同样的步骤』")
         void shouldNotAppendLoopNoticeWhenStepAlreadyAnswered() {
             TestAgent agent = new TestAgent("最终回答");
             agent.setFinishOnStep(true);
@@ -391,7 +391,7 @@ class BaseAgentTest {
             RecordingAgentEventListener listener = runLoop(agent, "test");
 
             assertThat(listener.joinedAnswers()).contains("最终回答");
-            assertThat(listener.joinedAnswers()).doesNotContain("检测到循环");
+            assertThat(listener.joinedAnswers()).doesNotContain("助手重复了同样的步骤");
         }
     }
 

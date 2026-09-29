@@ -197,9 +197,9 @@ public class AiAssistantController {
 
         // 门槛二：凭据组两把都必须在场（缺任一把到图库会退化成工具调用阶段的 40100/40102）
         String satoken = resolveSatoken(request);
-        ThrowUtils.throwIf(StrUtil.isBlank(satoken), ErrorCode.NOT_LOGIN_ERROR, "登录态不完整（缺少 satoken），请重新登录");
+        ThrowUtils.throwIf(StrUtil.isBlank(satoken), ErrorCode.NOT_LOGIN_ERROR, "登录信息不完整，请重新登录");
         String sessionCookie = cookieValue(request, sessionCookieName);
-        ThrowUtils.throwIf(StrUtil.isBlank(sessionCookie), ErrorCode.NOT_LOGIN_ERROR, "登录态不完整（缺少会话 Cookie），请重新登录");
+        ThrowUtils.throwIf(StrUtil.isBlank(sessionCookie), ErrorCode.NOT_LOGIN_ERROR, "登录信息不完整，请重新登录");
 
         // 门槛三：satoken 必须真是这名用户登录产出的那把
         checkCredentialsBelongToSameUser(loginUser, satoken);
@@ -223,9 +223,9 @@ public class AiAssistantController {
     private void checkCredentialsBelongToSameUser(User loginUser, String satoken) {
         Object spaceLoginId = StpKit.SPACE.getLoginIdByToken(satoken);
         ThrowUtils.throwIf(spaceLoginId == null, ErrorCode.NOT_LOGIN_ERROR,
-                "登录态已失效（satoken 无效或已过期），请重新登录");
+                "登录已过期，请重新登录");
         ThrowUtils.throwIf(!loginUser.getId().toString().equals(spaceLoginId.toString()), ErrorCode.SPACE_NOT_LOGIN,
-                "登录态不一致（satoken 与会话不属于同一账号），请重新登录");
+                "登录信息不一致，请重新登录");
     }
 
     /**

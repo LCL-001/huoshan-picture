@@ -128,7 +128,7 @@ class AgentFailureEventTest {
 
         assertThat(agent.stepCalls()).as("失败当轮终止，不再重试到卡死").isEqualTo(1);
         assertThat(listener.count(AgentEvent.Answer.class)).isZero();
-        assertThat(listener.joinedAnswers()).doesNotContain("检测到循环");
+        assertThat(listener.joinedAnswers()).doesNotContain("助手重复了同样的步骤");
     }
 
     @Test
