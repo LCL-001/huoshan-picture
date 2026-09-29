@@ -221,6 +221,25 @@ export const describeAssistantOperationResult = (result: AssistantOperationResul
   return lines
 }
 
+/** axios 的传输失败（超时/网络中断）与后端业务拒绝的区分标记：只有 axios 错误对象带这个字段 */
+const isTransportFailure = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && (error as { isAxiosError?: unknown }).isAxiosError === true
+
+/**
+ * 确认执行失败 → 卡片上的失败行（T27.9）。
+ *
+ * 业务拒绝（后端用户安全文案，如"操作不存在、已过期或已处理"）原样展示；
+ * 传输失败（超时/网络中断）与未知错误统一成一条固定提示——confirm 是**服务端同步执行**的动作
+ * （多图入库逐条下载转存，可能仍在后台跑），客户端等不到响应不代表没执行。
+ * 无论如何都不把 axios 的英文原文（timeout of 10000ms exceeded）当用户文案。
+ */
+export const describeAssistantConfirmFailure = (error: unknown): string => {
+  if (error instanceof Error && error.message && !isTransportFailure(error)) {
+    return `确认未完成：${error.message}`
+  }
+  return '确认请求中断或超时：操作可能已在后台执行，请先到空间里查看结果，不要重复提交'
+}
+
 /** 引擎历史消息（GET conversations/{chatId}/messages 的 data 元素）里前端用到的字段 */
 export interface HistoryMessage {
   id: string

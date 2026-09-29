@@ -37,7 +37,10 @@ export const confirmAssistantOperation = async (
   chatId: string,
   digest: string,
 ): Promise<AssistantOperationResult> => {
-  const response = await myAxios.post(ASSISTANT_CONFIRM_PATH, { operationId, chatId, digest })
+  // timeout: 0（不限时）：confirm 在服务端**同步**执行（URL 入库逐条下载 + COS 转存，上限 20 条，
+  // 单条就有 5s 连接 + 10s 读取预算），全站默认的 10s 会让客户端先超时、卡片谎报失败而后端仍在写入。
+  // 确认是单次消费的幂等动作，等就完了——与对话流（EventSource 无客户端时限）同一取舍。
+  const response = await myAxios.post(ASSISTANT_CONFIRM_PATH, { operationId, chatId, digest }, { timeout: 0 })
   const result = response.data?.data
   if (response.data?.code !== 0 || !result) {
     // 后端的失败文案都是用户安全口径（如"操作不存在、已过期或已处理"），原样上抛给卡片展示

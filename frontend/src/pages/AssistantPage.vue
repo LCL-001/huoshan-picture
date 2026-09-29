@@ -142,6 +142,7 @@ import { AssistantStream, type AssistantConfirmation, type AssistantTurn } from 
 import {
   assembleHistoryTurns,
   assistantConfirmationTitle,
+  describeAssistantConfirmFailure,
   describeAssistantOperationResult,
 } from '@/utils/assistantFormat.ts'
 import AssistantText from '@/components/assistant/AssistantText.vue'
@@ -191,7 +192,6 @@ interface ConfirmationCardView {
 }
 
 const CANCELLED_NOTE = '已取消：本次操作不会执行（未确认的操作会自动过期作废）'
-const CONFIRM_FAILURE_FALLBACK = '操作可能已过期，请重新让助手生成待确认操作'
 
 /** 按 operationId 簿记卡片状态：默认 pending；确认中即时定格，双击/重放被状态挡住 */
 const confirmationCards = ref<Record<string, ConfirmationCardView>>({})
@@ -212,11 +212,10 @@ const confirmOperation = async (card: AssistantConfirmation) => {
       resultText: describeAssistantOperationResult(result),
     }
   } catch (e) {
-    // 后端失败文案是用户安全口径（过期/已处理/RBAC），原样展示；网络异常退固定文案
-    const reason = e instanceof Error && e.message ? e.message : CONFIRM_FAILURE_FALLBACK
+    // 业务拒绝展示后端用户安全文案，传输失败另给固定口径（T27.9）——判断都在纯函数里，有常驻断言
     confirmationCards.value[card.operationId] = {
       status: 'failed',
-      resultText: [`确认未完成：${reason}`],
+      resultText: [describeAssistantConfirmFailure(e)],
     }
   }
   scrollToBottom()

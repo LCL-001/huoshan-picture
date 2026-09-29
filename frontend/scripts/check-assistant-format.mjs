@@ -176,5 +176,34 @@ check('result lines: backend message carried through',
   describeAssistantOperationResult({ operationType: 'batch_edit', success: true, requestedCount: 1, message: 'note-here' }),
   ['\u6267\u884c\u5b8c\u6210\uff1a\u5df2\u63d0\u4ea4 1 \u5f20', 'note-here'])
 
+// ---------- T27.9 confirm-failure copy (transport failure: no English axios text, warn "may have run") ----------
+// Optional call so a missing wiring shows up as a clean FAIL instead of a TypeError abort.
+const confirmFailure = format.describeAssistantConfirmFailure
+const TRANSPORT_NOTE =
+  '\u786e\u8ba4\u8bf7\u6c42\u4e2d\u65ad\u6216\u8d85\u65f6\uff1a\u64cd\u4f5c\u53ef\u80fd\u5df2\u5728\u540e\u53f0\u6267\u884c\uff0c\u8bf7\u5148\u5230\u7a7a\u95f4\u91cc\u67e5\u770b\u7ed3\u679c\uff0c\u4e0d\u8981\u91cd\u590d\u63d0\u4ea4'
+check('confirm failure: backend business message kept verbatim',
+  confirmFailure?.(new Error('\u64cd\u4f5c\u4e0d\u5b58\u5728\u3001\u5df2\u8fc7\u671f\u6216\u5df2\u5904\u7406')),
+  '\u786e\u8ba4\u672a\u5b8c\u6210\uff1a\u64cd\u4f5c\u4e0d\u5b58\u5728\u3001\u5df2\u8fc7\u671f\u6216\u5df2\u5904\u7406')
+const axiosTimeout = Object.assign(new Error('timeout of 10000ms exceeded'),
+  { isAxiosError: true, code: 'ECONNABORTED' })
+const axiosNetwork = Object.assign(new Error('Network Error'), { isAxiosError: true, code: 'ERR_NETWORK' })
+check('confirm failure: axios timeout mapped to the transport note', confirmFailure?.(axiosTimeout), TRANSPORT_NOTE)
+check('confirm failure: axios network error mapped to the transport note', confirmFailure?.(axiosNetwork), TRANSPORT_NOTE)
+check('confirm failure: non-Error falls back to the transport note', confirmFailure?.('boom'), TRANSPORT_NOTE)
+checkTrue('confirm failure: no English axios text survives',
+  [String(confirmFailure?.(axiosTimeout)), String(confirmFailure?.(axiosNetwork))]
+    .every((text) => !/timeout of|Network Error/.test(text)),
+  'raw axios text leaked into the card')
+
+// ---------- T27.9: the confirm request must not inherit the global 10s axios timeout ----------
+// Multi-URL imports run synchronously on the server (per-URL 5s connect + 10s read + COS, up to 20 URLs),
+// so a 10s client timeout reports failure while the backend finishes writing.
+const apiSrc = fs.readFileSync(path.join(here, '..', 'src', 'api', 'assistantController.ts'), 'utf8')
+const confirmCallSrc = apiSrc.slice(apiSrc.indexOf('myAxios.post(ASSISTANT_CONFIRM_PATH'),
+  apiSrc.indexOf('return result'))
+checkTrue('confirm request overrides the global axios timeout',
+  /timeout:\s*0/.test(confirmCallSrc),
+  'confirmAssistantOperation must pass { timeout: 0 } (see T27.9)')
+
 console.log(failed === 0 ? '\nRESULT: PASS (assistant format)' : `\nRESULT: ${failed} FAILED`)
 process.exit(failed === 0 ? 0 : 1)
