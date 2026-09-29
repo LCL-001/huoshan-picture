@@ -18,6 +18,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.Reader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -27,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -103,12 +105,12 @@ public class AiAssistantProxyManager {
                 message, userId, chatId, satoken, sessionCookie, userRole);
 
         SseEmitter emitter = createEmitter();
-        AtomicReference<HttpURLConnection> upstream = new AtomicReference<>();
+        Upstream upstream = new Upstream();
         // 浏览器断流/出错/超时即断开到引擎的连接：代理侧的上游由我们掌控，能干净关掉。
         // （与 decisions.md 挂在档 2 之后的 R1——引擎侧 provider 连接因 Flux.cache(0) 取消不断开——不是同一回事）
-        emitter.onCompletion(() -> close(upstream));
-        emitter.onError(e -> close(upstream));
-        emitter.onTimeout(() -> close(upstream));
+        emitter.onCompletion(upstream::cancel);
+        emitter.onError(e -> upstream.cancel());
+        emitter.onTimeout(upstream::cancel);
 
         try {
             executor.execute(() -> forward(emitter, upstream, request));
@@ -119,10 +121,19 @@ public class AiAssistantProxyManager {
         return emitter;
     }
 
-    private void forward(SseEmitter emitter, AtomicReference<HttpURLConnection> upstream, ForwardRequest request) {
+    private void forward(SseEmitter emitter, Upstream upstream, ForwardRequest request) {
+        // R4：取消可能发生在 worker 启动之前（客户端早断），此时连接还没登记——先看一眼，别白建连
+        if (upstream.isCancelled()) {
+            log.debug("AI 助手客户端已断开，本次转发不再建连");
+            return;
+        }
         try {
             HttpURLConnection connection = open(request);
-            upstream.set(connection);
+            // 登记后复查取消位：取消恰好落在"建连与登记之间"时，这里立刻断开且不进入请求/中继
+            if (!upstream.register(connection)) {
+                log.debug("AI 助手客户端在建立连接期间断开，已关闭上游连接、不发起请求");
+                return;
+            }
             int status = connection.getResponseCode();
             String contentType = connection.getContentType();
             if (status != HttpURLConnection.HTTP_OK || contentType == null || !contentType.contains(SSE_CONTENT_TYPE)) {
@@ -136,7 +147,7 @@ public class AiAssistantProxyManager {
             log.warn("AI 助手转发失败: {}", e.getMessage());
             sendErrorAsError(emitter, "图库助手引擎暂时不可用，请稍后重试");
         } finally {
-            close(upstream);
+            upstream.disconnect();
         }
     }
 
@@ -291,7 +302,13 @@ public class AiAssistantProxyManager {
         return "图库助手引擎响应异常（HTTP " + status + "）";
     }
 
-    /** 读引擎的错误响应体：401 等错误状态要走 errorStream，200 但非 SSE 的错误体在 inputStream */
+    /**
+     * 读引擎的错误响应体：401 等错误状态要走 errorStream，200 但非 SSE 的错误体在 inputStream。
+     * <p>
+     * R7（T27.2）：按字符块读、总长硬上限 {@link #ERROR_BODY_MAX_CHARS}——不用 {@code readLine()}，
+     * 否则一条 8000 字符的单行体（没有任何换行）会被整行进内存，"下一行才检查长度"的上限形同虚设；
+     * 读到的原文还要过一遍控制字符清洗（见 {@link #withoutControlChars}）。
+     */
     private String readErrorBody(HttpURLConnection connection) {
         InputStream stream = connection.getErrorStream();
         if (stream == null) {
@@ -301,16 +318,37 @@ public class AiAssistantProxyManager {
                 return null;
             }
         }
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+        try (Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
             StringBuilder body = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null && body.length() < ERROR_BODY_MAX_CHARS) {
-                body.append(line);
+            char[] buffer = new char[512];
+            while (body.length() < ERROR_BODY_MAX_CHARS) {
+                int limit = Math.min(buffer.length, ERROR_BODY_MAX_CHARS - body.length());
+                int read = reader.read(buffer, 0, limit);
+                if (read < 0) {
+                    break;
+                }
+                body.append(buffer, 0, read);
             }
-            return body.toString();
+            return withoutControlChars(body.toString());
         } catch (IOException e) {
             return null;
         }
+    }
+
+    /**
+     * 去掉控制字符（含换行、回车、\u000B 这类"会被日志查看器当换行"的字符与 ANSI 转义）。
+     * 上游错误体是**不可信输入**：换行会伪造日志行，转义序列会污染终端；而 JSON 的空白只允许出现在
+     * token 之间，去掉后仍可解析，所以清洗放在解析之前没有副作用。
+     */
+    private String withoutControlChars(String body) {
+        StringBuilder clean = new StringBuilder(body.length());
+        for (int i = 0; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (!Character.isISOControl(c) && c != '\u2028' && c != '\u2029') {
+                clean.append(c);
+            }
+        }
+        return clean.toString();
     }
 
     /**
@@ -351,10 +389,51 @@ public class AiAssistantProxyManager {
         return (int) Math.min(duration.toMillis(), Integer.MAX_VALUE);
     }
 
-    private void close(AtomicReference<HttpURLConnection> upstream) {
-        HttpURLConnection connection = upstream.getAndSet(null);
-        if (connection != null) {
-            connection.disconnect();
+    /**
+     * 一次转发的取消状态与上游连接登记（R4，T27.2）。
+     * <p>
+     * 取消动作与"登记连接"必须原子配合，两条时序都要覆盖，否则客户端早断时 worker 会白跑一整轮
+     * （真实代价：一次完整 LLM 调用链 + 上游负载）：
+     * <ul>
+     *   <li>取消发生在建连之前 ⇒ {@link #register} 复查取消位，立刻断开且 worker 不进入请求/中继；</li>
+     *   <li>取消发生在登记之后 ⇒ {@link #cancel} 直接断开已登记的那条连接。</li>
+     * </ul>
+     * 断开幂等：重复调用只会断一次（{@code getAndSet} 把引用摘走）。
+     */
+    static final class Upstream {
+
+        private final AtomicBoolean cancelled = new AtomicBoolean(false);
+        private final AtomicReference<HttpURLConnection> connection = new AtomicReference<>();
+
+        /** 客户端断流/出错/超时：先置位再断开已登记的连接 */
+        void cancel() {
+            cancelled.set(true);
+            disconnect();
+        }
+
+        boolean isCancelled() {
+            return cancelled.get();
+        }
+
+        /**
+         * worker 建好连接后登记；登记后再查一次取消位——期间已被取消就立即断开并返回 false，
+         * worker 不得再进入 {@code getResponseCode()} / {@code relay()}。
+         */
+        boolean register(HttpURLConnection candidate) {
+            connection.set(candidate);
+            if (cancelled.get()) {
+                disconnect();
+                return false;
+            }
+            return true;
+        }
+
+        /** 断开并清空登记（幂等） */
+        void disconnect() {
+            HttpURLConnection registered = connection.getAndSet(null);
+            if (registered != null) {
+                registered.disconnect();
+            }
         }
     }
 

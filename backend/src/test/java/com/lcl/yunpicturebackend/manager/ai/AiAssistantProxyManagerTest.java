@@ -7,17 +7,23 @@ import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -33,6 +39,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -422,6 +429,103 @@ class AiAssistantProxyManagerTest {
         assertThat(REQUESTS.get()).isZero();
     }
 
+    /**
+     * R4（T27.2）：客户端在 worker 启动前就断开（超时/断流）时，代理不得再建连、更不得发起上游请求——
+     * 旧实现里取消动作只关"已登记"的连接，此刻登记还是空的，worker 随后照常跑完一整轮（白烧 LLM 与上游负载）。
+     */
+    @Test
+    void cancelBeforeWorkerStartsSkipsUpstreamEntirely() {
+        stubBody = "data:[DONE]\n\n";
+        GatedExecutor gated = new GatedExecutor();
+        ControllableEmitter emitter = new ControllableEmitter();
+        RecordingManager manager = new RecordingManager(properties(engineBaseUrl, API_KEY), gated, emitter);
+
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
+        emitter.triggerTimeout();
+        gated.releaseAndAwait();
+
+        assertThat(REQUESTS.get()).as("客户端已断开：不得再向上游发起请求").isZero();
+        assertThat(emitter.framesSnapshot()).as("客户端已断开：不该再产生任何帧").isEmpty();
+    }
+
+    /**
+     * R7（T27.2）：单行长错误体的尾部不得进用户可见文案。旧实现用 {@code readLine()} 整行读进内存，
+     * 长度检查只挡住"下一行"，于是 8000 字符的单行体被原样取 message 发进 error 帧。
+     */
+    @Test
+    void overlongSingleLineErrorBodyIsBoundedAndTailNeverReachesTheUser() {
+        stubStatus = 200;
+        stubContentType = "application/json";
+        stubBody = "{\"message\":\"" + "A".repeat(8000) + "TAIL-MARKER\"}";
+
+        RecordingManager manager = manager();
+        manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
+        List<String> frames = manager.emitter.awaitFrames();
+
+        assertThat(frames).hasSize(2);
+        assertThat(frames.get(0))
+                .contains("\"event\":\"error\"")
+                .as("错误体必须按上限有界读取，尾部 marker 不得出现在用户文案里")
+                .doesNotContain("TAIL-MARKER");
+        assertThat(frames.get(1)).isEqualTo("[DONE]");
+    }
+
+    /**
+     * R7（T27.2）：错误体原文进日志前要去掉控制字符——\u000B 这类字符在日志查看器里会被当换行渲染，
+     * 等于让上游用一段错误体伪造日志行；ANSI 转义（\u001b）还会污染终端。
+     */
+    @Test
+    void errorBodyControlCharactersNeverReachTheLog() {
+        stubStatus = 200;
+        stubContentType = "text/html";
+        stubBody = "<html>gateway\u000BFORGED-LOG-LINE\u001b[31m</html>";
+
+        Logger logger = (Logger) LoggerFactory.getLogger(AiAssistantProxyManager.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            RecordingManager manager = manager();
+            manager.chat(MESSAGE, 123L, "chat-1", SATOKEN, SESSION_ID, UserConstant.DEFAULT_ROLE);
+            manager.emitter.awaitFrames();
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        List<String> logs = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        assertThat(logs).as("这条用例必须确实走到「原文进日志」的分支").anyMatch(message -> message.contains("原文"));
+        assertThat(logs).as("日志里不得残留任何控制字符")
+                .allMatch(message -> message.chars().noneMatch(c -> c == 0x0B || c == 0x1B));
+    }
+
+    /**
+     * R4（T27.2）"取消落在建连与登记之间"的时序：worker 把刚建好的连接交给 register 时，
+     * 取消已经发生 ⇒ register 必须立刻断开并回 false，worker 不得再发请求；断开只做一次（幂等）。
+     */
+    @Test
+    void registerAfterCancelDisconnectsImmediatelyAndRefusesToProceed() {
+        AiAssistantProxyManager.Upstream upstream = new AiAssistantProxyManager.Upstream();
+        RecordingConnection connection = new RecordingConnection();
+
+        upstream.cancel();
+
+        assertThat(upstream.register(connection)).as("取消已发生：worker 不得再进入请求/中继").isFalse();
+        assertThat(connection.disconnects.get()).isEqualTo(1);
+    }
+
+    /** R4（T27.2）"取消晚于登记"的时序：取消侧必须断开已登记的那条连接 */
+    @Test
+    void cancelAfterRegisterDisconnectsTheRegisteredConnection() {
+        AiAssistantProxyManager.Upstream upstream = new AiAssistantProxyManager.Upstream();
+        RecordingConnection connection = new RecordingConnection();
+
+        assertThat(upstream.register(connection)).isTrue();
+        upstream.cancel();
+        upstream.disconnect();
+
+        assertThat(connection.disconnects.get()).as("重复断开不得重复生效").isEqualTo(1);
+    }
+
     @Test
     void fetchMessagesCarriesInternalKeyAndRelaysBody() throws IOException {
         // T37：读历史走同一内部密钥信道，但**不带用户凭据组**（引擎读消息不碰图库）
@@ -512,20 +616,139 @@ class AiAssistantProxyManagerTest {
                 return new ArrayList<>(frames);
             }
         }
+
+        List<String> framesSnapshot() {
+            synchronized (frames) {
+                return new ArrayList<>(frames);
+            }
+        }
+    }
+
+    /**
+     * 受控 emitter（T27.2）：把 onCompletion/onError/onTimeout 的回调收下来，
+     * 让测试能精确挑一个时序触发"客户端断开"——真实路径由 servlet 容器在断流/超时时回调。
+     */
+    private static class ControllableEmitter extends RecordingSseEmitter {
+
+        private Runnable completionCallback;
+        private Consumer<Throwable> errorCallback;
+        private Runnable timeoutCallback;
+
+        @Override
+        public void onCompletion(Runnable callback) {
+            this.completionCallback = callback;
+        }
+
+        @Override
+        public void onError(Consumer<Throwable> callback) {
+            this.errorCallback = callback;
+        }
+
+        @Override
+        public void onTimeout(Runnable callback) {
+            this.timeoutCallback = callback;
+        }
+
+        void triggerTimeout() {
+            timeoutCallback.run();
+        }
+    }
+
+    /** 假连接：只记 disconnect() 次数（HttpURLConnection 的抽象壳，不连任何东西） */
+    private static class RecordingConnection extends HttpURLConnection {
+
+        private final AtomicInteger disconnects = new AtomicInteger();
+
+        RecordingConnection() {
+            super((URL) null);
+        }
+
+        @Override
+        public void disconnect() {
+            disconnects.incrementAndGet();
+        }
+
+        @Override
+        public boolean usingProxy() {
+            return false;
+        }
+
+        @Override
+        public void connect() {
+        }
+    }
+
+    /** 门控执行器：把提交的任务扣住不放，直到 {@link #releaseAndAwait()}——用于构造"取消早于 worker 启动"的时序 */
+    private static class GatedExecutor extends java.util.concurrent.AbstractExecutorService {
+
+        private volatile Runnable pending;
+
+        @Override
+        public void execute(Runnable command) {
+            this.pending = command;
+        }
+
+        @Override
+        public void shutdown() {
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            return Arrays.asList();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return false;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return false;
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return true;
+        }
+
+        void releaseAndAwait() {
+            Runnable command = pending;
+            assertThat(command).as("worker 应已被提交到执行器").isNotNull();
+            Thread worker = new Thread(command, "gated-proxy-worker");
+            worker.setDaemon(true);
+            worker.start();
+            try {
+                worker.join(10_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("等待门控 worker 结束被中断", e);
+            }
+        }
     }
 
     /** 覆写 createEmitter 注入记录型 emitter；其余行为与生产一致 */
     private static class RecordingManager extends AiAssistantProxyManager {
 
-        private final RecordingSseEmitter emitter = new RecordingSseEmitter();
+        private final RecordingSseEmitter emitter;
 
         RecordingManager(AiAssistantProperties properties, ExecutorService executor) {
-            this(properties, executor, "satoken", "SESSION");
+            this(properties, executor, new RecordingSseEmitter());
+        }
+
+        RecordingManager(AiAssistantProperties properties, ExecutorService executor, RecordingSseEmitter emitter) {
+            this(properties, executor, emitter, "satoken", "SESSION");
         }
 
         RecordingManager(AiAssistantProperties properties, ExecutorService executor,
                          String tokenName, String sessionCookieName) {
+            this(properties, executor, new RecordingSseEmitter(), tokenName, sessionCookieName);
+        }
+
+        private RecordingManager(AiAssistantProperties properties, ExecutorService executor,
+                                 RecordingSseEmitter emitter, String tokenName, String sessionCookieName) {
             super(properties, new ObjectMapper(), executor, tokenName, sessionCookieName);
+            this.emitter = emitter;
         }
 
         @Override
