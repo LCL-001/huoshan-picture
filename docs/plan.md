@@ -12,6 +12,10 @@
   - 文件范围：backend `domain/vo/AiOperationPrepareVO.java`、`manager/ai/AiAssistantOperationManager.java` + `AiAssistantOperationManagerTest`；引擎 `tools/huoshan/PrepareUrlImportPicturesTool.java`、`PrepareBatchEditPicturesTool.java`、`HuoshanToolSupport.java` + `HuoshanPrepareToolsTest`。
   - 验收：backend 单测先红后绿（url_import ≤5 全列 / >5 省略；batch_edit id 截断与字段行、空间名缺失回退）；引擎透传与缺失报错断言；术语守卫 `check:assistant-copy` PASS；backend/引擎全量门禁绿；真机卡片显示"目标空间：默认空间（id：…）+ 目标清单"。
 
+- [ ] T43（2026-10-01 字据批准；设计、根因与验收全文见 `docs/designs/2026-10-01-门卫召回修复设计.md`）**助手范围门卫召回修复**：门卫从"裸吃全量历史 + 精确相等 + 拒绝不落库"改成"受控任务上下文 + 前缀匹配 + 拒绝一等公民"，一次覆盖三类误拒（搜图短主题追问 / 历史拒绝轮污染 / 携带 URL 的导入请求；第三形态 2026-10-01 线上复现，见 `docs/evidence/2026-10-01-prod-confirm-gate-readonly-probe.md` 补记），不动"范围外必须拒"的 fail-closed 底线。方案：A1 门卫输入 = System(SCOPE_PROMPT v2) + 上一轮任务上下文（至多 1 轮，跳过拒绝轮）+ 本轮消息；A2 拒绝路径写回 ASSISTANT 行（回放不再"问了没答"）；A3 判定改首个 IN_SCOPE/OUT_OF_SCOPE token 命中（无 token 仍 fail-closed）+ prompt v2 补三例；A4 范围措辞四处单源。
+  - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` + 新增 `agent/HuoshanAssistantAgentScopeTest.java`；不碰 BaseAgent/ToolCallAgent 循环本体、FlowWindowBasedChatMemory、ChatHistoryAssembler、backend、前端。
+  - 验收：单测先红后绿（短跟进放行 / 污染隔离 / URL 放行 / 非协议输出 fail-closed / 拒绝写回；负向控制实测红）；`ai/agent` 门禁全绿；真机四项（T25 原三负向仍拒 + 短跟进放行 + 污染复测 + URL 复测）记 `docs/plans/records/T43-*.md`。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
@@ -20,7 +24,6 @@
 - **数据卫生：逻辑删除的历史残留未清（另开任务才做）**：`user` 377 行 / `space` 206 行 / `picture` 362 行（`isDelete=1`）——对应用不可见，但占库、且**唯一索引仍被占用**（同名词条/账号不可再注册）。清理要跨表物理删除，属独立任务。已清记录见 `docs/plans/records/probe-data-purge-2026-09-15.md` 与 `backend/sql/cleanup/2026-09-15-purge-probe-data.sql`。
   - 规则沉淀：① MySQL 的 `LIKE` 不支持 `[_]` 字符类，精确前缀一律用 `left(col,N)='...'`；② 不能照账号名猜是不是探针（`1234`/`admin` 是带 144/10 张图的在用账号），删前必须看内容足迹。
 - **A/B 基线选取口径待用户拍板**：`tag_category` 自 T5 起查词表、已不是空跑接口，两轮 A/B 均出现"最慢基线高于被测路径"使 `net` 列算 0 或反向；`compare-ab.py` 未改。数字与明细见 `backend/jmeter/README.md` §5.6 与 `docs/plans/records/ab-first-run-2026-09-18.md`。
-- **助手范围门卫历史污染误拒（2026-09-28 用户拍板先排期，开工前先立字据）**：v2.6-flash 下门卫分类器被会话历史中的固定拒绝轮带偏（同一 in-scope 句新会话过、同会话积累 3 条拒绝轮后被拒），且被拒轮 USER 行入库而 ASSISTANT 行缺位（回放"问了没答"）。改进方向已调研定案：**借鉴 NeMo Guardrails 两点——门卫输入瘦身（不裸吃全量历史）+ 拒绝补为对话一等公民**，不引入护栏框架本体。调研与候选表见 `docs/designs/2026-09-28-助手范围围栏开源调研.md`；现象与根因见 `docs/features/F11-AI助手MVP.md` 已知限制 14 与 `docs/plans/records/T36-T39-助手快赢包.md` 冒烟章节。排在 T27.4+ 写确认门之后的候选队列（客服问答同队列），开工顺序届时由用户定。
 
 ## 归档
 
