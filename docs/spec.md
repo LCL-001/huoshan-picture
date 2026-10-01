@@ -1,6 +1,6 @@
 # Spec — 火山图库（huoshan-picture）
 
-<!-- freshness: { owner: "lcl", reviewed: "2026-09-28" } -->
+<!-- freshness: { owner: "lcl", reviewed: "2026-10-01" } -->
 
 > AI 维护本文档；用户只须确认下方"关键三行"。三行未确认前，不允许写任何实现代码。
 > **三行只写稳定意图**：不写日期、不写"已完成/已上线"等状态、不写进展。状态在 docs/plan.md，沿革在 docs/decisions.md；三行只在意图变化时改动（门禁会检查三行纯度）。
