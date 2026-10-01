@@ -8,13 +8,15 @@
 
 ## 活跃任务
 
-- [ ] T27.10（2026-09-29 独立 review P2-2；**2026-10-01 用户批准**）**助手确认卡片可核对性**：卡片摘要改由 backend 在 prepare 归一化后生成，随 `AiOperationPrepareVO.summary` 返回——空间名经 `ISpaceService` 读取（查不到回退展示 id；prepare 仍零写库、RBAC 留在执行时），目标列表列前 5 条图片 id / URL + 省略，分类/标签/命名规则行沿用现格式；引擎两个 prepare 工具改为**只透传**后端 summary（缺失/为空 fail-closed 报错，不再自算）——卡片与执行计划同源，消掉两份归一化规则的漂移面。SSE 帧已逐字透传 summary、前端卡片渲染行数组，两者零改动。依据见 `docs/decisions/2026-09-29-review-write-gate.md` ①-2。
+- [x] T27.10（2026-09-29 独立 review P2-2；2026-10-01 用户批准）**助手确认卡片可核对性**：卡片摘要改由 backend 在 prepare 归一化后生成，随 `AiOperationPrepareVO.summary` 返回——空间名经 `ISpaceService` 读取（查不到回退展示 id；prepare 仍零写库、RBAC 留在执行时），目标列表列前 5 条图片 id / URL + 省略，分类/标签/命名规则行沿用现格式；引擎两个 prepare 工具改为**只透传**后端 summary（缺失/为空 fail-closed 报错，不再自算）——卡片与执行计划同源，消掉两份归一化规则的漂移面。SSE 帧已逐字透传 summary、前端卡片渲染行数组，两者零改动。依据见 `docs/decisions/2026-09-29-review-write-gate.md` ①-2。
   - 文件范围：backend `domain/vo/AiOperationPrepareVO.java`、`manager/ai/AiAssistantOperationManager.java` + `AiAssistantOperationManagerTest`；引擎 `tools/huoshan/PrepareUrlImportPicturesTool.java`、`PrepareBatchEditPicturesTool.java`、`HuoshanToolSupport.java` + `HuoshanPrepareToolsTest`。
   - 验收：backend 单测先红后绿（url_import ≤5 全列 / >5 省略；batch_edit id 截断与字段行、空间名缺失回退）；引擎透传与缺失报错断言；术语守卫 `check:assistant-copy` PASS；backend/引擎全量门禁绿；真机卡片显示"目标空间：默认空间（id：…）+ 目标清单"。
+  - **2026-10-01 收口**：红绿（backend 先红 5 → 33 绿、引擎先红 3 → 8 绿）、全量门禁（backend 144 / 引擎 214）与真机（URL 导入卡片即后端摘要格式）全过，commit `c392ecc`；实施记录与证据见 `docs/plans/records/T27.10-确认卡片摘要后端生成.md`。
 
-- [ ] T43（2026-10-01 字据批准；设计、根因与验收全文见 `docs/designs/2026-10-01-门卫召回修复设计.md`）**助手范围门卫召回修复**：门卫从"裸吃全量历史 + 精确相等 + 拒绝不落库"改成"受控任务上下文 + 前缀匹配 + 拒绝一等公民"，一次覆盖三类误拒（搜图短主题追问 / 历史拒绝轮污染 / 携带 URL 的导入请求；第三形态 2026-10-01 线上复现，见 `docs/evidence/2026-10-01-prod-confirm-gate-readonly-probe.md` 补记），不动"范围外必须拒"的 fail-closed 底线。方案：A1 门卫输入 = System(SCOPE_PROMPT v2) + 上一轮任务上下文（至多 1 轮，跳过拒绝轮）+ 本轮消息；A2 拒绝路径写回 ASSISTANT 行（回放不再"问了没答"）；A3 判定改首个 IN_SCOPE/OUT_OF_SCOPE token 命中（无 token 仍 fail-closed）+ prompt v2 补三例；A4 范围措辞四处单源。
+- [x] T43（2026-10-01 字据批准；设计、根因与验收全文见 `docs/designs/2026-10-01-门卫召回修复设计.md`）**助手范围门卫召回修复**：门卫从"裸吃全量历史 + 精确相等 + 拒绝不落库"改成"受控任务上下文 + 前缀匹配 + 拒绝一等公民"，一次覆盖三类误拒（搜图短主题追问 / 历史拒绝轮污染 / 携带 URL 的导入请求；第三形态 2026-10-01 线上复现，见 `docs/evidence/2026-10-01-prod-confirm-gate-readonly-probe.md` 补记），不动"范围外必须拒"的 fail-closed 底线。方案：A1 门卫输入 = System(SCOPE_PROMPT v2) + 上一轮任务上下文（至多 1 轮，跳过拒绝轮）+ 本轮消息；A2 拒绝路径写回 ASSISTANT 行（回放不再"问了没答"）；A3 判定改首个 IN_SCOPE/OUT_OF_SCOPE token 命中（无 token 仍 fail-closed）+ prompt v2 补三例；A4 范围措辞四处单源。
   - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` + 新增 `agent/HuoshanAssistantAgentScopeTest.java`；不碰 BaseAgent/ToolCallAgent 循环本体、FlowWindowBasedChatMemory、ChatHistoryAssembler、backend、前端。
   - 验收：单测先红后绿（短跟进放行 / 污染隔离 / URL 放行 / 非协议输出 fail-closed / 拒绝写回；负向控制实测红）；`ai/agent` 门禁全绿；真机四项（T25 原三负向仍拒 + 短跟进放行 + 污染复测 + URL 复测）记 `docs/plans/records/T43-*.md`。
+  - **2026-10-01 收口**：范围测试 12/12（先红 5）+ 引擎全量 214/214 + 真机四项全过（含 URL 导入直达卡片、零写入），commit `97deea3`；实施记录与证据见 `docs/plans/records/T43-门卫召回修复.md`。
 
 ## 未决与非任务事项（不建任务）
 
