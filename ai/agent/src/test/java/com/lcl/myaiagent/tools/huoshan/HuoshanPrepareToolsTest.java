@@ -40,6 +40,9 @@ class HuoshanPrepareToolsTest {
     /** 按到达顺序记录的请求：每项 [path, method, body, satoken, cookie] */
     private static final List<String[]> REQUESTS = Collections.synchronizedList(new ArrayList<>());
 
+    /** 桩开关：置 true 时 prepare 响应缺 summary 字段（T27.10 负向：引擎必须 fail-closed） */
+    private static volatile boolean omitSummaryInStub = false;
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static HttpServer stubServer;
@@ -67,6 +70,7 @@ class HuoshanPrepareToolsTest {
     @BeforeEach
     void resetStub() {
         REQUESTS.clear();
+        omitSummaryInStub = false;
     }
 
     private static void handle(HttpExchange exchange) throws IOException {
@@ -78,8 +82,23 @@ class HuoshanPrepareToolsTest {
                 exchange.getRequestHeaders().getFirst("satoken"),
                 exchange.getRequestHeaders().getFirst("Cookie")
         });
-        byte[] payload = """
-                {"code":0,"data":{"operationId":"op-1","operationType":"batch_edit","digest":"abc123"},"message":"ok"}"""
+        // 按请求的操作类型回同形摘要（T27.10 起 summary 由后端生成，引擎只透传）
+        String operationType = "batch_edit";
+        try {
+            operationType = MAPPER.readTree(body).path("plan").path("operationType").asText("batch_edit");
+        } catch (Exception ignored) {
+            // 桩服务器：请求体不是 JSON 时按 batch_edit 兜底
+        }
+        String summary = "url_import".equals(operationType)
+                ? "[\"目标空间：默认空间（id：30）\",\"图片直链：2 条\","
+                        + "\"1. http://example.com/a.jpg\",\"2. https://example.com/b.jpg\"]"
+                : "[\"目标空间：默认空间（id：30）\",\"目标图片：2 张（id：1、2）\","
+                        + "\"分类 → 分类\",\"标签 → 标签A、标签B\",\"命名规则 → 落日-{序号}\"]";
+        String data = omitSummaryInStub
+                ? "{\"operationId\":\"op-1\",\"operationType\":\"" + operationType + "\",\"digest\":\"abc123\"}"
+                : "{\"operationId\":\"op-1\",\"operationType\":\"" + operationType
+                        + "\",\"digest\":\"abc123\",\"summary\":" + summary + "}";
+        byte[] payload = ("{\"code\":0,\"data\":" + data + ",\"message\":\"ok\"}")
                 .getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, payload.length);
@@ -145,10 +164,13 @@ class HuoshanPrepareToolsTest {
         assertThat(resultNode.path("operationId").asText()).isEqualTo("op-1");
         assertThat(resultNode.path("digest").asText()).isEqualTo("abc123");
         assertThat(resultNode.path("operationType").asText()).isEqualTo("batch_edit");
-        assertThat(resultNode.path("summary").toString())
-                .contains("目标空间 id：30").contains("图片：2 张")
-                .contains("分类 → 分类").contains("标签 → 标签A、标签B")
-                .contains("命名规则 → 落日-{序号}");
+        // T27.10：摘要逐字透传后端返回，引擎不再自算
+        assertThat(MAPPER.convertValue(resultNode.path("summary"), List.class)).containsExactly(
+                "目标空间：默认空间（id：30）",
+                "目标图片：2 张（id：1、2）",
+                "分类 → 分类",
+                "标签 → 标签A、标签B",
+                "命名规则 → 落日-{序号}");
         assertThat(resultNode.path("note").asText()).contains("待确认");
     }
 
@@ -222,8 +244,24 @@ class HuoshanPrepareToolsTest {
                 com.lcl.myaiagent.agent.ToolCallAgent.normalizeToolResponseData(result));
         assertThat(resultNode.path("status").asText()).isEqualTo("pending_confirmation");
         assertThat(resultNode.path("operationId").asText()).isEqualTo("op-1");
-        assertThat(resultNode.path("summary").toString())
-                .contains("目标空间 id：30").contains("图片直链：2 条");
+        assertThat(MAPPER.convertValue(resultNode.path("summary"), List.class)).containsExactly(
+                "目标空间：默认空间（id：30）",
+                "图片直链：2 条",
+                "1. http://example.com/a.jpg",
+                "2. https://example.com/b.jpg");
+    }
+
+    /** T27.10 负向：后端响应缺 summary 时引擎必须 fail-closed，不得自算摘要兜底 */
+    @Test
+    void prepareFailsClosedWhenBackendOmitsSummary() throws Exception {
+        omitSummaryInStub = true;
+
+        JsonNode result = MAPPER.readTree(invoke(urlToolCallbacks(), "prepareUrlImportPictures",
+                "{\"spaceId\":\"30\",\"fileUrlList\":[\"http://example.com/a.jpg\"]}"));
+
+        assertThat(result.path("code").asInt()).isEqualTo(HuoshanApiClient.PARAMS_ERROR_CODE);
+        assertThat(result.path("message").asText()).contains("卡片摘要");
+        assertThat(REQUESTS).as("prepare 请求已发出，失败发生在解析响应").hasSize(1);
     }
 
     @Test

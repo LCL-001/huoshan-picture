@@ -27,7 +27,7 @@ public class PrepareOperationResult {
     /** 计划指纹（SHA-1 hex）：确认卡片展示并原样回传，钉死"确认内容 = 执行内容" */
     private String digest;
 
-    /** 确认卡片逐行展示的内容（目标空间 / 数量 / 字段或 URL 概要） */
+    /** 确认卡片逐行展示的内容（目标空间 / 数量 / 字段或 URL 清单）——T27.10 起由后端从既存计划生成，引擎只透传 */
     private List<String> summary;
 
     /** 给模型的转述指引：如何向用户说明这是待确认操作 */

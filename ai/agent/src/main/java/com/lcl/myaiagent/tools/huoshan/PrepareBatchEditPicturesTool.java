@@ -8,17 +8,17 @@ import com.lcl.myaiagent.tools.huoshan.dto.PrepareOperationResult;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 批量编辑图片·待确认操作（T27.6 确认门，替代原直接写工具 batchEditPictures）：
  * 调图库 POST /ai/assistant/operations/prepare 提交操作计划（后端只存计划，零写库），
- * 成功后返回确认凭据（operationId + digest）与卡片摘要；真正的写入只能由用户在确认卡片上
- * 确认后由后端原子消费既存计划执行——模型提交计划不等于用户授权。
+ * 成功后返回确认凭据（operationId + digest）与卡片摘要（T27.10 起由后端从既存计划生成，
+ * 本工具只透传）；真正的写入只能由用户在确认卡片上确认后由后端原子消费既存计划执行——
+ * 模型提交计划不等于用户授权。
  * <p>
- * 参数在本地先做与后端一致的形状校验与归一化（trim、丢空标签），保证卡片摘要与
- * 后端存储的计划逐字段一致；权限不在这里判——确认执行时由图库按调用者真实身份校验。
+ * 参数在本地先做与后端一致的形状校验与归一化（trim、丢空标签），尽早拦住明显不合法的输入；
+ * 权限不在这里判——确认执行时由图库按调用者真实身份校验。
  * </p>
  */
 public class PrepareBatchEditPicturesTool {
@@ -74,18 +74,6 @@ public class PrepareBatchEditPicturesTool {
         List<String> cleanTags = HuoshanToolSupport.cleanList(tags);
         String cleanCategory = trimToNull(category);
         String cleanNameRule = trimToNull(nameRule);
-        List<String> summary = new ArrayList<>();
-        summary.add("目标空间 id：" + spaceId);
-        summary.add("图片：" + ids.size() + " 张");
-        if (cleanCategory != null) {
-            summary.add("分类 → " + cleanCategory);
-        }
-        if (!cleanTags.isEmpty()) {
-            summary.add("标签 → " + String.join("、", cleanTags));
-        }
-        if (cleanNameRule != null) {
-            summary.add("命名规则 → " + cleanNameRule);
-        }
         if (cleanCategory == null && cleanTags.isEmpty() && cleanNameRule == null) {
             throw new HuoshanApiException(HuoshanApiClient.PARAMS_ERROR_CODE,
                     "没有要修改的字段：category / tags / nameRule 至少给一个");
@@ -108,7 +96,7 @@ public class PrepareBatchEditPicturesTool {
             batchEdit.put("nameRule", cleanNameRule);
         }
         JsonNode data = client.prepareOperation(chatId, plan);
-        return HuoshanToolSupport.pendingConfirmation("batch_edit", data, summary);
+        return HuoshanToolSupport.pendingConfirmation("batch_edit", data);
     }
 
     private void requireChatId() {

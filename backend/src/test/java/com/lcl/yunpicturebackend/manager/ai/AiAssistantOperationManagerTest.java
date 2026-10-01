@@ -9,6 +9,7 @@ import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPlan;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPrepareRequest;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiUrlImportPlan;
 import com.lcl.yunpicturebackend.domain.dto.picture.PictureEditByBatchRequest;
+import com.lcl.yunpicturebackend.domain.po.Space;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.AiOperationItemResultVO;
 import com.lcl.yunpicturebackend.domain.vo.AiOperationPrepareVO;
@@ -17,6 +18,7 @@ import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.service.IPictureService;
+import com.lcl.yunpicturebackend.service.ISpaceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -58,15 +60,18 @@ class AiAssistantOperationManagerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private StringRedisTemplate stringRedisTemplate;
     private IPictureService pictureService;
+    private ISpaceService spaceService;
     private AiAssistantOperationManager manager;
 
     @BeforeEach
     void setUp() {
         stringRedisTemplate = mock(StringRedisTemplate.class);
         pictureService = mock(IPictureService.class);
+        spaceService = mock(ISpaceService.class);
         AiAssistantProperties properties = new AiAssistantProperties();
         properties.setOperationTtl(Duration.ofSeconds(Long.parseLong(TTL_SECONDS)));
-        manager = new AiAssistantOperationManager(stringRedisTemplate, objectMapper, properties, pictureService);
+        manager = new AiAssistantOperationManager(stringRedisTemplate, objectMapper, properties,
+                pictureService, spaceService);
     }
 
     private User loginUser() {
@@ -301,6 +306,93 @@ class AiAssistantOperationManagerTest {
 
         assertThat(first.getDigest()).isEqualTo(second.getDigest());
         assertThat(first.getOperationId()).isNotEqualTo(second.getOperationId());
+    }
+
+    // ---------- prepare：卡片摘要由后端从既存计划生成（T27.10，引擎只透传） ----------
+
+    @Test
+    void prepareBuildsUrlImportSummaryWithSpaceNameAndAllUrls() {
+        when(stringRedisTemplate.execute(eq(AiAssistantOperationManager.STORE_SCRIPT), anyList(),
+                any(), any(), any(), any(), any())).thenReturn(1L);
+        when(spaceService.getById(30L)).thenReturn(spaceWithName("默认空间"));
+
+        AiOperationPrepareVO vo = manager.prepare(USER_ID, prepareOf(urlImportOnlyPlan(30L,
+                "http://example.com/a.jpg", "http://example.com/b.jpg", "http://example.com/c.jpg")));
+
+        assertThat(vo.getSummary()).containsExactly(
+                "目标空间：默认空间（id：30）",
+                "图片直链：3 条",
+                "1. http://example.com/a.jpg",
+                "2. http://example.com/b.jpg",
+                "3. http://example.com/c.jpg");
+        verifyNoInteractions(pictureService);
+    }
+
+    @Test
+    void prepareSummaryTruncatesUrlListBeyondFive() {
+        when(stringRedisTemplate.execute(eq(AiAssistantOperationManager.STORE_SCRIPT), anyList(),
+                any(), any(), any(), any(), any())).thenReturn(1L);
+        when(spaceService.getById(30L)).thenReturn(spaceWithName("默认空间"));
+
+        AiOperationPrepareVO vo = manager.prepare(USER_ID, prepareOf(urlImportOnlyPlan(30L,
+                "http://example.com/1.jpg", "http://example.com/2.jpg", "http://example.com/3.jpg",
+                "http://example.com/4.jpg", "http://example.com/5.jpg", "http://example.com/6.jpg",
+                "http://example.com/7.jpg")));
+
+        assertThat(vo.getSummary()).startsWith(
+                "目标空间：默认空间（id：30）",
+                "图片直链：7 条",
+                "1. http://example.com/1.jpg",
+                "2. http://example.com/2.jpg",
+                "3. http://example.com/3.jpg",
+                "4. http://example.com/4.jpg",
+                "5. http://example.com/5.jpg");
+        assertThat(vo.getSummary()).hasSize(8).last().isEqualTo("…（其余 2 条略）");
+    }
+
+    @Test
+    void prepareSummaryFallsBackToSpaceIdWhenSpaceMissing() {
+        when(stringRedisTemplate.execute(eq(AiAssistantOperationManager.STORE_SCRIPT), anyList(),
+                any(), any(), any(), any(), any())).thenReturn(1L);
+        when(spaceService.getById(30L)).thenReturn(null);
+
+        AiOperationPrepareVO vo = manager.prepare(USER_ID,
+                prepareOf(urlImportOnlyPlan(30L, "http://example.com/a.jpg")));
+
+        assertThat(vo.getSummary()).first().isEqualTo("目标空间 id：30");
+    }
+
+    @Test
+    void prepareBuildsBatchEditSummaryWithIdsAndFieldLines() {
+        when(stringRedisTemplate.execute(eq(AiAssistantOperationManager.STORE_SCRIPT), anyList(),
+                any(), any(), any(), any(), any())).thenReturn(1L);
+        when(spaceService.getById(30L)).thenReturn(spaceWithName("默认空间"));
+
+        AiOperationPlan plan = batchEditPlan(30L, "风景");
+        plan.getBatchEdit().setTags(List.of("标签A", "标签B"));
+        plan.getBatchEdit().setNameRule("落日-{序号}");
+        AiOperationPrepareVO vo = manager.prepare(USER_ID, prepareOf(plan));
+
+        assertThat(vo.getSummary()).containsExactly(
+                "目标空间：默认空间（id：30）",
+                "目标图片：2 张（id：1、2）",
+                "分类 → 风景",
+                "标签 → 标签A、标签B",
+                "命名规则 → 落日-{序号}");
+    }
+
+    @Test
+    void prepareSummaryTruncatesIdListBeyondFive() {
+        when(stringRedisTemplate.execute(eq(AiAssistantOperationManager.STORE_SCRIPT), anyList(),
+                any(), any(), any(), any(), any())).thenReturn(1L);
+        when(spaceService.getById(30L)).thenReturn(spaceWithName("默认空间"));
+
+        AiOperationPlan plan = batchEditPlan(30L, "风景");
+        plan.getBatchEdit().setPictureIdList(List.of(1L, 2L, 3L, 4L, 5L, 6L, 7L));
+        AiOperationPrepareVO vo = manager.prepare(USER_ID, prepareOf(plan));
+
+        assertThat(vo.getSummary()).contains("目标图片：7 张（id：1、2、3、4、5…其余 2 张略）");
+        assertThat(vo.getSummary()).noneSatisfy(line -> assertThat(line).contains("6、7"));
     }
 
     // ---------- confirm：失败语义（统一文案 + 零写入） ----------
@@ -548,6 +640,13 @@ class AiAssistantOperationManagerTest {
         batchEdit.setCategory(category);
         plan.setBatchEdit(batchEdit);
         return plan;
+    }
+
+    private Space spaceWithName(String spaceName) {
+        Space space = new Space();
+        space.setId(30L);
+        space.setSpaceName(spaceName);
+        return space;
     }
 
     private AiOperationPlan urlImportOnlyPlan(Long spaceId, String... urls) {

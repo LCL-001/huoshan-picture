@@ -12,6 +12,7 @@ import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPrepareRequest;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiUrlImportPlan;
 import com.lcl.yunpicturebackend.domain.dto.picture.PictureEditByBatchRequest;
 import com.lcl.yunpicturebackend.domain.dto.picture.PictureUploadRequest;
+import com.lcl.yunpicturebackend.domain.po.Space;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.AiOperationItemResultVO;
 import com.lcl.yunpicturebackend.domain.vo.AiOperationPrepareVO;
@@ -20,6 +21,7 @@ import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
 import com.lcl.yunpicturebackend.service.IPictureService;
+import com.lcl.yunpicturebackend.service.ISpaceService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -59,6 +61,9 @@ public class AiAssistantOperationManager {
 
     /** 单次入库 URL 数上限：与引擎既有批量入库工具的契约一致（MAX_URLS_PER_CALL = 20） */
     static final int MAX_URLS_PER_CALL = 20;
+
+    /** 卡片摘要预览条数（T27.10）：目标 id/URL 只列前 N 条，其余以省略行交代 */
+    static final int SUMMARY_PREVIEW_LIMIT = 5;
 
     /** 所有查找类失败的统一文案：不泄露 operation 是否存在、属于谁 */
     static final String INVALID_OPERATION_MESSAGE = "操作不存在、已过期或已处理";
@@ -107,15 +112,18 @@ public class AiAssistantOperationManager {
     private final ObjectMapper objectMapper;
     private final AiAssistantProperties properties;
     private final IPictureService pictureService;
+    private final ISpaceService spaceService;
 
     public AiAssistantOperationManager(StringRedisTemplate stringRedisTemplate,
                                        ObjectMapper objectMapper,
                                        AiAssistantProperties properties,
-                                       IPictureService pictureService) {
+                                       IPictureService pictureService,
+                                       ISpaceService spaceService) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.pictureService = pictureService;
+        this.spaceService = spaceService;
     }
 
     /**
@@ -144,6 +152,7 @@ public class AiAssistantOperationManager {
         vo.setOperationId(operationId);
         vo.setOperationType(plan.getOperationType());
         vo.setDigest(digest);
+        vo.setSummary(buildSummary(plan, resolveSpaceName(planSpaceId(plan))));
         return vo;
     }
 
@@ -306,6 +315,80 @@ public class AiAssistantOperationManager {
             log.warn("AI 助手待执行计划解析失败, operationId={}", operationId);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
         }
+    }
+
+    /**
+     * 确认卡片摘要（T27.10）：从归一化后的既存计划生成，与执行内容同源，引擎与前端只透传/渲染。
+     * 空间查得到给名字（id 一并保留），查不到回退展示 id——prepare 不做 RBAC，也不因空间不存在而拒绝：
+     * 目标空间的归属与额度校验仍单一发生在确认执行时。
+     */
+    static List<String> buildSummary(AiOperationPlan plan, String spaceName) {
+        List<String> lines = new ArrayList<>();
+        if (AiOperationPlan.TYPE_BATCH_EDIT.equals(plan.getOperationType())) {
+            AiBatchEditPlan batchEdit = plan.getBatchEdit();
+            lines.add(spaceLine(batchEdit.getSpaceId(), spaceName));
+            lines.add(targetPictureLine(batchEdit.getPictureIdList()));
+            if (batchEdit.getCategory() != null) {
+                lines.add("分类 → " + batchEdit.getCategory());
+            }
+            if (batchEdit.getTags() != null && !batchEdit.getTags().isEmpty()) {
+                lines.add("标签 → " + String.join("、", batchEdit.getTags()));
+            }
+            if (batchEdit.getNameRule() != null) {
+                lines.add("命名规则 → " + batchEdit.getNameRule());
+            }
+            return lines;
+        }
+        AiUrlImportPlan urlImport = plan.getUrlImport();
+        List<String> fileUrls = urlImport.getFileUrls();
+        lines.add(spaceLine(urlImport.getSpaceId(), spaceName));
+        lines.add("图片直链：" + fileUrls.size() + " 条");
+        int preview = Math.min(fileUrls.size(), SUMMARY_PREVIEW_LIMIT);
+        for (int i = 0; i < preview; i++) {
+            lines.add((i + 1) + ". " + fileUrls.get(i));
+        }
+        if (fileUrls.size() > SUMMARY_PREVIEW_LIMIT) {
+            lines.add("…（其余 " + (fileUrls.size() - SUMMARY_PREVIEW_LIMIT) + " 条略）");
+        }
+        return lines;
+    }
+
+    private static String spaceLine(Long spaceId, String spaceName) {
+        if (StrUtil.isBlank(spaceName)) {
+            return "目标空间 id：" + spaceId;
+        }
+        return "目标空间：" + spaceName + "（id：" + spaceId + "）";
+    }
+
+    private static String targetPictureLine(List<Long> pictureIdList) {
+        int total = pictureIdList.size();
+        int preview = Math.min(total, SUMMARY_PREVIEW_LIMIT);
+        StringBuilder line = new StringBuilder("目标图片：").append(total).append(" 张（id：");
+        for (int i = 0; i < preview; i++) {
+            if (i > 0) {
+                line.append('、');
+            }
+            line.append(pictureIdList.get(i));
+        }
+        if (total > SUMMARY_PREVIEW_LIMIT) {
+            line.append("…其余 ").append(total - SUMMARY_PREVIEW_LIMIT).append(" 张略");
+        }
+        return line.append('）').toString();
+    }
+
+    private Long planSpaceId(AiOperationPlan plan) {
+        return AiOperationPlan.TYPE_BATCH_EDIT.equals(plan.getOperationType())
+                ? plan.getBatchEdit().getSpaceId()
+                : plan.getUrlImport().getSpaceId();
+    }
+
+    /** 只取空间名（卡片摘要用）；查不到返回 null，由摘要回退展示 id，不在 prepare 阶段拒绝 */
+    private String resolveSpaceName(Long spaceId) {
+        if (spaceId == null) {
+            return null;
+        }
+        Space space = spaceService.getById(spaceId);
+        return space == null ? null : space.getSpaceName();
     }
 
     private String serializePlan(AiOperationPlan plan) {

@@ -37,18 +37,39 @@ final class HuoshanToolSupport {
     }
 
     /**
-     * prepare 端点返回的 {operationId, operationType, digest} → 待确认操作结果（T27.6 两个 prepare 工具共用）。
-     * note 是给模型的转述指引：如实告知"待确认、未改动"，防止模型把提交当成已执行。
+     * prepare 端点返回的 {operationId, operationType, digest, summary} → 待确认操作结果
+     * （T27.6 两个 prepare 工具共用）。note 是给模型的转述指引：如实告知"待确认、未改动"，
+     * 防止模型把提交当成已执行。
+     * 卡片摘要（T27.10）由后端从既存计划生成，这里只透传——后端响应缺 summary 视为版本不一致，
+     * fail-closed 报错，绝不自算摘要兜底（自算会重新打开"卡片 ≠ 计划"的漂移面）。
      */
-    static PrepareOperationResult pendingConfirmation(String operationType, JsonNode data, List<String> summary) {
+    static PrepareOperationResult pendingConfirmation(String operationType, JsonNode data) {
         PrepareOperationResult result = new PrepareOperationResult();
         result.setStatus(PrepareOperationResult.STATUS_PENDING_CONFIRMATION);
         result.setOperationType(operationType);
         result.setOperationId(data.path("operationId").asText(null));
         result.setDigest(data.path("digest").asText(null));
+        List<String> summary = readSummaryLines(data.path("summary"));
+        if (summary.isEmpty()) {
+            throw new HuoshanApiException(HuoshanApiClient.PARAMS_ERROR_CODE,
+                    "图库后端未返回卡片摘要，无法生成待确认操作（前后端版本可能不一致）");
+        }
         result.setSummary(summary);
         result.setNote("这是待确认操作：还没有改动任何数据。请提醒用户核对确认卡片内容并点击确认后才会执行，确认结果会展示在确认卡片上；不要重复提交同一操作。");
         return result;
+    }
+
+    private static List<String> readSummaryLines(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<String> lines = new ArrayList<>();
+        for (JsonNode item : node) {
+            if (item.isTextual() && !item.asText().isBlank()) {
+                lines.add(item.asText());
+            }
+        }
+        return lines;
     }
 
     private static String errorJson(int code, String message) {

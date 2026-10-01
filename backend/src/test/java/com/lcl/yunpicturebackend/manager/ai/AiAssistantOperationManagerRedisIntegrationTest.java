@@ -12,6 +12,7 @@ import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.service.IPictureService;
+import com.lcl.yunpicturebackend.service.ISpaceService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +60,7 @@ class AiAssistantOperationManagerRedisIntegrationTest {
     private static StringRedisTemplate redisTemplate;
 
     private IPictureService pictureService;
+    private ISpaceService spaceService;
     private AiAssistantOperationManager manager;
     /** prepare 创建过的键：测试结束后兜底清理（大多数用例消费即删，不会残留） */
     private final List<String> createdKeys = new ArrayList<>();
@@ -74,9 +76,11 @@ class AiAssistantOperationManagerRedisIntegrationTest {
     @BeforeEach
     void setUpManager() {
         pictureService = mock(IPictureService.class);
+        spaceService = mock(ISpaceService.class);
         AiAssistantProperties properties = new AiAssistantProperties();
         properties.setOperationTtl(Duration.ofMinutes(10));
-        manager = new AiAssistantOperationManager(redisTemplate, new ObjectMapper(), properties, pictureService);
+        manager = new AiAssistantOperationManager(redisTemplate, new ObjectMapper(), properties,
+                pictureService, spaceService);
     }
 
     @AfterAll
@@ -235,7 +239,7 @@ class AiAssistantOperationManagerRedisIntegrationTest {
         AiAssistantProperties properties = new AiAssistantProperties();
         properties.setOperationTtl(Duration.ofSeconds(1));
         AiAssistantOperationManager shortTtlManager = new AiAssistantOperationManager(
-                redisTemplate, new ObjectMapper(), properties, pictureService);
+                redisTemplate, new ObjectMapper(), properties, pictureService, spaceService);
         AiOperationPrepareVO vo = shortTtlManager.prepare(USER_ID, prepareRequest(CHAT_ID));
         createdKeys.add(keyOf(vo));
 

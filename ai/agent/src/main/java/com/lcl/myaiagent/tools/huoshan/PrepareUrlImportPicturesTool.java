@@ -13,11 +13,12 @@ import java.util.List;
 /**
  * 按 URL 导入·待确认操作（T27.6 确认门，替代原直接写工具 batchUploadByUrl）：
  * 调图库 POST /ai/assistant/operations/prepare 提交导入计划（后端只存计划，零写库），
- * 成功后返回确认凭据（operationId + digest）与卡片摘要；真正的下载导入只能由用户在确认卡片上
- * 确认后由后端逐条执行——模型提交计划不等于用户授权。
+ * 成功后返回确认凭据（operationId + digest）与卡片摘要（T27.10 起由后端从既存计划生成，
+ * 本工具只透传）；真正的下载导入只能由用户在确认卡片上确认后由后端逐条执行——
+ * 模型提交计划不等于用户授权。
  * <p>
- * URL 在本地先做与后端一致的形状校验（http/https、条数上限），保证卡片摘要与
- * 后端存储的计划一致；协议/魔数/大小/判重等安全校验与额度全部留在确认执行时的图库 service。
+ * URL 在本地先做与后端一致的形状校验（http/https、条数上限），尽早拦住明显不合法的输入；
+ * 协议/魔数/大小/判重等安全校验与额度全部留在确认执行时的图库 service。
  * </p>
  */
 public class PrepareUrlImportPicturesTool {
@@ -80,11 +81,7 @@ public class PrepareUrlImportPicturesTool {
         ArrayNode urlArray = urlImport.putArray("fileUrls");
         urls.forEach(urlArray::add);
         JsonNode data = client.prepareOperation(chatId, plan);
-
-        List<String> summary = List.of(
-                "目标空间 id：" + spaceId,
-                "图片直链：" + urls.size() + " 条");
-        return HuoshanToolSupport.pendingConfirmation("url_import", data, summary);
+        return HuoshanToolSupport.pendingConfirmation("url_import", data);
     }
 
     private void requireChatId() {
