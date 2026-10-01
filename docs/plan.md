@@ -8,7 +8,9 @@
 
 ## 活跃任务
 
-- [ ] T27.10（2026-09-29 独立 review P2-2；**待用户批准，开工前先立字据**）**助手确认卡片可核对性**：卡片摘要只给"空间 id + 条数"，用户核对不了授权目标（空间名/图片 id/URL 均不可见）。修法：摘要改由 backend 从既存计划生成（空间名 + 前 N 条目标 + 省略）随 `AiOperationPrepareVO` 返回、引擎只透传——卡片与执行计划同源，并消掉引擎/后端两份归一化规则的漂移面。依据见 `docs/decisions/2026-09-29-review-write-gate.md` ①-2。
+- [ ] T27.10（2026-09-29 独立 review P2-2；**2026-10-01 用户批准**）**助手确认卡片可核对性**：卡片摘要改由 backend 在 prepare 归一化后生成，随 `AiOperationPrepareVO.summary` 返回——空间名经 `ISpaceService` 读取（查不到回退展示 id；prepare 仍零写库、RBAC 留在执行时），目标列表列前 5 条图片 id / URL + 省略，分类/标签/命名规则行沿用现格式；引擎两个 prepare 工具改为**只透传**后端 summary（缺失/为空 fail-closed 报错，不再自算）——卡片与执行计划同源，消掉两份归一化规则的漂移面。SSE 帧已逐字透传 summary、前端卡片渲染行数组，两者零改动。依据见 `docs/decisions/2026-09-29-review-write-gate.md` ①-2。
+  - 文件范围：backend `domain/vo/AiOperationPrepareVO.java`、`manager/ai/AiAssistantOperationManager.java` + `AiAssistantOperationManagerTest`；引擎 `tools/huoshan/PrepareUrlImportPicturesTool.java`、`PrepareBatchEditPicturesTool.java`、`HuoshanToolSupport.java` + `HuoshanPrepareToolsTest`。
+  - 验收：backend 单测先红后绿（url_import ≤5 全列 / >5 省略；batch_edit id 截断与字段行、空间名缺失回退）；引擎透传与缺失报错断言；术语守卫 `check:assistant-copy` PASS；backend/引擎全量门禁绿；真机卡片显示"目标空间：默认空间（id：…）+ 目标清单"。
 
 ## 未决与非任务事项（不建任务）
 
