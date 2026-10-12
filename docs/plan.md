@@ -60,10 +60,11 @@
   - 验收：`type-check` 不净增基线、改动文件 eslint 干净、`check:assistant-format` 不破；本机真机走通删除→回收站→恢复→彻底删。
   - **2026-10-12 收口**：type-check 124＝基线、新页面 eslint 干净、assistant-format PASS，commit `befbbe3`；讲解见 `docs/features/F17-回收站.md`。**未做**浏览器人工验收（记为 F17 已知限制 7）。
 
-- [ ] T53（存量收敛；按规则 3 **不立字据**，2026-10-12 实测后开条目）**前端存量报错清零**：`npm run type-check` 124 → 0、`npx eslint .` 60错+1警 → 0（30 个 src 文件 + 1 个 node_modules/vue-cropper）。多为存量债；最大单点 = 生成 api 的 `requestType: 'form'` 不在 `AxiosRequestConfig` 里、致 axios 重载失配、`request<T>` 的 `T` 悬空（连带 15 错）。逐批一个 commit（B1–B7，见下），收口时把 `frontend/type-check-baseline.txt` 的 `errors` 下调到 0。
+- [x] T53（存量收敛；按规则 3 **不立字据**，2026-10-12 实测后开条目）**前端存量报错清零**：`npm run type-check` 124 → 0、`npx eslint .` 60错+1警 → 0（30 个 src 文件 + 1 个 node_modules/vue-cropper）。多为存量债；最大单点 = 生成 api 的 `requestType: 'form'` 不在 `AxiosRequestConfig` 里、致 axios 重载失配、`request<T>` 的 `T` 悬空（连带 15 错）。逐批一个 commit（B1–B7，见下），收口时把 `frontend/type-check-baseline.txt` 的 `errors` 下调到 0。
   - 文件范围：frontend `src/**`（`api/`、`components/`、`pages/`、`stores/`、`utils/`、`constants/`）+ 新增 `src/types/vue-cropper.d.ts`；`frontend/type-check-baseline.txt`；`AGENTS.md`、`docs/decisions.md`、`docs/features/F11-AI助手MVP.md` 的口径订正；`docs/plans/records/T53-*.md`。
   - 验收：`npm run type-check` 0 错、`npx eslint .` 0 错 0 警；文档一致性门禁绿（基线 errors=0）；`check:assistant-format` / `check:assistant-copy` 不破。
   - 分批：B1 生成 api 层与全局类型（去 `requestType` 污染与无用 `// @ts-ignore`、补 `UserVO.email`、`SpaceRankAnalyzeRequest`、vue-cropper shim）→ B2 analyze 组件 → B3 图库组件 → B4 空间页 → B5 图片页 → B6 管理页与常量 → B7 边角与纯 eslint。
+  - **2026-10-12 收口**：B1–B7 逐批提交，`npm run type-check` 124→**0**、`npx eslint .` 60错+1警→**0 错 0 警**，基线 `errors=0`；`check:assistant-format`/`check:assistant-copy`/`check:batch-crawl-result` PASS、`npm run build` 成功；各批门禁 backend 169 / 引擎 215 全绿。**未做浏览器人工回归**（记入 records）。实施记录与证据见 `docs/plans/records/T53-前端存量报错清理.md`。
 
 ## 未决与非任务事项（不建任务）
 
