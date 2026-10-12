@@ -8,12 +8,14 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,11 +29,13 @@ import java.util.regex.Pattern;
  * {@link BaseAgent}）。
  * </p>
  * <p>
- * 范围门卫（T43 重做）：输入从"裸吃全量历史"瘦身为"System + 最近一个放行轮上下文（至多 1 轮）+
- * 本轮消息"；判定从精确相等放宽为"第一个范围 token 必须是 IN_SCOPE"（无 token 一律 fail-closed）；
- * 拒绝路径把固定话术显式写回记忆（拒绝成为对话一等公民）。三类误拒（搜图短主题追问 /
- * 历史拒绝轮污染 / 携带 URL 的导入请求）由此一次覆盖；设计见
- * {@code docs/designs/2026-10-01-门卫召回修复设计.md}。
+ * 范围门卫（T43 重做 → T46 召回第二轮）：输入 = System + 历史尾巴（近期 USER/ASSISTANT 文本，
+ * 拒绝话术行丢弃）+ 本轮消息；判定为"第一个范围 token 必须是 IN_SCOPE"（无 token 一律 fail-closed，
+ * 否定式前言按 T46 A3' 例外处理）；拒绝路径把固定话术显式写回记忆（拒绝成为对话一等公民）。
+ * T43 覆盖三类误拒（搜图短主题追问 / 历史拒绝轮污染 / 携带 URL 的导入请求）；T46 修订 T43 的
+ * "USER 行不进输入"（写操作追问的锚点与 T44「操作结果」事实行此前对门卫不可见），并移除生产恒空的
+ * 工具名死信号。设计见 {@code docs/designs/2026-10-01-门卫召回修复设计.md} 与
+ * {@code docs/designs/2026-10-12-门卫召回第二轮设计.md}。
  * </p>
  */
 public class HuoshanAssistantAgent extends ToolCallAgent {
@@ -43,13 +47,14 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
 
     private static final String IN_SCOPE = "IN_SCOPE";
 
-    /** 范围措辞单源（T43 A4）：能力枚举只写一份，SCOPE_PROMPT 与 SYSTEM_PROMPT 共用 */
+    /** 范围措辞单源（T43 A4）：能力枚举只写一份，SCOPE_PROMPT 与 SYSTEM_PROMPT 共用；T46 补写/编辑操作 */
     private static final String SCOPE_CAPABILITIES_EN = "spaces, pictures and digital assets, tags, categories, "
-            + "picture organisation, image search, importing images, and closely related platform usage or permissions";
+            + "picture organisation and editing (batch category / tag / name changes), importing images by URL, "
+            + "image search, and closely related platform usage or permissions";
 
     /**
-     * 门卫分类提示词 v2（T43 A3）：显式举例三类曾被误拒的 in-scope 形态——
-     * 搜图/整理流程中的短主题补全、携带 URL 的导入/整理请求；英文主体与 fail-closed 指令不变。
+     * 门卫分类提示词 v3（T43 A3 → T46 A3'）：在 v2 基础上写明"写与编辑操作在范围内"，
+     * 并补一句"追问此前已准备/已确认的变更是否完成、结果如何"也算范围内（对应真机误拒形态）。
      */
     private static final String SCOPE_PROMPT = """
             You are a strict scope classifier for 火山图库, a picture and digital-asset management platform.
@@ -60,6 +65,9 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
             A short topic follow-up such as "自然风景" or "商务办公" counts as IN_SCOPE when the previous round
             was searching or organising images. A request that carries image URLs and asks to import or organise
             them counts as IN_SCOPE; the URLs themselves do not decide the scope.
+            A request to edit or organise pictures (for example changing categories, tags or names, or importing
+            images by URL) counts as IN_SCOPE; so does a follow-up that asks whether a previously prepared or
+            confirmed change has finished, or what its result was.
             Return exactly OUT_OF_SCOPE for general knowledge, programming, travel planning, writing, translation,
             entertainment, life advice, or any other request that does not operate on or ask about the platform.
 
@@ -106,11 +114,24 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
             When you have the answer, summarise it in Chinese and end this run.
             """;
 
-    /** 判定（T43 A3）：第一个命中的范围 token 才算数——"OUT_OF_SCOPE…IN_SCOPE"仍拒 */
+    /** 判定（T43 A3）：第一个命中的范围 token 才算数——"OUT_OF_SCOPE…IN_SCOPE"仍拒（否定式前言例外见 T46 A3'） */
     private static final Pattern SCOPE_DECISION_PATTERN = Pattern.compile("IN_SCOPE|OUT_OF_SCOPE");
 
-    /** 上一轮放行上下文的文本截断上限（T43 A1，设计建议 500 字） */
+    /** 否定词（T46 A3'）：紧邻出现在 OUT_OF_SCOPE 前方时，该次匹配不算数 */
+    private static final Pattern SCOPE_NEGATION_PATTERN =
+            Pattern.compile("(not|isn't|is not|非|不是|不属于)\\s*$", Pattern.CASE_INSENSITIVE);
+
+    /** 否定词回看窗口（T46 A3'）：只看 token 前 16 个字符，避免长文本里的"不"字误伤 */
+    private static final int SCOPE_NEGATION_LOOKBACK = 16;
+
+    /** 上下文文本截断上限（T43 A1，设计建议 500 字） */
     static final int SCOPE_CONTEXT_MAX_CHARS = 500;
+
+    /** 门卫上下文保留的 USER 行数上限（T46 A1'）：纳入 USER 文本但封顶，防长文挤占窗口 */
+    static final int SCOPE_MAX_USER_ROWS = 2;
+
+    /** 门卫上下文保留的 ASSISTANT 行数上限（T46 A1'） */
+    static final int SCOPE_MAX_ASSISTANT_ROWS = 1;
 
     private final ChatModel scopeModel;
     private boolean scopeChecked;
@@ -166,65 +187,50 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
     }
 
     /**
-     * 门卫输入（T43 A1）：System(SCOPE_PROMPT) + 最近一个放行轮的助手侧上下文（至多 1 轮，
-     * 无则省）+ 本轮消息。不再裸吃全量历史——历史里的固定拒绝轮与无回答 USER 行不进输入。
+     * 门卫输入（T46 A1'，修订 T43 A1）：System(SCOPE_PROMPT) + 历史尾巴（近期 USER/ASSISTANT 文本）
+     * + 本轮消息。
      */
     List<Message> buildScopeMessages() {
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(SCOPE_PROMPT));
-        Message previousRound = lastAllowedRoundContext();
-        if (previousRound != null) {
-            messages.add(previousRound);
-        }
+        messages.addAll(gateContextMessages());
         messages.addAll(getMessageList());
         return messages;
     }
 
     /**
-     * 从跨轮历史尾部找最近一个"放行轮"（T43 A1）：以 USER 行划轮，只取该轮 assistant 的文本
-     * （截断 {@value SCOPE_CONTEXT_MAX_CHARS} 字）与工具名；整轮只有固定拒绝时再往前找一轮。
-     * 新会话或全是拒绝轮返回 null。
+     * 门卫上下文（T46 A1'）：从跨轮历史尾部近取 USER / ASSISTANT 文本，丢弃固定拒绝话术行，
+     * USER 至多 {@value #SCOPE_MAX_USER_ROWS} 行、ASSISTANT 至多 {@value #SCOPE_MAX_ASSISTANT_ROWS} 行，各截断后按原序返回。
+     * <p>
+     * **修订 T43 A1 的"USER 行不进输入"**：T43 排除 USER 行是为防"历史拒绝轮污染"，但那也把追问赖以成立的
+     * 任务锚点（空间名、目标图片、操作类型）与 T44 的「操作结果」事实行一并排除了——真机上"已完成写操作"的
+     * 追问因此被误拒。现纳入 USER 文本，仅丢弃等于拒绝话术的行；行数与字数封顶防长文挤占窗口。
+     * </p>
      */
-    private Message lastAllowedRoundContext() {
+    private List<Message> gateContextMessages() {
         List<Message> history = getHistoryContext();
-        int boundary = history.size();
-        while (boundary > 0) {
-            int lastUserIndex = -1;
-            for (int i = boundary - 1; i >= 0; i--) {
-                if (history.get(i) instanceof org.springframework.ai.chat.messages.UserMessage) {
-                    lastUserIndex = i;
-                    break;
-                }
+        List<Message> picked = new ArrayList<>();
+        int users = 0;
+        int assistants = 0;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            if (users >= SCOPE_MAX_USER_ROWS && assistants >= SCOPE_MAX_ASSISTANT_ROWS) {
+                break;
             }
-            String text = null;
-            List<String> toolNames = new ArrayList<>();
-            for (int i = lastUserIndex + 1; i < boundary; i++) {
-                if (history.get(i) instanceof AssistantMessage assistant) {
-                    String row = assistant.getText();
-                    boolean rejection = OUT_OF_SCOPE_REPLY.equals(row == null ? null : row.trim());
-                    if (!rejection && text == null && row != null && !row.isBlank()) {
-                        text = truncate(row.trim());
-                    }
-                    if (!rejection && assistant.getToolCalls() != null) {
-                        assistant.getToolCalls().forEach(call -> toolNames.add(call.name()));
-                    }
-                }
+            Message message = history.get(i);
+            String text = message.getText();
+            if (text == null || text.isBlank() || OUT_OF_SCOPE_REPLY.equals(text.trim())) {
+                continue;
             }
-            if (text != null || !toolNames.isEmpty()) {
-                return new AssistantMessage(composeRoundContext(text, toolNames));
+            if (message instanceof UserMessage && users < SCOPE_MAX_USER_ROWS) {
+                users++;
+                picked.add(new UserMessage(truncate(text.trim())));
+            } else if (message instanceof AssistantMessage && assistants < SCOPE_MAX_ASSISTANT_ROWS) {
+                assistants++;
+                picked.add(new AssistantMessage(truncate(text.trim())));
             }
-            if (lastUserIndex < 0) {
-                return null;
-            }
-            boundary = lastUserIndex;
         }
-        return null;
-    }
-
-    private static String composeRoundContext(String text, List<String> toolNames) {
-        String tools = toolNames.isEmpty() ? "" : "（上一轮工具：" + String.join("、", toolNames) + "）";
-        String combined = (text == null ? "" : text) + (tools.isEmpty() ? "" : (text == null ? "" : " ") + tools);
-        return combined.trim();
+        Collections.reverse(picked);
+        return picked;
     }
 
     private static String truncate(String text) {
@@ -234,15 +240,35 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
     }
 
     /**
-     * 判定（T43 A3）：剥掉代码 fence 与包裹引号、大写后取第一个范围 token——
+     * 判定（T43 A3 → T46 A3'）：剥掉代码 fence 与包裹引号、大写后取第一个范围 token——
      * 是 IN_SCOPE 才放行；没有 token（模糊、解释性、空输出）一律 fail-closed。
+     * <p>
+     * T46 A3' 加**否定式前言守卫**：首个/某次命中的若是 OUT_OF_SCOPE，但它紧邻前方（{@value #SCOPE_NEGATION_LOOKBACK}
+     * 字符内）出现否定词（"not" / "isn't" / "is not" / "非" / "不是" / "不属于"），该次匹配不算数，继续找下一个 token。
+     * "OUT_OF_SCOPE…IN_SCOPE"这类无否定词的排序仍按首 token 拒。
+     * </p>
      */
     static boolean isInScopeDecision(String decision) {
         if (decision == null) {
             return false;
         }
-        Matcher matcher = SCOPE_DECISION_PATTERN.matcher(normalizeDecision(decision));
-        return matcher.find() && IN_SCOPE.equals(matcher.group());
+        String text = normalizeDecision(decision);
+        Matcher matcher = SCOPE_DECISION_PATTERN.matcher(text);
+        while (matcher.find()) {
+            if (IN_SCOPE.equals(matcher.group())) {
+                return true;
+            }
+            if (!isNegated(text, matcher.start())) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** 该 token 是否被紧邻前方的否定词修饰（T46 A3'） */
+    private static boolean isNegated(String text, int tokenStart) {
+        int from = Math.max(0, tokenStart - SCOPE_NEGATION_LOOKBACK);
+        return SCOPE_NEGATION_PATTERN.matcher(text.substring(from, tokenStart)).find();
     }
 
     private static String normalizeDecision(String raw) {

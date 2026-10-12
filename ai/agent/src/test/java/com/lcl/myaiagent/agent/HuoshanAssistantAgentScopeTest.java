@@ -174,8 +174,8 @@ class HuoshanAssistantAgentScopeTest {
     }
 
     @Test
-    @DisplayName("T43 A1：门卫输入 = System + 最近一个放行轮上下文 + 本轮消息（拒绝轮与无回答 USER 不进输入）")
-    void scopeInputContainsOnlyLastAllowedRoundContext() {
+    @DisplayName("T46 A1'（修订 T43 A1）：门卫输入 = System + 历史尾巴的 USER/ASSISTANT + 本轮消息；拒绝话术不进，USER 锚点进")
+    void scopeInputCarriesUserAnchorsButNotRefusalText() {
         RecordingChatMemory memory = new RecordingChatMemory(List.of(
                 new UserMessage("帮我找一些日落的图片"),
                 new AssistantMessage("我在网上找到 3 张日落候选图，你看中哪几张？"),
@@ -190,41 +190,65 @@ class HuoshanAssistantAgentScopeTest {
         agent.runForTest("自然风景", listener);
 
         List<Message> scopeInput = scopeModel.prompts().get(0).getInstructions();
-        assertThat(scopeInput).hasSize(3);
         assertThat(scopeInput.get(0)).isInstanceOf(SystemMessage.class);
-        assertThat(scopeInput.get(1)).isInstanceOf(AssistantMessage.class);
-        assertThat(((AssistantMessage) scopeInput.get(1)).getText())
-                .contains("3 张日落候选图")
+        assertThat(scopeInput.get(scopeInput.size() - 1)).isInstanceOf(UserMessage.class);
+        assertThat(((UserMessage) scopeInput.get(scopeInput.size() - 1)).getText()).isEqualTo("自然风景");
+
+        String joined = scopeInput.toString();
+        assertThat(joined)
+                .as("拒绝话术仍不进输入")
                 .doesNotContain(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY);
-        assertThat(scopeInput.get(2)).isInstanceOf(UserMessage.class);
-        assertThat(((UserMessage) scopeInput.get(2)).getText()).isEqualTo("自然风景");
-        assertThat(scopeInput.toString()).doesNotContain("把这张链接导入我的空间");
+        assertThat(joined)
+                .as("放行轮的助理文本进输入")
+                .contains("我在网上找到 3 张日落候选图");
+        assertThat(joined)
+                .as("T46：USER 行文本现在进输入（修订 T43 的'USER 行不进输入'）")
+                .contains("把这张链接导入我的空间");
     }
 
     @Test
-    @DisplayName("T43 A1：放行轮上下文含该轮工具名；上一轮长文本截断")
-    void roundContextKeepsToolNamesAndTruncatesLongText() {
-        AssistantMessage toolDecision = AssistantMessage.builder()
-                .content("")
-                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "FUNCTION", "searchImage", "{}")))
-                .build();
+    @DisplayName("T46 A1'：写操作追问的门卫输入能看到 USER 锚点与尾随机器事实行")
+    void gateContextIncludesUserAnchorsAndTrailingFact() {
+        RecordingChatMemory memory = new RecordingChatMemory(List.of(
+                new UserMessage("帮我把 T44 smoke space 空间里的图片分类改成 landscape，标签加上 smoke"),
+                new AssistantMessage("已找到 T44 smoke space（共 2 张图片），现在生成待确认操作："),
+                new UserMessage("【系统记录】用户已确认并执行批量编辑：提交 2 张。")));
+        StubChatModel scopeModel = new StubChatModel(response("IN_SCOPE", List.of()));
+        TestAgent agent = new TestAgent(scopeModel, memory, response("完成", List.of()));
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+        agent.runForTest("刚才那个批量编辑完成了吗？结果怎么样", listener);
+
+        String joined = scopeModel.prompts().get(0).getInstructions().toString();
+        assertThat(joined).as("用户原始请求的锚点（空间名）进输入").contains("T44 smoke space");
+        assertThat(joined).as("T44 机器事实行进输入").contains("用户已确认并执行批量编辑");
+        assertThat(joined).doesNotContain(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY);
+    }
+
+    @Test
+    @DisplayName("T46 A2'：门卫输入是回放代表性的——assistant 行不带 toolCalls 也不缺上下文、无工具名假信号")
+    void scopeContextComesFromTextNotToolNames() {
+        // 回放视图里 assistant 行经 MessageConverter 剥掉了 toolCalls；门卫上下文不得依赖它
         String longText = "图".repeat(800);
         RecordingChatMemory memory = new RecordingChatMemory(List.of(
                 new UserMessage("帮我找日落素材"),
-                toolDecision,
                 new AssistantMessage(longText)));
         StubChatModel scopeModel = new StubChatModel(response("IN_SCOPE", List.of()));
-        TestAgent agent = new TestAgent(scopeModel, memory,
-                response("完成", List.of()));
+        TestAgent agent = new TestAgent(scopeModel, memory, response("完成", List.of()));
         RecordingAgentEventListener listener = new RecordingAgentEventListener();
 
         agent.runForTest("自然风景", listener);
 
-        String context = ((AssistantMessage) scopeModel.prompts().get(0).getInstructions().get(1)).getText();
-        assertThat(context).contains("searchImage");
-        // 文本截到 500 + 省略号 + 工具名后缀，总长略超 500 是预期形态
-        assertThat(context.length()).isLessThan(540);
-        assertThat(context).startsWith("图".repeat(50));
+        String joined = scopeModel.prompts().get(0).getInstructions().toString();
+        assertThat(joined).as("不再拼接生产里恒空的工具名后缀").doesNotContain("上一轮工具");
+        assertThat(joined).as("上下文来自文本（长文本截断保留）").contains("图".repeat(50));
+    }
+
+    @Test
+    @DisplayName("T46 A3'：否定式前言不否决 IN_SCOPE")
+    void negatedOutOfScopePreambleDoesNotVetoInScope() {
+        assertThat(HuoshanAssistantAgent.isInScopeDecision("This is not OUT_OF_SCOPE; it is IN_SCOPE."))
+                .isTrue();
     }
 
     @Test
