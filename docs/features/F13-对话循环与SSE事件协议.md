@@ -87,6 +87,7 @@ runLoop
 - **真机逐帧比对**（改造前用 `git worktree` 检出 `9daa286` 单独打包，改造后用 HEAD，同一句只读提问走 backend 代理 → 引擎 → 图库 API）：帧形态与字段集合**逐个一致**，终止帧各恰好 1 个。证据 `%TEMP%\t8\summary.txt` + `before-raw.txt` / `after-raw.txt`。
 - **真机失败对照**（provider 返 400 的桩）：改造前 6 条内容相同的 `answer`（厂商原文重复 6 次）+ `[DONE]`；改造后 **1 条 `error` + `[DONE]`**。证据 `%TEMP%\t8\before-error400.txt` / `after-error400.txt`。
 - **前端**：`type-check` 138（与基线持平、改动文件 0 命中）、改动文件 eslint 0 错。
+- **确认卡片收尾真机（2026-10-12 T45）**：真机 SSE 帧序中 `confirmation_required` 之后只剩同一 `act()` 的 prepare 工具帧、紧接 `[DONE]`，无第二次模型调用——与修复前全循环测试红灯（主模型被调用 5 次）互证；逐字输出见 `docs/plans/records/T44-T45-真机复跑.md`。
 
 ## 已知限制
 
