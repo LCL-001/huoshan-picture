@@ -38,9 +38,10 @@
   - 文件范围：backend `manager/ai/AiAssistantOperationManager.java` + `manager/ai/AiAssistantOperationManagerTest.java`。不碰引擎、前端。
   - 验收：单测先红后绿（有权限→名称；无权限 / 空间不存在→只 id；prepare 零写库断言仍在）；backend 门禁全绿。
 
-- [ ] T48（2026-10-12 用户批准；**推翻** 2026-09-13「集成测试不入 CI」决定——该行状态改已废弃）**CI 跑集成测试**：workflow 加 mysql:8 与 redis:5 service 容器（Redis 5.x 对齐仓内命令约束）、按序灌 `backend/sql/` 下 create_table / create_tag_table / create_ai_conversation 三个脚本、新增"集成测试"步骤跑 `*IntegrationTest` + `RedisStringTest` + `YunPictureBaseApplicationTests`；pre-commit 快速子集不动（规则 12）。
+- [x] T48（2026-10-12 用户批准；**推翻** 2026-09-13「集成测试不入 CI」决定——该行状态改已废弃）**CI 跑集成测试**：workflow 加 mysql:8 与 redis:5 service 容器（Redis 5.x 对齐仓内命令约束）、按序灌 `backend/sql/` 下 create_table / create_tag_table / create_ai_conversation 三个脚本、新增"集成测试"步骤跑 `*IntegrationTest` + `RedisStringTest` + `YunPictureBaseApplicationTests`；pre-commit 快速子集不动（规则 12）。
   - 文件范围：`.github/workflows/ci.yml`；`AGENTS.md` 命令节措辞订正（pre-commit 快速子集 / CI 含集成测试）。
   - 验收：本机真 MySQL/Redis 跑该 `-Dtest` 全绿（前置，红则按规则 5 停）→ CI 在 PR 上绿；文档一致性门禁绿。
+  - **2026-10-12 收口**：本机集成 **86/86**（修复前 1 失败＝一处过期断言，T42 漏改集成测试所致，已修）、CI 模拟 `local,ci` 86/86、全新库建表探针 11 表全建；commit `898c22e`；记录见 `docs/plans/records/T48-CI集成测试.md`。
 
 - [ ] T49（2026-10-12 用户批准）**接口限流**：新增 `@RateLimit` 注解 + 切面（复用 StringRedisTemplate、键 huoshantuku:ratelimit:*、INCR + 惰性 TTL、超限 42900、Redis 异常 fail-open、总开关 `app.rate-limit.enabled`）；只打高成本/敏感端点（助手 chat / 取票 / prepare / confirm、扩图、AI 打标、批量抓取、URL/文件上传、以图搜图）。
   - 文件范围：backend `ErrorCode.java`、新增 `annotation/` 注解与 `aop/` 切面、`controller/` 受保护端点、`application.yaml`；新增两个测试类。

@@ -50,8 +50,9 @@
   - 后端：`java -jar backend/target/yun-picture-base-0.0.1-SNAPSHOT.jar`，默认 http://localhost:8123/api（Windows 下勿用 `mvn spring-boot:run`，会报 CreateProcess error=206）
   - 前端：`cd frontend && npm run dev`，http://localhost:5173（后端地址由 frontend/.env.development.local 的 `VITE_API_BASE` 指定）
 - 测试：
-  - 后端单测（不依赖 MySQL/Redis，与 CI 同口径）：`cd backend && mvn -B test -Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests' -DfailIfNoTests=false`
-  - 约定：需要 MySQL/Redis 的测试类以 `IntegrationTest` 结尾；新增纯单测会被 CI 自动纳入，无需改 workflow
+  - 后端单测（不依赖 MySQL/Redis，= pre-commit 门禁口径）：`cd backend && mvn -B test -Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests' -DfailIfNoTests=false`
+  - 后端集成测试（需 MySQL/Redis）**由 CI 跑**（service 容器，见 `.github/workflows/ci.yml`）；本地要跑需自备 MySQL(3306/yu_picture)+Redis(6379)：`cd backend && mvn -B test -Dtest='*IntegrationTest,RedisStringTest,YunPictureBaseApplicationTests' -DfailIfNoTests=false`（CI 无 `application-local.yaml`，靠 `src/test/resources/application-ci.yaml` 补占位配置）
+  - 约定：需要 MySQL/Redis 的测试类以 `IntegrationTest` 结尾；新增纯单测会被 CI 自动纳入，无需改 workflow。**集成测试不进 pre-commit**（规则 12：门禁指向快速子集，全量交 CI）
   - 前端：`npm run type-check`（vue-tsc）有**存量错误基线**（`frontend/type-check-baseline.txt`），口径是"**改动不得净增**"；`npm run lint` 同理只约束改动文件。另有 `npm run check:assistant-format`——助手呈现层纯函数的常驻断言；**新增前端纯函数时优先给它加断言**
 - 部署：**清单与 nginx 片段在 `deploy/`（入库）**——`deploy/prod-checklist.md`（prod 配置、启动顺序、上线自检表）与 `deploy/nginx/ai-assistant-sse.conf`。历史位置 `backend/docs/deploy/` 被 backend/.gitignore 排除、**不在版本控制内**，只当本机遗留看
 - 线上验证：https://www.lincode.online
