@@ -39,7 +39,7 @@
           <span class="level-size">10000MB空间</span>
         </div>
       </div>
-      <a-typography-paragraph v-for="spaceLevel in spaceLevelList" :key="spaceLevel.level">
+      <a-typography-paragraph v-for="spaceLevel in spaceLevelList" :key="spaceLevel.value">
         {{ spaceLevel.text }}：大小 {{ formatSize(spaceLevel.maxSize) }}，数量
         {{ spaceLevel.maxCount }}
       </a-typography-paragraph>
@@ -58,7 +58,6 @@ import {
 } from '@/api/spaceController.ts'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  SPACE_LEVEL_MAP,
   SPACE_LEVEL_OPTIONS,
   SPACE_TYPE_ENUM,
   SPACE_TYPE_MAP,
@@ -67,7 +66,7 @@ import { formatSize } from '../utils'
 import { SPACE_LIST_REFRESH_EVENT } from '@/constants/events.ts'
 
 const space = ref<API.SpaceVO>()
-const spaceForm = reactive<API.SpaceAddRequest | API.SpaceEditRequest>({})
+const spaceForm = reactive<API.SpaceAddRequest>({})
 const loading = ref(false)
 
 const route = useRoute()
@@ -108,9 +107,8 @@ const router = useRouter()
 
 /**
  * 提交表单
- * @param values
  */
-const handleSubmit = async (values: any) => {
+const handleSubmit = async () => {
   const spaceId = space.value?.id
   loading.value = true
   let res
@@ -147,7 +145,7 @@ const getOldSpace = async () => {
   const id = route.query?.id
   if (id) {
     const res = await getSpaceVoByIdUsingGet({
-      id,
+      id: Number(id),
     })
     if (res.data.code === 0 && res.data.data) {
       const data = res.data.data

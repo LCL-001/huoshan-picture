@@ -2,7 +2,7 @@
   <div id="spaceDetailPage">
     <!-- 空间信息 -->
     <a-flex justify="space-between" :vertical="isMobile" :gap="8">
-      <h2>{{ space.spaceName }}（{{ SPACE_TYPE_MAP[space.spaceType] }}）</h2>
+      <h2>{{ space.spaceName }}（{{ SPACE_TYPE_MAP[space.spaceType ?? 0] }}）</h2>
       <a-space size="middle" :wrap="true">
         <a-button
           v-if="canUploadPicture"
@@ -45,7 +45,7 @@
           <a-progress
             type="circle"
             :size="42"
-            :percent="((space.totalSize * 100) / space.maxSize).toFixed(1)"
+            :percent="(((space.totalSize ?? 0) * 100) / (space.maxSize ?? 0)).toFixed(1)"
           />
         </a-tooltip>
       </a-space>
@@ -78,7 +78,7 @@
     />
     <BatchEditPictureModal
       ref="batchEditPictureModalRef"
-      :spaceId="id"
+      :spaceId="spaceId"
       :pictureList="dataList"
       :onSuccess="onBatchEditPictureSuccess"
     />
@@ -108,6 +108,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+// 后端接口以 number 收 spaceId；路由参数是字符串，统一在此转换
+const spaceId = computed(() => Number(props.id))
 const space = ref<API.SpaceVO>({})
 
 const isMobile = ref(window.innerWidth < 768)
@@ -141,7 +143,7 @@ const doDeleteSpace = () => {
     cancelText: '取消',
     okType: 'danger',
     onOk: async () => {
-      const res = await deleteSpaceUsingPost({ id: props.id })
+      const res = await deleteSpaceUsingPost({ id: spaceId.value })
       if (res.data.code === 0) {
         message.success('删除成功')
         router.push('/my_space')
@@ -156,15 +158,15 @@ const doDeleteSpace = () => {
 const fetchSpaceDetail = async () => {
   try {
     const res = await getSpaceVoByIdUsingGet({
-      id: props.id,
+      id: spaceId.value,
     })
     if (res.data.code === 0 && res.data.data) {
       space.value = res.data.data
     } else {
       message.error('获取空间详情失败，' + res.data.message)
     }
-  } catch (e: any) {
-    message.error('获取空间详情失败：' + e.message)
+  } catch (e) {
+    message.error('获取空间详情失败：' + (e instanceof Error ? e.message : String(e)))
   }
 }
 
@@ -197,7 +199,7 @@ const fetchData = async (silent = false) => {
   }
   // 转换搜索参数
   const params = {
-    spaceId: props.id,
+    spaceId: spaceId.value,
     ...searchParams.value,
   }
   const res = await listPictureVoByPageWithCacheUsingPost(params)
@@ -260,7 +262,7 @@ const onColorChange = async (color: string) => {
   loading.value = true
   const res = await searchPictureByColorUsingPost({
     picColor: color,
-    spaceId: props.id,
+    spaceId: spaceId.value,
   })
   if (res.data.code === 0 && res.data.data) {
     const data = res.data.data ?? []
@@ -290,7 +292,7 @@ const doBatchEdit = () => {
 // 空间 id 改变时，必须重新获取数据
 watch(
   () => props.id,
-  (newSpaceId) => {
+  () => {
     fetchSpaceDetail()
     fetchData()
   },

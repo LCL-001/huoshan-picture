@@ -74,8 +74,9 @@ import SkeletonCard from '@/components/SkeletonCard.vue'
 
 const route = useRoute()
 
-const pictureId = computed(() => {
-  return route.query?.pictureId
+const pictureId = computed<number | undefined>(() => {
+  const raw = route.query?.pictureId
+  return typeof raw === 'string' ? Number(raw) : undefined
 })
 const picture = ref<API.PictureVO>({})
 
@@ -90,8 +91,8 @@ const fetchPictureDetail = async () => {
     } else {
       message.error('获取图片详情失败，' + res.data.message)
     }
-  } catch (e: any) {
-    message.error('获取图片详情失败：' + e.message)
+  } catch (e) {
+    message.error('获取图片详情失败：' + (e instanceof Error ? e.message : String(e)))
   }
 }
 
@@ -114,8 +115,8 @@ const fetchResultData = async () => {
     } else {
       message.error('获取数据失败，' + res.data.message)
     }
-  } catch (e: any) {
-    message.error('获取数据失败：' + e.message)
+  } catch (e) {
+    message.error('获取数据失败：' + (e instanceof Error ? e.message : String(e)))
   }
   loading.value = false;
 }
