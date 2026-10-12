@@ -308,6 +308,27 @@ public class AiAssistantOperationManager {
         return vo;
     }
 
+    /**
+     * 确认执行结果的**模型面**说明（T44）：写进引擎会话记忆，供下一轮模型读到"刚才那个操作已执行"。
+     * 面向模型、不复用前端用户面卡片文案（后者在 `assistantFormat.ts`）；只描述既成事实，
+     * 不含任何可被模型当作新指令的祈使内容。批量编辑如实说"提交 N 张"（图库按空间 + id 过滤，
+     * 提交条数不等于逐张成功），URL 导入给出成功/总数与未成功条数。
+     */
+    public static String operationResultNote(AiOperationResultVO result) {
+        if (result == null) {
+            return "用户已确认并执行了一个写操作。";
+        }
+        if (AiOperationPlan.TYPE_URL_IMPORT.equals(result.getOperationType())) {
+            int requested = result.getRequestedCount() == null ? 0 : result.getRequestedCount();
+            int succeeded = result.getSucceededCount() == null ? 0 : result.getSucceededCount();
+            int failed = result.getFailedCount() == null ? 0 : result.getFailedCount();
+            String note = "用户已确认并执行 URL 导入：成功 " + succeeded + " / " + requested + " 条。";
+            return failed > 0 ? note + "其中 " + failed + " 条未成功。" : note;
+        }
+        int requested = result.getRequestedCount() == null ? 0 : result.getRequestedCount();
+        return "用户已确认并执行批量编辑：提交 " + requested + " 张。";
+    }
+
     private AiOperationPlan parseStoredPlan(String planJson, String operationId) {
         try {
             return objectMapper.readValue(planJson, AiOperationPlan.class);

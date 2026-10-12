@@ -22,7 +22,10 @@ import com.lcl.myaiagent.tools.mcp.McpToolCallbackResolver;
 import com.lcl.myaiagent.utils.ChatHistoryAssembler;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -30,6 +33,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -174,5 +179,49 @@ public class HuoshanAssistantController {
                 .eq(ChatMessage::getConversationId, conversationId)
                 .orderByAsc(ChatMessage::getId)
                 .list();
+    }
+
+    /**
+     * 记录一条确认执行结果事实（T44）：写操作确认执行成功后，图库 backend 把结果说明经此内部端点
+     * 追加进该会话记忆——下一轮模型续聊就能读到"刚才那个操作已执行"，不再重复生成 prepare 或答"尚未完成"。
+     * <p>
+     * 鉴权沿用 {@code HeadlessApiKeyInterceptor}（覆盖 {@code /ai/huoshan/**}）；归属与只读历史端点同款：
+     * {@link HuoshanAssistantSession#owner(String)} 校验 + 确定性 conversationId 派生，只写该会话。
+     * 落库以 <b>USER 角色 + 内部提示前缀</b>承载——模型回放可见，前端历史按前缀过滤隐藏（与下一步提示同桶）。
+     * 内容由 backend 生成（可信、非用户原文），本端点不接受用户可控的业务 payload。
+     *
+     * @param chatId      图库侧会话标识（与 prepare/confirm 同一 chatId）
+     * @param userId      图库用户 id（由代理透传，仅用于会话归属）
+     * @param noteRequest 结果说明文本
+     */
+    @PostMapping("/conversations/{chatId}/operation-results")
+    public BaseResponse<Boolean> recordOperationResult(@PathVariable("chatId") String chatId,
+                                                       String userId,
+                                                       @RequestBody OperationResultNoteRequest noteRequest) {
+        ThrowUtils.throwIf(StrUtil.isBlank(chatId), ErrorCode.PARAMS_ERROR, "chatId 不能为空");
+        ThrowUtils.throwIf(noteRequest == null || StrUtil.isBlank(noteRequest.getContent()),
+                ErrorCode.PARAMS_ERROR, "操作结果说明不能为空");
+        String owner;
+        try {
+            owner = HuoshanAssistantSession.owner(userId);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, e.getMessage());
+        }
+        String conversationId = HuoshanAssistantSession.conversationId(owner, chatId);
+        appendConversationMessage(conversationId,
+                new UserMessage(HuoshanAssistantSession.OPERATION_RESULT_PREFIX + noteRequest.getContent().trim()));
+        log.info("图库助手记录操作结果, owner={}, conversationId={}", owner, conversationId);
+        return ResultUtils.success(true);
+    }
+
+    /** 写缝隙（测试用）：FlowWindowBasedChatMemory 需真实仓储，抽出来让单测以匿名子类捕获写入 */
+    protected void appendConversationMessage(String conversationId, Message message) {
+        flowWindowBasedChatMemory.add(conversationId, List.of(message));
+    }
+
+    /** 确认执行结果说明的请求体（T44）：只有一段由 backend 生成的文本，无用户可控 payload */
+    @Data
+    static class OperationResultNoteRequest {
+        private String content;
     }
 }

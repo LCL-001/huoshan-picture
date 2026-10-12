@@ -30,6 +30,13 @@ public final class HuoshanAssistantSession {
     /** 与图库 {@code UserConstant.ADMIN_ROLE} 同值：看图为管理员能力（T17） */
     public static final String ADMIN_ROLE = "admin";
 
+    /**
+     * 确认执行结果事实的内部提示前缀（T44）：写操作确认执行成功后，由 backend 经内部端点追加一条
+     * 以 USER 角色入库的"操作结果"事实——模型续聊可见（回放保留 USER 行），前端历史按此前缀过滤隐藏
+     * （与下一步提示 / 卡死提示同属"内部提示"桶，见 {@code ChatHistoryAssembler}）。
+     */
+    public static final String OPERATION_RESULT_PREFIX = "【系统记录】";
+
     private static final Pattern EXTERNAL_USER_ID = Pattern.compile("\\d{1,32}");
 
     private HuoshanAssistantSession() {

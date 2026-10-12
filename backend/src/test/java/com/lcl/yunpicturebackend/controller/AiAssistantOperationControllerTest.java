@@ -28,9 +28,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -49,13 +51,15 @@ class AiAssistantOperationControllerTest {
 
     private IUserService userService;
     private AiAssistantOperationManager operationManager;
+    private AiAssistantProxyManager proxyManager;
     private AiAssistantController controller;
 
     @BeforeEach
     void setUp() {
         userService = mock(IUserService.class);
         operationManager = mock(AiAssistantOperationManager.class);
-        controller = new AiAssistantController(userService, mock(AiAssistantProxyManager.class),
+        proxyManager = mock(AiAssistantProxyManager.class);
+        controller = new AiAssistantController(userService, proxyManager,
                 mock(AiAssistantTicketManager.class), "satoken", "SESSION",
                 mock(IAiConversationService.class), operationManager);
     }
@@ -190,5 +194,37 @@ class AiAssistantOperationControllerTest {
                     assertThat(e.getCode()).isEqualTo(ErrorCode.NOT_FOUND_ERROR.getCode());
                     assertThat(e.getMessage()).isEqualTo("操作不存在、已过期或已处理");
                 });
+    }
+
+    @Test
+    void confirmRecordsOperationResultToEngineOnce() {
+        MockHttpServletRequest request = loggedInRequest();
+        AiOperationResultVO result = new AiOperationResultVO();
+        result.setOperationType("batch_edit");
+        result.setRequestedCount(2);
+        when(operationManager.confirm(any(User.class), any())).thenReturn(result);
+
+        controller.confirmOperation(confirmRequest(), request);
+
+        // T44：执行结果回灌引擎恰一次，内容为模型面说明，绑定本次会话的 userId + chatId
+        verify(proxyManager).recordOperationResult(eq(USER_ID), eq("chat-1"),
+                eq(AiAssistantOperationManager.operationResultNote(result)));
+        verifyNoMoreInteractions(proxyManager);
+    }
+
+    @Test
+    void confirmStillSucceedsWhenResultRecordingFails() {
+        MockHttpServletRequest request = loggedInRequest();
+        AiOperationResultVO result = new AiOperationResultVO();
+        result.setOperationType("batch_edit");
+        result.setRequestedCount(1);
+        when(operationManager.confirm(any(User.class), any())).thenReturn(result);
+        doThrow(new RuntimeException("引擎不可达")).when(proxyManager)
+                .recordOperationResult(any(), any(), any());
+
+        // 回灌是旁路：失败也要原样返回已执行的结果（确认与执行才是主路径）
+        BaseResponse<AiOperationResultVO> response = controller.confirmOperation(confirmRequest(), request);
+
+        assertThat(response.getData()).isSameAs(result);
     }
 }

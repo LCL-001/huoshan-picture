@@ -172,7 +172,28 @@ public class AiAssistantController {
     public BaseResponse<AiOperationResultVO> confirmOperation(@RequestBody AiOperationConfirmRequest confirmRequest,
                                                               HttpServletRequest request) {
         TrustedCaller caller = requireTrustedCaller(request);
-        return ResultUtils.success(operationManager.confirm(caller.user(), confirmRequest));
+        AiOperationResultVO result = operationManager.confirm(caller.user(), confirmRequest);
+        // T44：把执行结果回灌引擎会话记忆（旁路事实，失败不影响本次确认的返回）
+        recordOperationResultQuietly(caller.user().getId(), confirmRequest.getChatId(), result);
+        return ResultUtils.success(result);
+    }
+
+    /**
+     * 把确认执行结果回灌引擎（T44）：下一轮模型续聊就能读到"刚才那个操作已执行"。
+     * <p>
+     * **旁路**：代理侧已是 best-effort（内部吞 IO 异常），这里再兜一层 RuntimeException
+     * （引擎地址/密钥未配置时 requireConfigured 会抛），保证回灌失败绝不改变 confirm 的既成结果。
+     */
+    private void recordOperationResultQuietly(Long userId, String chatId, AiOperationResultVO result) {
+        if (StrUtil.isBlank(chatId)) {
+            return;
+        }
+        try {
+            proxyManager.recordOperationResult(userId, chatId,
+                    AiAssistantOperationManager.operationResultNote(result));
+        } catch (RuntimeException e) {
+            log.warn("AI 助手确认结果回灌引擎失败, userId={}", userId, e);
+        }
     }
 
     /**

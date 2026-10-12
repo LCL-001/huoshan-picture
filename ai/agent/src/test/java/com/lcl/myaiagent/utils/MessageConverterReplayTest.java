@@ -1,5 +1,6 @@
 package com.lcl.myaiagent.utils;
 
+import com.lcl.myaiagent.agent.HuoshanAssistantSession;
 import com.lcl.myaiagent.model.po.ChatMessage;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -55,6 +56,21 @@ class MessageConverterReplayTest {
         assertThat(replay.get(0).getMessageType()).isEqualTo(MessageType.SYSTEM);
         assertThat(replay.get(1).getMessageType()).isEqualTo(MessageType.USER);
         assertThat(replay.get(1).getText()).isEqualTo("我有几个空间");
+    }
+
+    @Test
+    void keepsOperationResultFactForTheModel() {
+        // T44：确认执行结果事实以 USER 角色入库，回放必须保留它——下一轮模型要读到"已执行"
+        String fact = HuoshanAssistantSession.OPERATION_RESULT_PREFIX + "用户已确认并执行批量编辑：提交 2 张。";
+        List<ChatMessage> rows = List.of(
+                row(MessageType.USER, "把这几张图改成风景", null),
+                row(MessageType.ASSISTANT, "请确认", null),
+                row(MessageType.USER, fact, null),
+                row(MessageType.USER, "刚才那个完成了吗？", null));
+
+        List<Message> replay = MessageConverter.toReplayMessages(rows);
+
+        assertThat(replay).extracting(Message::getText).contains(fact);
     }
 
     private static ChatMessage row(MessageType type, String content, Map<String, Object> metadata) {

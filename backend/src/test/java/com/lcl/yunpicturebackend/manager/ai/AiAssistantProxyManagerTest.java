@@ -66,6 +66,8 @@ class AiAssistantProxyManagerTest {
     private static volatile String stubAccept;
     /** T17：透传给引擎的调用者角色（引擎按它裁剪工具集） */
     private static volatile String stubUserRole;
+    /** T44：POST 到引擎的请求体（确认结果事实） */
+    private static volatile String stubRequestBody;
     private static volatile int stubStatus;
     private static volatile String stubContentType;
     private static volatile String stubBody;
@@ -106,6 +108,7 @@ class AiAssistantProxyManagerTest {
         stubCookie = null;
         stubAccept = null;
         stubUserRole = null;
+        stubRequestBody = null;
         stubStatus = 200;
         stubContentType = "text/event-stream; charset=utf-8";
         stubBody = "";
@@ -122,6 +125,7 @@ class AiAssistantProxyManagerTest {
         stubCookie = exchange.getRequestHeaders().getFirst("Cookie");
         stubAccept = exchange.getRequestHeaders().getFirst("Accept");
         stubUserRole = exchange.getRequestHeaders().getFirst("X-User-Role");
+        stubRequestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         byte[] body = stubBody.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", stubContentType);
         if (stubLocation != null) {
@@ -205,6 +209,39 @@ class AiAssistantProxyManagerTest {
                 "{\"event\":\"confirmation_required\",\"operationType\":\"batch_edit\","
                         + "\"operationId\":\"op-1\",\"digest\":\"d1\",\"summary\":[\"目标空间 id：30\",\"图片：2 张\"]}",
                 "[DONE]");
+    }
+
+    /** T44：确认执行结果回灌引擎——POST 到内部端点，带内部密钥，body 是模型面说明 JSON */
+    @Test
+    void recordsOperationResultToEngineWithInternalKeyAndJsonBody() {
+        RecordingManager manager = manager();
+
+        manager.recordOperationResult(123L, "chat-1", "用户已确认并执行批量编辑：提交 2 张。");
+
+        assertThat(REQUESTS.get()).isEqualTo(1);
+        assertThat(stubMethod).isEqualTo("POST");
+        assertThat(stubUri).isEqualTo("/api/ai/huoshan/conversations/chat-1/operation-results?userId=123");
+        assertThat(stubApiKey).isEqualTo(API_KEY);
+        assertThat(stubRequestBody)
+                .contains("\"content\"")
+                .contains("用户已确认并执行批量编辑：提交 2 张。");
+    }
+
+    /** 回灌是旁路：引擎不可达时必须吞掉失败，不把异常抛给调用方（confirm 的返回不受影响） */
+    @Test
+    void recordOperationResultSwallowsEngineFailure() {
+        RecordingManager manager = new RecordingManager(properties("http://127.0.0.1:1/api", API_KEY), executor);
+
+        manager.recordOperationResult(123L, "chat-1", "已执行");
+    }
+
+    /** 引擎地址/密钥未配置时抛错（由控制器侧兜住）：记录契约仍是"未配置即拒"，不做静默丢弃 */
+    @Test
+    void recordOperationResultFailsClosedWhenKeyMissing() {
+        RecordingManager manager = new RecordingManager(properties(engineBaseUrl, "  "), executor);
+
+        assertThatThrownBy(() -> manager.recordOperationResult(123L, "chat-1", "已执行"))
+                .isInstanceOf(BusinessException.class);
     }
 
     @Test

@@ -642,6 +642,45 @@ class AiAssistantOperationManagerTest {
         return plan;
     }
 
+    @Test
+    void operationResultNoteForBatchEditReportsSubmittedCount() {
+        AiOperationResultVO result = new AiOperationResultVO();
+        result.setOperationType(AiOperationPlan.TYPE_BATCH_EDIT);
+        result.setRequestedCount(2);
+
+        assertThat(AiAssistantOperationManager.operationResultNote(result))
+                .isEqualTo("用户已确认并执行批量编辑：提交 2 张。");
+    }
+
+    @Test
+    void operationResultNoteForUrlImportReportsFullSuccess() {
+        AiOperationResultVO result = new AiOperationResultVO();
+        result.setOperationType(AiOperationPlan.TYPE_URL_IMPORT);
+        result.setRequestedCount(3);
+        result.setSucceededCount(3);
+        result.setFailedCount(0);
+
+        assertThat(AiAssistantOperationManager.operationResultNote(result))
+                .isEqualTo("用户已确认并执行 URL 导入：成功 3 / 3 条。");
+    }
+
+    @Test
+    void operationResultNoteForUrlImportReportsPartialFailure() {
+        AiOperationResultVO result = new AiOperationResultVO();
+        result.setOperationType(AiOperationPlan.TYPE_URL_IMPORT);
+        result.setRequestedCount(3);
+        result.setSucceededCount(1);
+        result.setFailedCount(2);
+
+        assertThat(AiAssistantOperationManager.operationResultNote(result))
+                .isEqualTo("用户已确认并执行 URL 导入：成功 1 / 3 条。其中 2 条未成功。");
+    }
+
+    @Test
+    void operationResultNoteToleratesNullResult() {
+        assertThat(AiAssistantOperationManager.operationResultNote(null)).isNotBlank();
+    }
+
     private Space spaceWithName(String spaceName) {
         Space space = new Space();
         space.setId(30L);

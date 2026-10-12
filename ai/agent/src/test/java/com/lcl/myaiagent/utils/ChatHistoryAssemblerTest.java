@@ -1,5 +1,6 @@
 package com.lcl.myaiagent.utils;
 
+import com.lcl.myaiagent.agent.HuoshanAssistantSession;
 import com.lcl.myaiagent.agent.MyManus;
 import com.lcl.myaiagent.model.po.ChatMessage;
 import com.lcl.myaiagent.model.vo.ChatMessageVO;
@@ -194,5 +195,24 @@ class ChatHistoryAssemblerTest {
         List<ChatMessageVO> turns = ChatHistoryAssembler.assemble(rows);
 
         assertEquals(2, turns.size());
+    }
+
+    @Test
+    @DisplayName("T44：确认执行结果事实（内部提示前缀）不在前端历史出现、也不单独成轮")
+    void assemble_hidesOperationResultFact() {
+        List<ChatMessage> rows = List.of(
+                row(1, MessageType.USER, "把这几张图改成风景", null),
+                row(2, MessageType.ASSISTANT, "请确认", null),
+                row(3, MessageType.USER,
+                        HuoshanAssistantSession.OPERATION_RESULT_PREFIX + "用户已确认并执行批量编辑：提交 2 张。", null),
+                row(4, MessageType.USER, "刚才那个完成了吗？", null),
+                row(5, MessageType.ASSISTANT, "已经完成了。", null));
+
+        List<ChatMessageVO> turns = ChatHistoryAssembler.assemble(rows);
+
+        // 结果事实行被过滤：不新开一轮，仍是 user / assistant / user / assistant 四轮
+        assertEquals(4, turns.size());
+        assertTrue(turns.stream().noneMatch(t -> t.getContent() != null
+                && t.getContent().contains("已确认并执行批量编辑")));
     }
 }

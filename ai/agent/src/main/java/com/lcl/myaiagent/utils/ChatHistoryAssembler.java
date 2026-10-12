@@ -2,6 +2,7 @@ package com.lcl.myaiagent.utils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lcl.myaiagent.agent.BaseAgent;
+import com.lcl.myaiagent.agent.HuoshanAssistantSession;
 import com.lcl.myaiagent.agent.MyManus;
 import com.lcl.myaiagent.agent.ToolCallAgent;
 import com.lcl.myaiagent.model.po.ChatMessage;
@@ -128,7 +129,9 @@ public final class ChatHistoryAssembler {
 
     private static boolean isInternalPrompt(String content) {
         return content != null && (content.startsWith(MyManus.NEXT_STEP_PROMPT_TEXT)
-                || content.startsWith(BaseAgent.STUCK_PROMPT_PREFIX));
+                || content.startsWith(BaseAgent.STUCK_PROMPT_PREFIX)
+                // T44：确认执行结果事实（模型可见、对前端隐藏，见 HuoshanAssistantSession）
+                || content.startsWith(HuoshanAssistantSession.OPERATION_RESULT_PREFIX));
     }
 
     @SuppressWarnings("unchecked")

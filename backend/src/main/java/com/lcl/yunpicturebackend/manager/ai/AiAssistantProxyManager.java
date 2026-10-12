@@ -18,6 +18,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.Reader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -218,6 +219,47 @@ public class AiAssistantProxyManager {
     private String messagesUrl(String baseUrl, Long userId, String chatId) {
         return StrUtil.removeSuffix(baseUrl, "/") + ENGINE_MESSAGES_PATH
                 + "/" + encode(chatId) + "/messages?userId=" + userId;
+    }
+
+    /**
+     * 把一条确认执行结果事实写进引擎会话记忆（T44）：写操作确认执行成功后调用，下一轮模型续聊即可读到。
+     * <p>
+     * 与既有引擎调用同一内部密钥信道（{@link #INTERNAL_API_KEY_HEADER}），不跟随重定向；
+     * 归属由引擎按 userId+chatId 派生会话 id。**best-effort**：任何失败只记 warn，不抛——
+     * 结果回灌是旁路事实，确认与执行才是主路径，不能因它失败而改变 confirm 的返回。
+     */
+    public void recordOperationResult(Long userId, String chatId, String content) {
+        String baseUrl = requireConfigured(properties.getEngineBaseUrl(), "图库助手引擎地址未配置");
+        String apiKey = requireConfigured(properties.getInternalApiKey(), "图库助手引擎密钥未配置");
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(operationResultUrl(baseUrl, userId, chatId)).openConnection();
+            connection.setRequestMethod("POST");
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty(INTERNAL_API_KEY_HEADER, apiKey);
+            connection.setRequestProperty("Content-Type", "application/json;charset=UTF-8");
+            connection.setConnectTimeout(toMillis(properties.getConnectTimeout()));
+            connection.setReadTimeout(toMillis(properties.getReadTimeout()));
+            connection.setDoOutput(true);
+            try (OutputStream out = connection.getOutputStream()) {
+                out.write(objectMapper.writeValueAsBytes(Map.of("content", content)));
+            }
+            int status = connection.getResponseCode();
+            if (status != HttpURLConnection.HTTP_OK) {
+                log.warn("AI 助手记录操作结果响应异常, status={}", status);
+            }
+        } catch (IOException e) {
+            log.warn("AI 助手记录操作结果失败: {}", e.getMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private String operationResultUrl(String baseUrl, Long userId, String chatId) {
+        return StrUtil.removeSuffix(baseUrl, "/") + ENGINE_MESSAGES_PATH
+                + "/" + encode(chatId) + "/operation-results?userId=" + userId;
     }
 
     private String readAll(InputStream body) throws IOException {
