@@ -31,7 +31,7 @@ declare namespace API {
 
   type BaseResponseListObject_ = {
     code?: number
-    data?: any[]
+    data?: unknown[]
     message?: string
   }
 
@@ -638,6 +638,9 @@ declare namespace API {
   }
 
   type SpaceRankAnalyzeRequest = {
+    queryAll?: boolean
+    queryPublic?: boolean
+    spaceId?: number
     topN?: number
   }
 
@@ -872,6 +875,7 @@ declare namespace API {
 
   type UserVO = {
     createTime?: string
+    email?: string
     id?: number
     userAccount?: string
     userAvatar?: string
