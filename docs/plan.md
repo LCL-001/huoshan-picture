@@ -30,9 +30,9 @@
   - **2026-10-12 收口**：引擎先红（主模型被调用 5 次，expected 1 but was 5）→ 14/14 绿；前端两项检查 PASS；提交门禁全量 backend 153 / 引擎 213 / type-check 124=基线，commit `b612cca`；实施记录与证据见 `docs/plans/records/T45-确认卡片后确定性收尾.md`。
   - **2026-10-12 真机复跑**：真机 SSE 帧序确认 `confirmation_required` 之后只剩同一 `act()` 的 prepare 工具帧、紧接 `[DONE]`，无尾随"请确认"文本、无第二次模型调用；证据见 `docs/plans/records/T44-T45-真机复跑.md`。
 
-- [ ] T46（2026-10-12 规则 13 独立 review 的 P1+P2；**待字据批准**）**范围门卫召回第二轮**：门卫输入补入最近一条 USER 轮（含 T44「操作结果」事实行——门卫此前对 USER 行只作轮边界、文本不可见，导致"写操作已完成"的追问被误拒）；保留上一轮工具名信号（改从原始 `chat_message` 元数据读，回放视图会剥掉 `toolCalls`）；判定解析健壮化（忽略否定式前言、能力枚举补写/编辑操作）；当轮或上轮命中确定性信号时短路放行（只加允许方向）。保持 fail-closed 与"门卫是语义策略、非授权边界"不变。详情见 `docs/decisions/2026-10-12-review-confirm-gate-and-scope-gate.md`。
-  - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` + `agent/HuoshanAssistantAgentScopeTest.java`（必要时给"读原始行"开一个只读测试缝隙）。不碰 backend、前端、BaseAgent 循环本体。
-  - 验收：单测先红后绿（写操作追问「刚才那个批量编辑完成了吗」放行；F2 用回放视图代表性的 memory 断言工具名可见或明确不依赖；否定式前言按 IN_SCOPE 处理；范围外仍 fail-closed）；负向控制实测红；引擎门禁全绿；真机复跑误拒形态。
+- [ ] T46（2026-10-12 字据批准；来源 = 同日规则 13 独立 review 的 P1+P2；设计见 `docs/designs/2026-10-12-门卫召回第二轮设计.md`）**范围门卫召回第二轮**：门卫输入改为纳入历史尾巴的 USER 文本（含 T44「操作结果」事实行）——此前 USER 行只作轮边界、文本不可见，导致"写操作已完成"的追问被误拒；移除生产恒空的工具名死信号（回放视图剥掉 `toolCalls`）；判定解析健壮化（否定式前言守卫 + 能力枚举补写/编辑操作）。保持 fail-closed 与"门卫是语义策略、非授权边界"不变；**修订 T43 A1 的"USER 行不进输入"**（拒绝话术仍排除）。详见 `docs/decisions/2026-10-12-review-confirm-gate-and-scope-gate.md`。
+  - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` + `agent/HuoshanAssistantAgentScopeTest.java`。不碰 backend、前端、BaseAgent 循环本体。
+  - 验收：单测先红后绿（写操作追问的锚点进输入；门卫输入是回放代表性的、无工具名假信号；否定式前言不否决 IN_SCOPE；范围外仍 fail-closed）；负向控制实测红；引擎门禁全绿；真机复跑误拒形态。
 
 - [ ] T47（2026-10-12 规则 13 独立 review 的 P2；**待字据批准**）**prepare 空间名权限感知**：`resolveSpaceName` 只在调用者具备该空间查看权限时返回空间名，否则回退 `目标空间 id：<id>`；prepare 仍零写库、写侧 RBAC 仍留在执行时（修 T27.10 引入的 IDOR：prepare 只要求登录，可拿他人 `spaceId` 换到空间名）。
   - 文件范围：backend `manager/ai/AiAssistantOperationManager.java` + `manager/ai/AiAssistantOperationManagerTest.java`。不碰引擎、前端。
