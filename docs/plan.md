@@ -1,6 +1,6 @@
 # Plan — 火山图库（huoshan-picture）
 
-<!-- freshness: { owner: "lcl", reviewed: "2026-10-01" } -->
+<!-- freshness: { owner: "lcl", reviewed: "2026-10-12" } -->
 
 > 任务粒度：一个任务 = 一次可测试的改动 = 一个 commit。每个任务必须标注允许触碰的文件范围。
 > **本文件是索引**：只留活跃任务 + 当前里程碑；实施记录、红绿输出、证据写 `docs/plans/records/`，这里只留指针。已收口里程碑整批结转 `docs/plans/archive/`（见文末「归档」）。
@@ -17,6 +17,14 @@
   - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` + 新增 `agent/HuoshanAssistantAgentScopeTest.java`；不碰 BaseAgent/ToolCallAgent 循环本体、FlowWindowBasedChatMemory、ChatHistoryAssembler、backend、前端。
   - 验收：单测先红后绿（短跟进放行 / 污染隔离 / URL 放行 / 非协议输出 fail-closed / 拒绝写回；负向控制实测红）；`ai/agent` 门禁全绿；真机四项（T25 原三负向仍拒 + 短跟进放行 + 污染复测 + URL 复测）记 `docs/plans/records/T43-*.md`。
   - **2026-10-01 收口**：范围测试 12/12（先红 5）+ 引擎全量 214/214 + 真机四项全过（含 URL 导入直达卡片、零写入），commit `97deea3`；实施记录与证据见 `docs/plans/records/T43-门卫召回修复.md`。
+
+- [ ] T44（2026-10-12 字据批准；设计见 `docs/designs/2026-10-12-确认门收尾与结果回灌设计.md`）**确认结果回灌引擎**：写操作确认执行成功后，backend 调引擎新增内部端点把一条"操作结果"事实写入该会话记忆（USER 角色 + 哨兵前缀），下一轮模型续聊可读到执行结果；前端历史按前缀过滤、维持"回放无卡片"现状。
+  - 文件范围：引擎 `agent/HuoshanAssistantSession.java`、`controller/HuoshanAssistantController.java`、`utils/ChatHistoryAssembler.java` + 对应测试；backend `manager/ai/AiAssistantProxyManager.java`、`manager/ai/AiAssistantOperationManager.java`、`controller/AiAssistantController.java` + 对应测试。不碰循环本体与前端。
+  - 验收：引擎单测（端点落 USER 行 + 前缀；前端视图隐藏；回放可见）先红后绿；backend 单测（结果说明生成 / 确认成功后恰记录一次 / 记录失败不影响确认）先红后绿；两侧门禁全绿。
+
+- [ ] T45（2026-10-12 字据批准；同设计文档）**确认卡片后确定性收尾**：引擎 `ToolCallAgent.act()` 产出待确认操作后置 FINISHED，本轮 SSE 在卡片帧后即 [DONE]，不再多走一步模型；前端确认卡片按钮运行中禁用（纵深防护）。
+  - 文件范围：引擎 `agent/ToolCallAgent.java` + `agent/ToolCallAgentTest.java`（全循环用例）；前端 `pages/AssistantPage.vue`。不碰 BaseAgent 循环、代理、backend。
+  - 验收：新增 runLoop 全循环测试先红后绿（callLlm 恰一次、恰一张 Confirmation、恰一个 [DONE]、终态 FINISHED）；`act()` 用例补 FINISHED 断言；`check:assistant-copy` 与 type-check 不破基线。
 
 ## 未决与非任务事项（不建任务）
 
