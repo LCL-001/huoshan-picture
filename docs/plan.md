@@ -35,10 +35,6 @@
   - 验收：单测先红后绿（写操作追问的锚点进输入；门卫输入是回放代表性的、无工具名假信号；否定式前言不否决 IN_SCOPE；范围外仍 fail-closed）；负向控制实测红；引擎门禁全绿；真机复跑误拒形态。
   - **2026-10-12 收口**：引擎先红 3 例（即窗口负向控制）→ 14/14 绿；提交门禁全量 backend 169 / 引擎 215 全绿，commit `371c661`；真机复跑——修复前被误拒的写操作追问原话已放行、同会话范围外请求仍拒；实施记录与证据见 `docs/plans/records/T46-门卫召回第二轮.md`。
 
-- [ ] T47（2026-10-12 规则 13 独立 review 的 P2；**待字据批准**）**prepare 空间名权限感知**：`resolveSpaceName` 只在调用者具备该空间查看权限时返回空间名，否则回退 `目标空间 id：<id>`；prepare 仍零写库、写侧 RBAC 仍留在执行时（修 T27.10 引入的 IDOR：prepare 只要求登录，可拿他人 `spaceId` 换到空间名）。
-  - 文件范围：backend `manager/ai/AiAssistantOperationManager.java` + `manager/ai/AiAssistantOperationManagerTest.java`。不碰引擎、前端。
-  - 验收：单测先红后绿（有权限→名称；无权限 / 空间不存在→只 id；prepare 零写库断言仍在）；backend 门禁全绿。
-
 - [x] T48（2026-10-12 用户批准；**推翻** 2026-09-13「集成测试不入 CI」决定——该行状态改已废弃）**CI 跑集成测试**：workflow 加 mysql:8 与 redis:5 service 容器（Redis 5.x 对齐仓内命令约束）、按序灌 `backend/sql/` 下 create_table / create_tag_table / create_ai_conversation 三个脚本、新增"集成测试"步骤跑 `*IntegrationTest` + `RedisStringTest` + `YunPictureBaseApplicationTests`；pre-commit 快速子集不动（规则 12）。
   - 文件范围：`.github/workflows/ci.yml`；`AGENTS.md` 命令节措辞订正（pre-commit 快速子集 / CI 含集成测试）。
   - 验收：本机真 MySQL/Redis 跑该 `-Dtest` 全绿（前置，红则按规则 5 停）→ CI 在 PR 上绿；文档一致性门禁绿。
