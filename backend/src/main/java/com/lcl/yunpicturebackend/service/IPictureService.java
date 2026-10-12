@@ -10,6 +10,8 @@ import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.PictureAiTagSuggestionVO;
+import com.lcl.yunpicturebackend.domain.vo.PictureTrashResultVO;
+import com.lcl.yunpicturebackend.domain.vo.PictureTrashVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 
 import javax.servlet.http.HttpServletRequest;
@@ -207,4 +209,42 @@ public interface IPictureService extends IService<Picture> {
      * @return 每张一条写入结果
      */
     List<PictureAiTagSuggestionVO> applyAiTags(PictureAiTagApplyRequest pictureAiTagApplyRequest, User loginUser);
+
+    /**
+     * 回收站列表（T50）：管理员看全部，普通用户看"公共图库本人上传的 + 我有 picture:delete 的空间里的"。
+     *
+     * @param queryRequest 分页参数
+     * @param request      请求（取登录用户）
+     * @return 回收站里图片的分页视图
+     */
+    Page<PictureTrashVO> listTrash(PictureTrashQueryRequest queryRequest, HttpServletRequest request);
+
+    /**
+     * 从回收站恢复（T50）：逐张复核权限与空间配额，恢复后名额回补、清列表缓存；逐条上报结果，
+     * 一张失败不影响同批其它张。
+     *
+     * @param batchRequest 要恢复的图片 id 列表
+     * @param request      请求（取登录用户）
+     * @return 逐张结果
+     */
+    List<PictureTrashResultVO> restorePictures(PictureTrashBatchRequest batchRequest, HttpServletRequest request);
+
+    /**
+     * 从回收站彻底删除（T50）：逐张复核权限，物理删行后按引用计数清 COS；逐条上报结果。
+     *
+     * @param batchRequest 要彻底删除的图片 id 列表
+     * @param request      请求（取登录用户）
+     * @return 逐张结果
+     */
+    List<PictureTrashResultVO> purgePictures(PictureTrashBatchRequest batchRequest, HttpServletRequest request);
+
+    /**
+     * 彻底删除超过保留期的回收站记录（T51，系统任务）：分批取过期行，物理删行后按引用计数清 COS。
+     * **不做逐张权限校验**——这是系统级清理，不是用户操作。
+     *
+     * @param retentionDays 保留天数
+     * @param limit         单次最多处理条数（分批，避免一次拉太多）
+     * @return 实际彻底删除的条数
+     */
+    int purgeExpiredTrash(int retentionDays, int limit);
 }

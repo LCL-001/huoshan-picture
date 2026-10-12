@@ -102,5 +102,8 @@ public class Picture implements Serializable {
     @TableLogic
     private Integer isDelete;
 
+    @ApiModelProperty(value = "进回收站时间（NULL = 未进回收站）")
+    private Date deleteTime;
+
 
 }

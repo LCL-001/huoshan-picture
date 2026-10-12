@@ -70,6 +70,11 @@ ALTER TABLE picture
     ADD COLUMN sourceUrl varchar(1024) NULL COMMENT '来源地址（URL 导入/批量抓取写入，按空间判重用）' AFTER tags,
     ADD INDEX idx_sourceUrl (sourceUrl(191));
 
+-- T50：回收站标记（口径见 backend/sql/add_picture_delete_time.sql）
+ALTER TABLE picture
+    ADD COLUMN deleteTime datetime NULL COMMENT '进回收站时间（NULL = 未进回收站）',
+    ADD INDEX idx_deleteTime (deleteTime);
+
 -- 空间表
 create table if not exists space
 (

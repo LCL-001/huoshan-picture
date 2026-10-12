@@ -10,6 +10,7 @@ import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -23,8 +24,11 @@ import com.lcl.yunpicturebackend.domain.dto.file.UploadPictureResult;
 import com.lcl.yunpicturebackend.domain.dto.picture.*;
 import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.lcl.yunpicturebackend.domain.po.Space;
+import com.lcl.yunpicturebackend.domain.po.SpaceUser;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.PictureAiTagSuggestionVO;
+import com.lcl.yunpicturebackend.domain.vo.PictureTrashResultVO;
+import com.lcl.yunpicturebackend.domain.vo.PictureTrashVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.domain.vo.UserVO;
 import com.lcl.yunpicturebackend.enums.PictureReviewStatusEnum;
@@ -50,6 +54,7 @@ import com.lcl.yunpicturebackend.service.IPictureService;
 import com.lcl.yunpicturebackend.service.PictureFileCleanupService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lcl.yunpicturebackend.service.ISpaceService;
+import com.lcl.yunpicturebackend.service.ISpaceUserService;
 import com.lcl.yunpicturebackend.service.ITagService;
 import com.lcl.yunpicturebackend.service.IUserService;
 import com.lcl.yunpicturebackend.utils.ColorSimilarUtils;
@@ -81,6 +86,7 @@ import java.awt.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
@@ -231,6 +237,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
      */
     @Resource
     private PictureListCacheMetrics cacheMetrics;
+
+    /** 回收站列表要按空间成员角色过滤（团队空间里"我有 picture:delete 的空间"），故需查成员关系表 */
+    @Resource
+    private ISpaceUserService spaceUserService;
     @Resource
     private ExecutorService pictureUploadExecutor;
 
@@ -1049,9 +1059,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         this.checkPictureAuth(loginUser, oldPicture, SpaceUserPermissionConstant.PICTURE_DELETE);
         // 开启事务
         transactionTemplate.execute(status -> {
-            // 操作数据库
-            boolean result = this.removeById(pictureId);
-            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+            // 操作数据库：软删进回收站（isDelete=1 + deleteTime=now），COS 文件留到彻底删除时再清
+            int affected = getBaseMapper().softDeleteById(pictureId);
+            ThrowUtils.throwIf(affected != 1, ErrorCode.OPERATION_ERROR);
             // 释放额度（原子更新，防止减到负数）
             Long spaceId = oldPicture.getSpaceId();
             if (spaceId != null) {
@@ -1064,10 +1074,208 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
             }
             return true;
         });
-        // 异步清除 cos 中的图片资源
-        this.cleanupPictureFile(oldPicture);
+        // COS 原件与缩略图**不再即时清理**（T50）：图片进了回收站、恢复后还要用，
+        // 留到"彻底删除"或保留期清理时统一清（引用计数为 0 才删）。
         // 清除缓存：删除只影响这张图所在的空间
         clearPictureListCache(cacheScopeOf(oldPicture.getSpaceId()));
+    }
+
+    // ==================== 回收站（T50） ====================
+
+    @Override
+    public Page<PictureTrashVO> listTrash(PictureTrashQueryRequest queryRequest, HttpServletRequest request) {
+        ThrowUtils.throwIf(queryRequest == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+        long current = queryRequest.getCurrent();
+        long size = queryRequest.getPageSize();
+        // 与图片列表同口径：限制单页大小防爬
+        ThrowUtils.throwIf(size > 100, ErrorCode.PARAMS_ERROR);
+        boolean admin = userService.isAdmin(loginUser);
+        Collection<Long> spaceIds = admin ? Collections.emptyList() : listTrashVisibleSpaceIds(loginUser);
+        IPage<Picture> page = getBaseMapper()
+                .selectTrashPage(new Page<>(current, size), admin, loginUser.getId(), spaceIds);
+        Page<PictureTrashVO> voPage = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
+        voPage.setRecords(page.getRecords().stream().map(PictureTrashVO::of).collect(Collectors.toList()));
+        return voPage;
+    }
+
+    @Override
+    public List<PictureTrashResultVO> restorePictures(PictureTrashBatchRequest batchRequest,
+                                                      HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        List<Long> ids = validatedTrashIds(batchRequest);
+        List<PictureTrashResultVO> results = new ArrayList<>(ids.size());
+        Set<String> touchedScopes = new HashSet<>();
+        for (Long id : ids) {
+            results.add(restoreOne(id, loginUser, touchedScopes));
+        }
+        if (!touchedScopes.isEmpty()) {
+            clearPictureListCache(touchedScopes);
+        }
+        return results;
+    }
+
+    @Override
+    public List<PictureTrashResultVO> purgePictures(PictureTrashBatchRequest batchRequest,
+                                                    HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        List<Long> ids = validatedTrashIds(batchRequest);
+        List<PictureTrashResultVO> results = new ArrayList<>(ids.size());
+        Set<String> touchedScopes = new HashSet<>();
+        for (Long id : ids) {
+            results.add(purgeOne(id, loginUser, touchedScopes));
+        }
+        if (!touchedScopes.isEmpty()) {
+            clearPictureListCache(touchedScopes);
+        }
+        return results;
+    }
+
+    /**
+     * 回收站可见的空间集合：我拥有的空间 + 我加入的、成员角色含 picture:delete 的团队空间。
+     * 公共图库（spaceId 为空）里本人上传的由图库那条 SQL 单独覆盖，不进这个集合。
+     */
+    private Collection<Long> listTrashVisibleSpaceIds(User loginUser) {
+        Set<Long> candidates = new LinkedHashSet<>();
+        spaceService.lambdaQuery().eq(Space::getUserId, loginUser.getId()).list()
+                .forEach(space -> candidates.add(space.getId()));
+        spaceUserService.lambdaQuery().eq(SpaceUser::getUserId, loginUser.getId()).list()
+                .forEach(member -> candidates.add(member.getSpaceId()));
+        List<Long> visible = new ArrayList<>();
+        for (Long spaceId : candidates) {
+            Space space = spaceService.getById(spaceId);
+            if (space == null) {
+                continue;
+            }
+            if (spaceUserAuthManager.getPermissionList(space, loginUser)
+                    .contains(SpaceUserPermissionConstant.PICTURE_DELETE)) {
+                visible.add(spaceId);
+            }
+        }
+        return visible;
+    }
+
+    private List<Long> validatedTrashIds(PictureTrashBatchRequest batchRequest) {
+        ThrowUtils.throwIf(batchRequest == null || CollUtil.isEmpty(batchRequest.getPictureIdList()),
+                ErrorCode.PARAMS_ERROR, "pictureIdList 不能为空");
+        List<Long> ids = batchRequest.getPictureIdList();
+        ThrowUtils.throwIf(ids.size() > 50, ErrorCode.PARAMS_ERROR, "单次最多操作 50 张");
+        ThrowUtils.throwIf(ids.stream().anyMatch(id -> id == null || id <= 0), ErrorCode.PARAMS_ERROR);
+        return ids;
+    }
+
+    /**
+     * 恢复单张：先复核权限，再校验原空间是否还在与配额是否够（空间图会回补 totalCount/totalSize）。
+     * 逐张返回结果——一张失败不影响同批其它张。
+     */
+    private PictureTrashResultVO restoreOne(Long id, User loginUser, Set<String> touchedScopes) {
+        Picture picture = getBaseMapper().selectTrashedById(id);
+        if (picture == null) {
+            return PictureTrashResultVO.fail(id, "记录不存在或不在回收站");
+        }
+        try {
+            checkPictureAuth(loginUser, picture, SpaceUserPermissionConstant.PICTURE_DELETE);
+        } catch (BusinessException e) {
+            // checkPictureAuth 对空间图会先查空间：查不到抛 40400（空间已被删），否则是权限不足
+            String message = e.getCode() == ErrorCode.NOT_FOUND_ERROR.getCode()
+                    ? "原空间已不存在，无法恢复"
+                    : "没有恢复该图片的权限";
+            return PictureTrashResultVO.fail(id, message);
+        }
+        Long spaceId = picture.getSpaceId();
+        try {
+            if (spaceId == null) {
+                // 公共图库：不占空间名额，直接恢复
+                ThrowUtils.throwIf(getBaseMapper().restoreTrashedById(id) != 1,
+                        ErrorCode.OPERATION_ERROR, "恢复失败");
+            } else {
+                // checkPictureAuth 已确认空间存在（查不到就抛 40400 了）
+                Space space = spaceService.getById(spaceId);
+                long picSize = picture.getPicSize() == null ? 0L : picture.getPicSize();
+                if (space.getMaxCount() != null && nvl(space.getTotalCount()) + 1 > space.getMaxCount()) {
+                    return PictureTrashResultVO.fail(id, "空间图片数量已达上限，无法恢复");
+                }
+                if (space.getMaxSize() != null && nvl(space.getTotalSize()) + picSize > space.getMaxSize()) {
+                    return PictureTrashResultVO.fail(id, "空间容量已达上限，无法恢复");
+                }
+                // 恢复 + 名额回补放在一个事务里，避免中途失败留下"已恢复但没记名额"的脏账
+                transactionTemplate.execute(status -> {
+                    ThrowUtils.throwIf(getBaseMapper().restoreTrashedById(id) != 1,
+                            ErrorCode.OPERATION_ERROR, "恢复失败");
+                    boolean updated = spaceService.lambdaUpdate()
+                            .eq(Space::getId, spaceId)
+                            .setSql("totalCount = totalCount + 1")
+                            .setSql("totalSize = totalSize + " + picSize)
+                            .update();
+                    ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "额度更新失败");
+                    return true;
+                });
+            }
+        } catch (BusinessException e) {
+            log.warn("恢复图片失败, pictureId={}, msg={}", id, e.getMessage());
+            return PictureTrashResultVO.fail(id, e.getMessage());
+        }
+        touchedScopes.add(cacheScopeOf(spaceId));
+        return PictureTrashResultVO.ok(id, "已恢复");
+    }
+
+    /**
+     * 彻底删除单张：先复核权限，物理删行，再按引用计数清 COS（同一 URL 还有存活引用时不动）。
+     * 名额在进回收站时已经扣过，这里不再碰空间计数。
+     */
+    private PictureTrashResultVO purgeOne(Long id, User loginUser, Set<String> touchedScopes) {
+        Picture picture = getBaseMapper().selectTrashedById(id);
+        if (picture == null) {
+            return PictureTrashResultVO.fail(id, "记录不存在或不在回收站");
+        }
+        try {
+            checkPictureAuth(loginUser, picture, SpaceUserPermissionConstant.PICTURE_DELETE);
+        } catch (BusinessException e) {
+            return PictureTrashResultVO.fail(id, "没有彻底删除该图片的权限");
+        }
+        int purged;
+        try {
+            purged = getBaseMapper().purgeTrashedById(id);
+        } catch (RuntimeException e) {
+            log.warn("彻底删除图片失败, pictureId={}", id, e);
+            return PictureTrashResultVO.fail(id, "彻底删除失败");
+        }
+        if (purged != 1) {
+            return PictureTrashResultVO.fail(id, "记录不存在或不在回收站");
+        }
+        // 引用计数为 0 才真正删 COS（cleanupPictureFile 内部按 url 统计存活引用）
+        cleanupPictureFile(picture);
+        touchedScopes.add(cacheScopeOf(picture.getSpaceId()));
+        return PictureTrashResultVO.ok(id, "已彻底删除");
+    }
+
+    private static long nvl(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    @Override
+    public int purgeExpiredTrash(int retentionDays, int limit) {
+        Date deadline = Date.from(LocalDateTime.now().minusDays(retentionDays)
+                .atZone(ZoneId.systemDefault()).toInstant());
+        List<Picture> expired = getBaseMapper().selectExpiredTrash(deadline, limit);
+        int purged = 0;
+        Set<String> touchedScopes = new HashSet<>();
+        for (Picture picture : expired) {
+            try {
+                if (getBaseMapper().purgeTrashedById(picture.getId()) == 1) {
+                    cleanupPictureFile(picture);
+                    touchedScopes.add(cacheScopeOf(picture.getSpaceId()));
+                    purged++;
+                }
+            } catch (RuntimeException e) {
+                // 单张失败不中断整批；下一轮扫描还会再遇到它
+                log.warn("清理过期回收站图片失败, pictureId={}", picture.getId(), e);
+            }
+        }
+        if (!touchedScopes.isEmpty()) {
+            clearPictureListCache(touchedScopes);
+        }
+        return purged;
     }
 
     @Override

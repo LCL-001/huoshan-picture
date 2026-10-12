@@ -17,6 +17,8 @@ import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.lcl.yunpicturebackend.domain.po.Space;
 import com.lcl.yunpicturebackend.domain.vo.PictureAiTagSuggestionVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureTagCategory;
+import com.lcl.yunpicturebackend.domain.vo.PictureTrashResultVO;
+import com.lcl.yunpicturebackend.domain.vo.PictureTrashVO;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.domain.vo.SpaceLevel;
@@ -385,6 +387,40 @@ public class PictureController {
         ThrowUtils.throwIf(pictureAiTagApplyRequest == null, ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(request);
         return ResultUtils.success(pictureService.applyAiTags(pictureAiTagApplyRequest, loginUser));
+    }
+
+    /**
+     * 回收站列表（T50）：管理员看全部，普通用户看"公共图库本人上传的 + 我有删除权限的空间里的"。
+     * 归属过滤在服务端按登录用户判定，不看请求参数，避免越权枚举。
+     */
+    @ApiOperation("回收站列表")
+    @PostMapping("/trash/list")
+    public BaseResponse<Page<PictureTrashVO>> listTrash(@RequestBody PictureTrashQueryRequest queryRequest,
+                                                        HttpServletRequest request) {
+        ThrowUtils.throwIf(queryRequest == null, ErrorCode.PARAMS_ERROR);
+        return ResultUtils.success(pictureService.listTrash(queryRequest, request));
+    }
+
+    /**
+     * 从回收站恢复（T50）：逐张复核权限与空间配额，结果逐条返回。
+     */
+    @ApiOperation("从回收站恢复")
+    @PostMapping("/trash/restore")
+    public BaseResponse<List<PictureTrashResultVO>> restorePictures(@RequestBody PictureTrashBatchRequest batchRequest,
+                                                                    HttpServletRequest request) {
+        ThrowUtils.throwIf(batchRequest == null, ErrorCode.PARAMS_ERROR);
+        return ResultUtils.success(pictureService.restorePictures(batchRequest, request));
+    }
+
+    /**
+     * 从回收站彻底删除（T50）：不可撤销（含 COS 文件）；结果逐条返回。
+     */
+    @ApiOperation("从回收站彻底删除")
+    @PostMapping("/trash/purge")
+    public BaseResponse<List<PictureTrashResultVO>> purgePictures(@RequestBody PictureTrashBatchRequest batchRequest,
+                                                                  HttpServletRequest request) {
+        ThrowUtils.throwIf(batchRequest == null, ErrorCode.PARAMS_ERROR);
+        return ResultUtils.success(pictureService.purgePictures(batchRequest, request));
     }
 
 }

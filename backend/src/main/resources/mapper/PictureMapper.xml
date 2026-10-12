@@ -24,7 +24,51 @@
         <result property="editTime" column="editTime" jdbcType="TIMESTAMP"/>
         <result property="updateTime" column="updateTime" jdbcType="TIMESTAMP"/>
         <result property="isDelete" column="isDelete" jdbcType="INTEGER"/>
+        <result property="deleteTime" column="deleteTime" jdbcType="TIMESTAMP"/>
 
     </resultMap>
+
+    <!-- 回收站（T50）：以下语句是裸 SQL，绕开全局逻辑删除过滤。口径见 PictureMapper 注释 -->
+
+    <select id="selectTrashPage" resultMap="BaseResultMap">
+        SELECT * FROM picture
+        WHERE isDelete = 1 AND deleteTime IS NOT NULL
+        <if test="!all">
+            AND (
+                (spaceId IS NULL AND userId = #{userId})
+                <if test="spaceIds != null and spaceIds.size() > 0">
+                    OR spaceId IN
+                    <foreach collection="spaceIds" item="sid" open="(" separator="," close=")">#{sid}</foreach>
+                </if>
+            )
+        </if>
+        ORDER BY deleteTime DESC, id DESC
+    </select>
+
+    <select id="selectTrashedById" resultMap="BaseResultMap">
+        SELECT * FROM picture
+        WHERE id = #{id} AND isDelete = 1 AND deleteTime IS NOT NULL
+    </select>
+
+    <update id="softDeleteById">
+        UPDATE picture SET isDelete = 1, deleteTime = NOW()
+        WHERE id = #{id} AND isDelete = 0
+    </update>
+
+    <update id="restoreTrashedById">
+        UPDATE picture SET isDelete = 0, deleteTime = NULL
+        WHERE id = #{id} AND isDelete = 1
+    </update>
+
+    <delete id="purgeTrashedById">
+        DELETE FROM picture WHERE id = #{id} AND isDelete = 1
+    </delete>
+
+    <select id="selectExpiredTrash" resultMap="BaseResultMap">
+        SELECT * FROM picture
+        WHERE isDelete = 1 AND deleteTime IS NOT NULL AND deleteTime &lt; #{deadline}
+        ORDER BY deleteTime
+        LIMIT #{limit}
+    </select>
 
 </mapper>
