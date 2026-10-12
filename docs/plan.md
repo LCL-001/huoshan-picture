@@ -23,9 +23,10 @@
   - 验收：引擎单测（端点落 USER 行 + 前缀；前端视图隐藏；回放可见）先红后绿；backend 单测（结果说明生成 / 确认成功后恰记录一次 / 记录失败不影响确认）先红后绿；两侧门禁全绿。
   - **2026-10-12 收口**：引擎先红（结果事实行未被过滤，5≠4）→ 19/19 绿；backend 74/74 绿；提交门禁全量 backend 153 / 引擎 212 全绿，commit `03f59d7`；实施记录与证据见 `docs/plans/records/T44-确认结果回灌引擎.md`。
 
-- [ ] T45（2026-10-12 字据批准；同设计文档）**确认卡片后确定性收尾**：引擎 `ToolCallAgent.act()` 产出待确认操作后置 FINISHED，本轮 SSE 在卡片帧后即 [DONE]，不再多走一步模型；前端确认卡片按钮运行中禁用（纵深防护）。
+- [x] T45（2026-10-12 字据批准；同设计文档）**确认卡片后确定性收尾**：引擎 `ToolCallAgent.act()` 产出待确认操作后置 FINISHED，本轮 SSE 在卡片帧后即 [DONE]，不再多走一步模型；前端确认卡片按钮运行中禁用（纵深防护）。
   - 文件范围：引擎 `agent/ToolCallAgent.java` + `agent/ToolCallAgentTest.java`（全循环用例）；前端 `pages/AssistantPage.vue`。不碰 BaseAgent 循环、代理、backend。
   - 验收：新增 runLoop 全循环测试先红后绿（callLlm 恰一次、恰一张 Confirmation、恰一个 [DONE]、终态 FINISHED）；`act()` 用例补 FINISHED 断言；`check:assistant-copy` 与 type-check 不破基线。
+  - **2026-10-12 收口**：引擎先红（主模型被调用 5 次，expected 1 but was 5）→ 14/14 绿；前端两项检查 PASS；提交门禁全量 backend 153 / 引擎 213 / type-check 124=基线，commit `b612cca`；实施记录与证据见 `docs/plans/records/T45-确认卡片后确定性收尾.md`。
 
 ## 未决与非任务事项（不建任务）
 

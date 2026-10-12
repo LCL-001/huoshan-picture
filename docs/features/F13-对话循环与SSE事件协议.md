@@ -1,6 +1,6 @@
 # F13 对话循环与 SSE 事件协议（T8-hard 循环收敛）
 
-> 覆盖任务：docs/plan.md T8 的循环收敛部分（档 3 的 **T8-hard**）与 T8-c（失败/超时改发显式 `error` 事件）；T33（循环检测重写为双信号滑窗，2026-09-27）。
+> 覆盖任务：docs/plan.md T8 的循环收敛部分（档 3 的 **T8-hard**）与 T8-c（失败/超时改发显式 `error` 事件）；T33（循环检测重写为双信号滑窗，2026-09-27）；T45（确认卡片后确定性收尾，2026-10-12）。
 > 这是**引擎内部机制**的讲解，不是用户可见功能——用户可见的助手能力见 `F11-AI助手MVP.md`（档 1/2 链路）与 `F12-图库助手档3工具与联调.md`（档 3 工具）。
 > 口径全文见 `docs/decisions.md` 2026-09-15 三条；计划与逐项验收见 `docs/plans/2026-09-15-T8hard-循环收敛实施计划.md`。
 
@@ -45,7 +45,7 @@ runLoop
   ├─ 校验失败（非 IDLE / 空提示词）→ Answer + Done，直接返回（不进入循环、**也不发开场事件**）
   ├─ 开场事件逐条发出（T22）→ 例：Notice("图片搜索服务暂时不可用…")
   ├─ while (currentStep < maxSteps && state != FINISHED && !stopped)
-  │    ├─ step() → 逐条 listener.onEvent(...)        // 工具步 2 条（think + tool），回答步 1 条
+  │    ├─ step() → 逐条 listener.onEvent(...)        // 工具步 2 条（think + tool），回答步 1 条；确认步 think + confirmation + tool 且置 FINISHED（T45）
   │    └─ state==RUNNING 且 isStuck()（循环签名滑窗）→ handleStuckState() → 达阈值则发 Answer("检测到循环…") 并 break
   ├─ 未停止：达上限则发 Answer("达到最大步骤") → runSummary() 非空则发 Metrics
   ├─ 异常：state=ERROR + 日志（带 agent 名与堆栈）→ 发**一条** Error（固定文案，原文只进日志）
@@ -76,6 +76,7 @@ runLoop
 7. **`createEmitter()` 缝 + 记录型 emitter**：与后端 `AiAssistantProxyManager` 同一手法（仓内既有先例），让 `runStream` 的异步路径也能对帧断言；`runLoop` 本身保持可同步驱动（测试里配收集型监听器），避免为断言引入等待与抖动。
 8. **协议契约测试与实现分离**：契约测试读的是"事件 → 经真实序列化路径 → JSON 字段"，而不是字符串比较，改字段名/改事件名都会红；同时它用三种人为改坏（删 `[DONE]` / 改字段名 / 恢复双终止帧）验证过自己不是空过。
 9. **循环检测是"工具签名 + 文本"双信号的滑窗判定（T33 重写）**：旧实现照抄 OpenManus——"最后一条 assistant 文本在整段历史出现 ≥2 次"的全局计数，三类问题：① 空文本的工具决策行让检测直接失明（"同工具同参数反复调用"这条最常见的死循环形态抓不到，只能烧完 20 步预算）；② 全局计数把不同上下文里合法重复的短句误判成卡死；③ 精确等值匹配对措辞微差漏报。现在改为在 assistant 子序列的"循环签名"（工具调用步 = `tool|名|规范化参数`，纯文本步 = `text|文本`，带文本的工具决策行按工具签名判——文本只是修辞变化，重复的动作才是循环信号）上取**最近 4 步滑窗**，同签名出现 ≥2 次（含当前）判卡死：第 1 次纠偏（注入"观察到重复响应…"提示）、第 2 次强停（旧口径 3 次要多烧约 5 步预算）。签名只做内存比较，不进提示词与持久化。选型对齐：LangGraph/OpenAI SDK/CrewAI 只做步数硬边界、内容检测交自定义终止条件；Strands 用工具指纹滑窗（且在执行前阻断，本仓经用户拍板暂不做"执行前阻断"）；Inngest 用连续同工具口径。
+10. **确认卡片即本轮终点（T45，2026-10-12）**：`ToolCallAgent.act()` 产出待确认操作（`Confirmation`）后立即 `setState(FINISHED)`，循环随即收尾——**不再多走一步模型调用**（修复前 `runLoop` 的 `state != FINISHED` 条件仍成立，会再调一次主模型：白烧额度，且模型可能再生成一张卡片）。确认与执行由图库后端承担（确认门），与循环无关。**代价**：卡片之后模型那句"请确认"文本不再出现（流在卡片帧后即 `[DONE]`）；卡片自带后端生成的摘要，语义不丢。守护：`ToolCallAgentConfirmationLoopTest`（全循环断言——主模型恰一次 / 恰一张卡片 / 恰一个 `[DONE]` / 无收尾 Answer 帧；修复前红 `expected: 1 but was: 5`）+ `ToolCallAgentTest` 的 `act()` 用例补 `state == FINISHED` 断言。
 
 ## 怎么验证
 
