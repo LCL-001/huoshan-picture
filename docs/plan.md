@@ -43,21 +43,25 @@
   - 验收：本机真 MySQL/Redis 跑该 `-Dtest` 全绿（前置，红则按规则 5 停）→ CI 在 PR 上绿；文档一致性门禁绿。
   - **2026-10-12 收口**：本机集成 **86/86**（修复前 1 失败＝一处过期断言，T42 漏改集成测试所致，已修）、CI 模拟 `local,ci` 86/86、全新库建表探针 11 表全建；commit `898c22e`；记录见 `docs/plans/records/T48-CI集成测试.md`。
 
-- [ ] T49（2026-10-12 用户批准）**接口限流**：新增 `@RateLimit` 注解 + 切面（复用 StringRedisTemplate、键 huoshantuku:ratelimit:*、INCR + 惰性 TTL、超限 42900、Redis 异常 fail-open、总开关 `app.rate-limit.enabled`）；只打高成本/敏感端点（助手 chat / 取票 / prepare / confirm、扩图、AI 打标、批量抓取、URL/文件上传、以图搜图）。
+- [x] T49（2026-10-12 用户批准）**接口限流**：新增 `@RateLimit` 注解 + 切面（复用 StringRedisTemplate、键 huoshantuku:ratelimit:*、INCR + 惰性 TTL、超限 42900、Redis 异常 fail-open、总开关 `app.rate-limit.enabled`）；只打高成本/敏感端点（助手 chat / 取票 / prepare / confirm、扩图、AI 打标、批量抓取、URL/文件上传、以图搜图）。
   - 文件范围：backend `ErrorCode.java`、新增 `annotation/` 注解与 `aop/` 切面、`controller/` 受保护端点、`application.yaml`；新增两个测试类。
   - 验收：切面单测先红后绿（恰好 limit 放行 / limit+1 抛 42900 / 关开关零 Redis / Redis 异常 fail-open / 键含 principal）+ 端点覆盖守卫；backend 全量门禁绿。
+  - **2026-10-12 收口**：切面 6 例 + 覆盖守卫 1 例绿（负向控制 2 处命中：边界改坏、摘注解），commit `06770d6`；讲解见 `docs/features/F18-接口限流.md`。
 
-- [ ] T50（2026-10-12 用户批准）**回收站后端**：picture 加 deleteTime 列（DDL + 索引）；`deletePicture` 改软删（isDelete=1 + deleteTime，**不再即时删 COS**）；新增列表/恢复/彻底删三个能力——裸 SQL mapper（本仓首处自定义 SQL）、恢复逐张复核权限 + 空间配额回补 + 清缓存、彻底删按引用计数删 COS 后物理删行。
+- [x] T50（2026-10-12 用户批准）**回收站后端**：picture 加 deleteTime 列（DDL + 索引）；`deletePicture` 改软删（isDelete=1 + deleteTime，**不再即时删 COS**）；新增列表/恢复/彻底删三个能力——裸 SQL mapper（本仓首处自定义 SQL）、恢复逐张复核权限 + 空间配额回补 + 清缓存、彻底删按引用计数删 COS 后物理删行。
   - 文件范围：backend `Picture.java`、`mapper/` 与 `resources/mapper/`、`IPictureService.java` 与 `PictureServiceImpl.java`、`PictureController.java`；新增 DDL 脚本与集成测试。
   - 验收：service 单测先红后绿（配额回补 / 超额拒 / 越权拒 / 清缓存 / purge 引用计数）；`PictureTrashIntegrationTest` 真库全绿（删→列表可见→恢复→计数回补→彻底删→行消失 + COS 清理）——随 T48 进 CI。
+  - **2026-10-12 收口**：单测 7 例 + 集成 6 例绿（负向控制命中配额两条）；全量集成 92/92，commit `f3d64f4`；讲解与已知限制见 `docs/features/F17-回收站.md`。
 
-- [ ] T51（2026-10-12 用户批准）**回收站保留期清理**：`@Scheduled` 组件分批扫 `deleteTime < now - app.trash.retention-days`（默认 30）后复用彻底删逻辑；异常不外溢。
+- [x] T51（2026-10-12 用户批准）**回收站保留期清理**：`@Scheduled` 组件分批扫 `deleteTime < now - app.trash.retention-days`（默认 30）后复用彻底删逻辑；异常不外溢。
   - 文件范围：backend 新增清理组件、`application.yaml`（app.trash.retention-days）；新增单测与真库集成测试。
   - 验收：单测（边界 / 过期集合 / 异常不中断 / 分批）先红后绿；真库集成（造过期行 → 跑一轮 → 行物理消失、COS 被清）。
+  - **2026-10-12 收口**：任务单测 2 例 + 保留期真库集成 1 例绿，commit `4912479`；讲解见 `docs/features/F17-回收站.md`。
 
-- [ ] T52（2026-10-12 用户批准）**回收站前端**：新增回收站页 + 路由 + 侧栏菜单项 + 手写 API（不跑生成器，decisions 2026-09-15-topic10）；删除确认文案订正为"已移入回收站，可恢复"。
+- [x] T52（2026-10-12 用户批准）**回收站前端**：新增回收站页 + 路由 + 侧栏菜单项 + 手写 API（不跑生成器，decisions 2026-09-15-topic10）；删除确认文案订正为"已移入回收站，可恢复"。
   - 文件范围：frontend `pages/`（新增页面）、`router/index.ts`、`components/GlobalSider.vue`、`api/pictureController.ts`、删除确认所在组件。
   - 验收：`type-check` 不净增基线、改动文件 eslint 干净、`check:assistant-format` 不破；本机真机走通删除→回收站→恢复→彻底删。
+  - **2026-10-12 收口**：type-check 124＝基线、新页面 eslint 干净、assistant-format PASS，commit `befbbe3`；讲解见 `docs/features/F17-回收站.md`。**未做**浏览器人工验收（记为 F17 已知限制 7）。
 
 ## 未决与非任务事项（不建任务）
 
