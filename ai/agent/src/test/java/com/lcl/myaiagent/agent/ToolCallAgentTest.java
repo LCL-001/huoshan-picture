@@ -228,6 +228,8 @@ class ToolCallAgentTest {
             assertThat(confirmation.digest()).isEqualTo("d1");
             assertThat(confirmation.summary()).containsExactly("目标空间 id：30", "图片：2 张", "分类 → 风景");
             assertThat(((AgentEvent.Step) events.get(2)).kind()).isEqualTo(AgentEvent.Step.KIND_TOOL);
+            // T45：确认卡片即本轮终点，循环随即收尾
+            assertThat(agent.getState()).isEqualTo(AgentState.FINISHED);
         }
 
         @Test

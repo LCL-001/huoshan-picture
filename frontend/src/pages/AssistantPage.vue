@@ -62,10 +62,10 @@
               </ul>
               <div class="assistant-confirm-card__actions">
                 <template v-if="cardView(card.operationId).status === 'pending'">
-                  <a-button size="small" type="primary" @click="confirmOperation(card)">
+                  <a-button size="small" type="primary" :disabled="running" @click="confirmOperation(card)">
                     确认执行
                   </a-button>
-                  <a-button size="small" @click="cancelOperation(card)">取消</a-button>
+                  <a-button size="small" :disabled="running" @click="cancelOperation(card)">取消</a-button>
                 </template>
                 <a-button
                   v-else-if="cardView(card.operationId).status === 'confirming'"

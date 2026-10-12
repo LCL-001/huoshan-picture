@@ -216,6 +216,11 @@ public class ToolCallAgent extends ReActAgent {
                 .map(ToolCallAgent::confirmationEventOf)
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
+        // T45：确认卡片即"等待用户拍板"，本轮到此为止——置 FINISHED 让 runLoop 收尾（恰好一个 Done），
+        // 不再多走一步模型调用（那会白烧额度，且模型可能再生成一张卡片）。确认与执行由后端承担，与循环无关。
+        if (!confirmations.isEmpty()) {
+            setState(AgentState.FINISHED);
+        }
         // 模型在发起工具调用前的自然语言推理：前端折叠区作为"思考"步骤展示，空则不发这一帧
         List<AgentEvent> events = new ArrayList<>(confirmations.size() + 2);
         if (StrUtil.isNotBlank(assistantText)) {
