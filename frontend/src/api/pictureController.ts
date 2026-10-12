@@ -326,3 +326,48 @@ export async function applyAiTagsUsingPost(
     ...(options || {}),
   })
 }
+
+/** listTrash POST /api/picture/trash/list（回收站列表，T50；归属过滤在服务端按登录用户判定） */
+export async function listTrashUsingPost(
+  body: { current?: number; pageSize?: number },
+  options?: { [key: string]: any }
+) {
+  return request<any>('/api/picture/trash/list', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** restorePictures POST /api/picture/trash/restore（从回收站恢复，T50；逐张返回结果） */
+export async function restorePicturesUsingPost(
+  body: { pictureIdList: string[] },
+  options?: { [key: string]: any }
+) {
+  return request<any>('/api/picture/trash/restore', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** purgePictures POST /api/picture/trash/purge（从回收站彻底删除，T50；不可撤销，逐张返回结果） */
+export async function purgePicturesUsingPost(
+  body: { pictureIdList: string[] },
+  options?: { [key: string]: any }
+) {
+  return request<any>('/api/picture/trash/purge', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}

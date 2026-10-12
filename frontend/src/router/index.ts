@@ -17,6 +17,7 @@ import AssistantPage from '@/pages/AssistantPage.vue'
 import SpaceAnalyzePage from '@/pages/SpaceAnalyzePage.vue'
 import SpaceUserManagePage from '@/pages/admin/SpaceUserManagePage.vue'
 import UserExchangeVipPage from '@/pages/UserExchangeVipPage.vue'
+import RecycleBinPage from '@/pages/RecycleBinPage.vue'
 
 
 const router = createRouter({
@@ -109,6 +110,11 @@ const router = createRouter({
       path: '/assistant',
       name: 'AI 助手',
       component: AssistantPage,
+    },
+    {
+      path: '/recycle_bin',
+      name: '回收站',
+      component: RecycleBinPage,
     },
     {
       path: '/user_exchange_vip',

@@ -209,7 +209,7 @@ const doDelete = () => {
   if (!id) return
   Modal.confirm({
     title: '确认删除',
-    content: '确定要删除这张图片吗？此操作不可撤销。',
+    content: '确定要删除这张图片吗？将移入回收站，可在回收站恢复。',
     okText: '确认删除',
     cancelText: '取消',
     okType: 'danger',

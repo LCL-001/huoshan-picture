@@ -18,7 +18,7 @@
 </template>
 <script lang="ts" setup>
 import { computed, h, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
-import { PictureOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons-vue'
+import { DeleteOutlined, PictureOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
@@ -43,6 +43,11 @@ const fixedMenuItems = [
     key: '/my_space',
     label: '我的空间',
     icon: () => h(UserOutlined),
+  },
+  {
+    key: '/recycle_bin',
+    label: '回收站',
+    icon: () => h(DeleteOutlined),
   },
   {
     key: '/add_space?type=' + SPACE_TYPE_ENUM.TEAM,
