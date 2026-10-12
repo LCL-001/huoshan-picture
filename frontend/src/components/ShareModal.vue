@@ -4,18 +4,18 @@
       <a-modal
         v-if="visible"
         v-model:visible="visible"
-        :title="title"
+        :title="props.title"
         :footer="false"
         @cancel="closeModal"
         class="share-modal"
       >
       <h4>复制分享链接</h4>
       <a-typography-link copyable>
-        {{ link }}
+        {{ props.link }}
       </a-typography-link>
       <div style="margin-bottom: 16px" />
       <h4>手机扫码查看</h4>
-        <a-qrcode :value="link" />
+        <a-qrcode :value="props.link" />
       </a-modal>
     </Transition>
   </div>
@@ -24,8 +24,8 @@
 import { ref } from 'vue'
 
 interface Props {
-  title: string;
-  link: string;
+  title?: string;
+  link?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {

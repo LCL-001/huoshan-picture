@@ -70,8 +70,8 @@
 <script lang="ts" setup>
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { SearchOutlined } from '@ant-design/icons-vue'
-import dayjs from 'dayjs'
-import {listPictureTagCategoryUsingGet, listPictureVoByPageUsingPost} from '@/api/pictureController.ts'
+import dayjs, { type Dayjs } from 'dayjs'
+import { listPictureTagCategoryUsingGet } from '@/api/pictureController.ts'
 import { message } from 'ant-design-vue'
 
 interface Props {
@@ -96,8 +96,8 @@ const doSearch = () => {
 }
 
 // 标签和分类选项
-const categoryOptions = ref<string[]>([])
-const tagOptions = ref<string[]>([])
+const categoryOptions = ref<{ value: string; label: string }[]>([])
+const tagOptions = ref<{ value: string; label: string }[]>([])
 
 /**
  * 获取标签和分类选项
@@ -132,12 +132,11 @@ const dateRange = ref<[]>([])
 /**
  * 日期范围更改时触发
  * @param dates
- * @param dateStrings
  */
-const onRangeChange = (dates: any[], dateStrings: string[]) => {
+const onRangeChange = (dates: Dayjs[] | [Dayjs, Dayjs]) => {
   if (dates?.length >= 2) {
-    searchParams.startEditTime = dates[0].toDate()
-    searchParams.endEditTime = dates[1].toDate()
+    searchParams.startEditTime = dates[0].toDate().toISOString()
+    searchParams.endEditTime = dates[1].toDate().toISOString()
   } else {
     searchParams.startEditTime = undefined
     searchParams.endEditTime = undefined
@@ -156,7 +155,7 @@ const rangePresets = ref([
 const doClear = () => {
   // 取消所有对象的值
   Object.keys(searchParams).forEach((key) => {
-    searchParams[key] = undefined
+    ;(searchParams as Record<string, unknown>)[key] = undefined
   })
   // 日期筛选项单独清空，必须定义为空数组
   dateRange.value = []
