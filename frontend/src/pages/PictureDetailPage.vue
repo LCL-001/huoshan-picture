@@ -1,6 +1,5 @@
 <template>
-  <Transition name="detail-fade" mode="out-in">
-    <div id="pictureDetailPage" class="detail-page">
+  <div id="pictureDetailPage" class="detail-page">
     <!-- 返回上一级 -->
     <div class="detail-back">
       <a-button class="back-button" @click="doBack">
@@ -123,8 +122,7 @@
       </a-col>
     </a-row>
     <ShareModal ref="shareModalRef" :link="shareLink" />
-    </div>
-  </Transition>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -165,15 +163,15 @@ const canDelete = createPermissionChecker(SPACE_PERMISSION_ENUM.PICTURE_DELETE)
 const fetchPictureDetail = async () => {
   try {
     const res = await getPictureVoByIdUsingGet({
-      id: props.id,
+      id: Number(props.id),
     })
     if (res.data.code === 0 && res.data.data) {
       picture.value = res.data.data
     } else {
       message.error('获取图片详情失败，' + res.data.message)
     }
-  } catch (e: any) {
-    message.error('获取图片详情失败：' + e.message)
+  } catch (e) {
+    message.error('获取图片详情失败：' + (e instanceof Error ? e.message : String(e)))
   }
 }
 
@@ -261,18 +259,6 @@ const doShare = () => {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* 页面过渡 */
-.detail-fade-enter-active {
-  transition: opacity 0.35s ease;
-}
-.detail-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.detail-fade-enter-from,
-.detail-fade-leave-to {
-  opacity: 0;
 }
 
 /* ========== 栅格间距 ========== */

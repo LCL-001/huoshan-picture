@@ -128,7 +128,7 @@ const onScroll = () => {
   const scrollBottom = window.innerHeight + window.scrollY
   const threshold = document.documentElement.scrollHeight - 200
   if (scrollBottom >= threshold && hasMore.value && !loadingMore.value && !loading.value) {
-    searchParams.current++
+    searchParams.current = (searchParams.current ?? 1) + 1
     fetchData(true)
   }
 }

@@ -128,9 +128,10 @@ const handleSubmit = async () => {
       desc: mapped.desc,
       elapsed: elapsedText(),
     }
-  } catch (e: any) {
+  } catch (e) {
     // 请求超时被中断时，后端任务仍在继续执行，避免误以为失败而重复提交
-    const isTimeout = e?.code === 'ECONNABORTED' || /timeout/i.test(e?.message ?? '')
+    const err = e as { code?: string; message?: string }
+    const isTimeout = err?.code === 'ECONNABORTED' || /timeout/i.test(err?.message ?? '')
     taskResult.value = isTimeout
       ? {
           status: 'background',
@@ -143,7 +144,7 @@ const handleSubmit = async () => {
           status: 'error',
           icon: markRaw(CloseCircleOutlined),
           title: '任务执行失败',
-          desc: e?.message ?? '请稍后重试',
+          desc: err.message ?? '请稍后重试',
           elapsed: elapsedText(),
         }
   } finally {

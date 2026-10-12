@@ -70,8 +70,8 @@ const createTask = async () => {
   })
   if (res.data.code === 0 && res.data.data) {
     message.success('创建任务成功，请耐心等待，不要退出界面')
-    console.log(res.data.data.output.taskId)
-    taskId.value = res.data.data.output.taskId
+    const output = res.data.data.output
+    taskId.value = output?.taskId
     // 开启轮询
     startPolling()
   } else {
@@ -80,7 +80,7 @@ const createTask = async () => {
 }
 
 // 轮询定时器
-let pollingTimer: NodeJS.Timeout = null
+let pollingTimer: ReturnType<typeof setInterval> | null = null
 
 // 开始轮询
 const startPolling = () => {
@@ -95,12 +95,12 @@ const startPolling = () => {
       })
       if (res.data.code === 0 && res.data.data) {
         const taskResult = res.data.data.output
-        if (taskResult.taskStatus === 'SUCCEEDED') {
+        if (taskResult?.taskStatus === 'SUCCEEDED') {
           message.success('扩图任务执行成功')
-          resultImageUrl.value = taskResult.outputImageUrl
+          resultImageUrl.value = taskResult.outputImageUrl ?? ''
           // 清理轮询
           clearPolling()
-        } else if (taskResult.taskStatus === 'FAILED') {
+        } else if (taskResult?.taskStatus === 'FAILED') {
           message.error('扩图任务执行失败')
           // 清理轮询
           clearPolling()
@@ -108,7 +108,7 @@ const startPolling = () => {
       }
     } catch (error) {
       console.error('扩图任务轮询失败', error)
-      message.error('扩图任务轮询失败，' + error.message)
+      message.error('扩图任务轮询失败，' + (error instanceof Error ? error.message : String(error)))
       // 清理轮询
       clearPolling()
     }
@@ -120,7 +120,7 @@ const clearPolling = () => {
   if (pollingTimer) {
     clearInterval(pollingTimer)
     pollingTimer = null
-    taskId.value = null
+    taskId.value = undefined
   }
 }
 
@@ -153,7 +153,7 @@ const handleUpload = async () => {
     }
   } catch (error) {
     console.error('图片上传失败', error)
-    message.error('图片上传失败，' + error.message)
+    message.error('图片上传失败，' + (error instanceof Error ? error.message : String(error)))
   }
   uploadLoading.value = false
 }
