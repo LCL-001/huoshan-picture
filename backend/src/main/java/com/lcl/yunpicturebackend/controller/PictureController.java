@@ -3,6 +3,7 @@ package com.lcl.yunpicturebackend.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lcl.yunpicturebackend.annotation.AuthCheck;
+import com.lcl.yunpicturebackend.annotation.RateLimit;
 import com.lcl.yunpicturebackend.api.aliyunai.model.CreateOutPaintingTaskResponse;
 import com.lcl.yunpicturebackend.api.aliyunai.model.GetOutPaintingTaskResponse;
 import com.lcl.yunpicturebackend.api.imagesearch.ImageSearchApiFacade;
@@ -81,6 +82,7 @@ public class PictureController {
      */
     @ApiOperation("上传图片")
     @PostMapping("/upload")
+    @RateLimit(key = "picture:upload", limit = 60, windowSeconds = 60)
     @SaSpaceCheckPermission(value = SpaceUserPermissionConstant.PICTURE_UPLOAD)
     public BaseResponse<PictureVO> uploadPicture(
             @RequestPart("file") MultipartFile multipartFile,
@@ -98,6 +100,7 @@ public class PictureController {
      */
     @ApiOperation("批量抓取上传图片")
     @PostMapping("/upload/batch")
+    @RateLimit(key = "picture:upload:batch", limit = 5, windowSeconds = 60)
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Integer> uploadPictureByBatch(
             @RequestBody PictureUploadByBatchRequest pictureUploadByBatchRequest,
@@ -116,6 +119,7 @@ public class PictureController {
      */
     @ApiOperation("上传图片")
     @PostMapping("/upload/url")
+    @RateLimit(key = "picture:upload:url", limit = 30, windowSeconds = 60)
     @SaSpaceCheckPermission(value = SpaceUserPermissionConstant.PICTURE_UPLOAD)
     public BaseResponse<PictureVO> uploadPicture(
             @RequestBody PictureUploadRequest pictureUploadRequest,
@@ -279,6 +283,7 @@ public class PictureController {
      */
     @ApiOperation("以图搜图")
     @PostMapping("/search/picture")
+    @RateLimit(key = "picture:search:image", limit = 20, windowSeconds = 60)
     public BaseResponse<List<ImageSearchResult>> searchPictureByPicture(@RequestBody SearchPictureByPictureRequest searchPictureByPictureRequest,
                                                                         HttpServletRequest request) {
         // 1. 登录校验（接口会调用外部识图 API，防止被匿名刷量）
@@ -301,6 +306,7 @@ public class PictureController {
      */
     @ApiOperation("以图片主色调搜图")
     @PostMapping("/search/color")
+    @RateLimit(key = "picture:search:color", limit = 60, windowSeconds = 60)
     @SaSpaceCheckPermission(value = SpaceUserPermissionConstant.PICTURE_VIEW)
     public BaseResponse<List<PictureVO>> searchPictureByColor(@RequestBody SearchPictureByColorRequest searchPictureByColorRequest,
                                                               HttpServletRequest request) {
@@ -330,6 +336,7 @@ public class PictureController {
      */
     @ApiOperation("创建 AI 扩图任务")
     @PostMapping("/out_painting/create_task")
+    @RateLimit(key = "picture:outpainting", limit = 10, windowSeconds = 60)
     @SaSpaceCheckPermission(value = SpaceUserPermissionConstant.PICTURE_EDIT)
     public BaseResponse<CreateOutPaintingTaskResponse> createOutPaintingTask(@RequestBody CreatePictureOutPaintingTaskRequest createPictureOutPaintingTaskRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(createPictureOutPaintingTaskRequest == null || createPictureOutPaintingTaskRequest.getPictureId() == null,
@@ -357,6 +364,7 @@ public class PictureController {
      */
     @ApiOperation("AI 打标-出建议（仅管理员）")
     @PostMapping("/ai_tag/suggest")
+    @RateLimit(key = "picture:aitag:suggest", limit = 10, windowSeconds = 60)
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<List<PictureAiTagSuggestionVO>> suggestAiTags(@RequestBody PictureAiTagRequest pictureAiTagRequest,
                                                                      HttpServletRequest request) {
@@ -370,6 +378,7 @@ public class PictureController {
      */
     @ApiOperation("AI 打标-应用建议（仅管理员）")
     @PostMapping("/ai_tag/apply")
+    @RateLimit(key = "picture:aitag:apply", limit = 20, windowSeconds = 60)
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<List<PictureAiTagSuggestionVO>> applyAiTags(@RequestBody PictureAiTagApplyRequest pictureAiTagApplyRequest,
                                                                     HttpServletRequest request) {

@@ -2,6 +2,7 @@ package com.lcl.yunpicturebackend.controller;
 
 import cn.hutool.core.util.StrUtil;
 import com.lcl.yunpicturebackend.annotation.AuthCheck;
+import com.lcl.yunpicturebackend.annotation.RateLimit;
 import com.lcl.yunpicturebackend.common.BaseResponse;
 import com.lcl.yunpicturebackend.common.ResultUtils;
 import com.lcl.yunpicturebackend.config.CosClientConfig;
@@ -51,6 +52,7 @@ public class FileController {
      */
     @ApiOperation("文件上传")
     @PostMapping("/upload")
+    @RateLimit(key = "file:upload", limit = 60, windowSeconds = 60)
     public BaseResponse<String> uploadFile(
             @RequestPart("file") MultipartFile multipartFile,
             HttpServletRequest request) {

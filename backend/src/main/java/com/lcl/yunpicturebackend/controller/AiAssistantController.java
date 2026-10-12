@@ -1,6 +1,7 @@
 package com.lcl.yunpicturebackend.controller;
 
 import cn.hutool.core.util.StrUtil;
+import com.lcl.yunpicturebackend.annotation.RateLimit;
 import com.lcl.yunpicturebackend.common.BaseResponse;
 import com.lcl.yunpicturebackend.common.ResultUtils;
 import com.lcl.yunpicturebackend.constant.UserConstant;
@@ -92,6 +93,7 @@ public class AiAssistantController {
      */
     @ApiOperation("签发 AI 助手一次性凭据")
     @PostMapping("/ticket")
+    @RateLimit(key = "ai:ticket", limit = 30, windowSeconds = 60)
     public BaseResponse<String> issueTicket(HttpServletRequest request) {
         TrustedCaller caller = requireTrustedCaller(request);
         return ResultUtils.success(ticketManager.issue(caller.user().getId()));
@@ -99,6 +101,7 @@ public class AiAssistantController {
 
     @ApiOperation("AI 助手对话（SSE 流式）")
     @GetMapping("/chat")
+    @RateLimit(key = "ai:chat", limit = 20, windowSeconds = 60)
     public SseEmitter chat(String message, String chatId, String ticket, HttpServletRequest request) {
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "message 不能为空");
 
@@ -155,6 +158,7 @@ public class AiAssistantController {
      */
     @ApiOperation("AI 助手写操作准备（只存计划，零写库）")
     @PostMapping("/operations/prepare")
+    @RateLimit(key = "ai:prepare", limit = 20, windowSeconds = 60)
     public BaseResponse<AiOperationPrepareVO> prepareOperation(@RequestBody AiOperationPrepareRequest prepareRequest,
                                                                HttpServletRequest request) {
         TrustedCaller caller = requireTrustedCaller(request);
@@ -169,6 +173,7 @@ public class AiAssistantController {
      */
     @ApiOperation("AI 助手写操作确认（原子消费并执行既存计划）")
     @PostMapping("/operations/confirm")
+    @RateLimit(key = "ai:confirm", limit = 20, windowSeconds = 60)
     public BaseResponse<AiOperationResultVO> confirmOperation(@RequestBody AiOperationConfirmRequest confirmRequest,
                                                               HttpServletRequest request) {
         TrustedCaller caller = requireTrustedCaller(request);

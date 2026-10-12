@@ -114,6 +114,11 @@ app:
   outpainting:
     # 单用户每日可创建的 AI 扩图任务数上限（按量计费，防止狂点产生付费任务）
     daily-quota: 20
+  rate-limit:
+    # 注解式限流总开关（T49，默认开）：只作用于标了 @RateLimit 的高成本/敏感端点，
+    # 额度写在注解上（见 PictureController / AiAssistantController / FileController）。
+    # 压测/联调可用 --app.rate-limit.enabled=false 关闭。
+    enabled: true
   ai:
     assistant:
       # AI 助手引擎（ai/agent，独立进程，端口 8124，context-path /api）
