@@ -156,7 +156,6 @@ import {
   PictureOutlined,
   PlusCircleOutlined,
   PlusOutlined,
-  ReadOutlined,
   RobotOutlined,
   TeamOutlined,
   UpOutlined,
@@ -210,7 +209,6 @@ const siderCurrent = ref<string[]>(['/'])
 
 // 菜单数据
 const fixedMenuItems = computed(() => {
-  const uid = loginUserStore.loginUser.id
   return [
     { key: '/', icon: () => h(HomeOutlined), label: '首页' },
     // 论坛暂不启用

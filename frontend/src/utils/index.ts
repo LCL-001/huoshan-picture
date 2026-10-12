@@ -34,7 +34,7 @@ export const formatDateTime = (value: unknown, fallback = '-') => {
     return fallback
   }
 
-  let normalizedValue = value
+  let normalizedValue: unknown = value
   if (typeof value === 'number') {
     normalizedValue = new Date(normalizeTimestamp(value))
   } else if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
@@ -46,7 +46,7 @@ export const formatDateTime = (value: unknown, fallback = '-') => {
     normalizedValue = parseDateObject(value as Record<string, unknown>)
   }
 
-  const date = dayjs(normalizedValue)
+  const date = dayjs(normalizedValue as string | number | Date | null | undefined)
   return date.isValid() ? date.format('YYYY-MM-DD HH:mm:ss') : fallback
 }
 

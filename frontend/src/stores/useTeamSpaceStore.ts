@@ -10,7 +10,7 @@ const getSavedRemovedTeamSpaceIdList = () => {
   }
   try {
     return JSON.parse(window.sessionStorage.getItem(REMOVED_TEAM_SPACE_ID_STORAGE_KEY) || '[]')
-  } catch (e) {
+  } catch {
     return []
   }
 }

@@ -68,7 +68,6 @@
 import { reactive } from 'vue'
 import { userRegisterUsingPost } from '@/api/userController.ts'
 import { useImgCaptcha, useEmailCode } from '@/composables/useCaptcha.ts'
-import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
 import { message } from 'ant-design-vue'
 import router from '@/router' // 用于接受表单输入的值
 
@@ -83,7 +82,7 @@ const formState = reactive<API.UserRegisterRequest>({
 })
 
 // 图形验证码与邮箱验证码
-const { captchaImg, captchaUuid, captchaCode, refreshCaptcha } = useImgCaptcha()
+const { captchaImg, captchaUuid, refreshCaptcha } = useImgCaptcha()
 const { countdown, sendEmailCode } = useEmailCode('register')
 
 const handleSendCode = async () => {
@@ -91,19 +90,17 @@ const handleSendCode = async () => {
   await refreshCaptcha()
 }
 
-const loginUserStore = useLoginUserStore()
-
 /**
  * 提交表单
  * @param values
  */
-const handleSubmit = async (values: any) => {
+const handleSubmit = async (values: API.UserRegisterRequest) => {
   // 校验两次输入的密码是否一致
   if (values.userPassword !== values.checkPassword) {
     message.error('两次输入的密码不一致')
     return
   }
-  const res = await userRegisterUsingPost({ ...values, captchaUuid: captchaUuid.value })
+  const res = await userRegisterUsingPost(values)
   // 注册成功，跳转到登录页面
   if (res.data.code === 0 && res.data.data) {
     message.success('注册成功，请登录')

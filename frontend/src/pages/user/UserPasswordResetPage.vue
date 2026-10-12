@@ -66,7 +66,7 @@ const formState = reactive<API.UserPasswordResetRequest>({
   captchaCode: '',
 })
 
-const { captchaImg, captchaUuid, captchaCode, refreshCaptcha } = useImgCaptcha()
+const { captchaImg, captchaUuid, refreshCaptcha } = useImgCaptcha()
 const { countdown, sendEmailCode } = useEmailCode('reset')
 
 const handleSendCode = async () => {
@@ -74,7 +74,7 @@ const handleSendCode = async () => {
   await refreshCaptcha()
 }
 
-const handleSubmit = async (values: any) => {
+const handleSubmit = async (values: API.UserPasswordResetRequest) => {
   const res = await resetPasswordUsingPost(values)
   if (res.data.code === 0) {
     message.success('密码已重置，请使用新密码登录')

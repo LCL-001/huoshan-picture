@@ -221,7 +221,6 @@ import {
   HomeOutlined,
   LogoutOutlined,
   MenuOutlined,
-  ReadOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
@@ -300,7 +299,7 @@ const router = useRouter()
 // 当前要高亮的菜单项
 const current = ref<string[]>([])
 // 监听路由变化，更新高亮菜单项
-router.afterEach((to, from, next) => {
+router.afterEach((to) => {
   current.value = [to.path]
 })
 
@@ -329,8 +328,8 @@ const openUserProfile = async () => {
     } else {
       message.error('获取个人信息失败，' + res.data.message)
     }
-  } catch (e: any) {
-    message.error('获取个人信息失败，' + e.message)
+  } catch (e) {
+    message.error('获取个人信息失败，' + (e instanceof Error ? e.message : String(e)))
   } finally {
     userProfileLoading.value = false
   }
@@ -394,8 +393,8 @@ const doBindEmail = async () => {
       message.error('绑定失败，' + res.data.message)
       await refreshBindCaptcha()
     }
-  } catch (e: any) {
-    message.error('绑定失败，' + (e?.message ?? '未知错误'))
+  } catch (e) {
+    message.error('绑定失败，' + (e instanceof Error ? e.message : '未知错误'))
   } finally {
     binding.value = false
   }
@@ -422,8 +421,8 @@ const onAvatarFileChange = async () => {
     } else {
       message.error('头像上传失败，' + res.data.message)
     }
-  } catch (e: any) {
-    message.error('头像上传失败，' + e.message)
+  } catch (e) {
+    message.error('头像上传失败，' + (e instanceof Error ? e.message : String(e)))
   } finally {
     avatarUploading.value = false
     if (fileInputRef.value) {
@@ -456,8 +455,8 @@ const handleSave = async () => {
     } else {
       message.error('保存失败，' + res.data.message)
     }
-  } catch (e: any) {
-    message.error('保存失败，' + e.message)
+  } catch (e) {
+    message.error('保存失败，' + (e instanceof Error ? e.message : String(e)))
   } finally {
     saving.value = false
   }
@@ -466,7 +465,7 @@ const handleSave = async () => {
 // 通知
 const notifVisible = ref(false)
 const notifLoading = ref(false)
-const notifications = ref<any[]>([])
+const notifications = ref<API.UserNotification[]>([])
 const unreadCount = ref(0)
 
 const fetchUnread = async () => {
@@ -507,7 +506,8 @@ const doClearNotifications = () => {
   })
 }
 
-const doDeleteNotification = async (id: number) => {
+const doDeleteNotification = async (id?: number) => {
+  if (!id) return
   try {
     await deleteNotificationUsingPost(id)
     message.success('已删除')

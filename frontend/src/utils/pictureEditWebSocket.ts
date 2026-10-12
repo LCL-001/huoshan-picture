@@ -1,7 +1,17 @@
+/** 后端 PictureEditResponseMessage 的字段（见 backend/.../manager/websocket/model/PictureEditResponseMessage.java） */
+export interface PictureEditMessage {
+  type?: string
+  message?: string
+  editAction?: string
+  user?: API.UserVO
+}
+
+type PictureEditHandler = (data: PictureEditMessage) => void
+
 export default class PictureEditWebSocket {
   private pictureId: number
   private socket: WebSocket | null
-  private eventHandlers: any
+  private eventHandlers: Record<string, PictureEditHandler[]>
 
   constructor(pictureId: number) {
     this.pictureId = pictureId // 当前编辑的图片 ID
@@ -78,7 +88,7 @@ export default class PictureEditWebSocket {
    * @param {string} type 消息类型
    * @param {Function} handler 消息处理函数
    */
-  on(type: string, handler: (data?: any) => void) {
+  on(type: string, handler: PictureEditHandler) {
     if (!this.eventHandlers[type]) {
       this.eventHandlers[type] = []
     }
@@ -90,10 +100,10 @@ export default class PictureEditWebSocket {
    * @param {string} type 消息类型
    * @param {Object} data 消息数据
    */
-  triggerEvent(type: string, data?: any) {
+  triggerEvent(type: string, data?: unknown) {
     const handlers = this.eventHandlers[type]
     if (handlers) {
-      handlers.forEach((handler: any) => handler(data))
+      handlers.forEach((handler) => handler(data as PictureEditMessage))
     }
   }
 }

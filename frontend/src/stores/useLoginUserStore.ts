@@ -28,7 +28,7 @@ export const useLoginUserStore = defineStore('loginUser', () => {
    * 设置登录用户
    * @param newLoginUser
    */
-  function setLoginUser(newLoginUser: any) {
+  function setLoginUser(newLoginUser: API.LoginUserVO) {
     loginUser.value = newLoginUser
   }
 

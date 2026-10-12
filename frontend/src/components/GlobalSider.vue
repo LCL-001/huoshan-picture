@@ -153,7 +153,7 @@ watchEffect(() => {
 
 updateCurrentSelectedKeys()
 // 监听路由变化，更新高亮菜单项
-router.afterEach((to, from, next) => {
+router.afterEach((to) => {
   current.value = getPersistentSelectedKeys(to.path, to.fullPath)
 })
 

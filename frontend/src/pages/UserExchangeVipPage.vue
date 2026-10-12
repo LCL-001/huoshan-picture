@@ -63,7 +63,7 @@ const handleSubmit = async () => {
     } else {
       message.error('兑换失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('兑换失败，请稍后重试')
   } finally {
     loading.value = false
