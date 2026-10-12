@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 // 图表数据
-const dataList = ref<API.SpaceCategoryAnalyzeResponse>([])
+const dataList = ref<API.SpaceTagAnalyzeResponse[]>([])
 // 加载状态
 const loading = ref(true)
 
@@ -64,7 +64,7 @@ const options =computed(() => {
   return {
     tooltip: {
       trigger: 'item',
-      formatter: (params: any) => `${params.name}: ${params.value} 次`,
+      formatter: (params: { name?: string; value?: number }) => `${params.name}: ${params.value} 次`,
     },
     series: [
       {

@@ -25,7 +25,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 // 图表数据
-const dataList = ref<API.SpaceSizeAnalyzeResponse>([])
+const dataList = ref<API.SpaceSizeAnalyzeResponse[]>([])
 // 加载状态
 const loading = ref(true)
 

@@ -57,7 +57,7 @@ watchEffect(() => {
 // 图表选项
 const options = computed(() => {
   const spaceNames = dataList.value.map((item) => item.spaceName)
-  const usageData = dataList.value.map((item) => (item.totalSize / (1024 * 1024)).toFixed(2)) // 转为 MB
+  const usageData = dataList.value.map((item) => ((item.totalSize ?? 0) / (1024 * 1024)).toFixed(2)) // 转为 MB
 
   return {
     tooltip: { trigger: 'axis' },
