@@ -33,7 +33,7 @@
             <a-select
               v-model:value="record.spaceRole"
               :options="SPACE_ROLE_OPTIONS"
-              @change="(value) => editSpaceRole(value, record)"
+              @change="(value: string) => editSpaceRole(value, record)"
             />
           </template>
           <template v-else-if="column.dataIndex === 'createTime'">
@@ -50,7 +50,7 @@
   </div>
 </template>
 <script lang="ts" setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { SPACE_PERMISSION_ENUM, SPACE_ROLE_OPTIONS } from '../../constants/space.ts'
 import { getSpaceVoByIdUsingGet } from '@/api/spaceController.ts'
@@ -67,6 +67,9 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+// 路由参数是字符串，后端接口以 number 收 spaceId，统一在此转换
+const spaceId = computed(() => Number(props.id))
 
 const loading = ref(true)
 const hasPermission = ref(false)
@@ -93,12 +96,11 @@ const columns = [
 const dataList = ref<API.SpaceUserVO[]>([])
 
 const fetchData = async () => {
-  const spaceId = props.id
-  if (!spaceId) {
+  if (!spaceId.value) {
     return
   }
   const res = await listSpaceUserUsingPost({
-    spaceId,
+    spaceId: spaceId.value,
   })
   if (res.data.code === 0 && res.data.data) {
     dataList.value = res.data.data ?? []
@@ -110,7 +112,7 @@ const fetchData = async () => {
 const checkPermission = async () => {
   loading.value = true
   try {
-    const res = await getSpaceVoByIdUsingGet({ id: props.id })
+    const res = await getSpaceVoByIdUsingGet({ id: spaceId.value })
     if (res.data.code === 0 && res.data.data) {
       const permissionList = res.data.data.permissionList ?? []
       hasPermission.value = permissionList.includes(SPACE_PERMISSION_ENUM.SPACE_USER_MANAGE)
@@ -132,12 +134,11 @@ onMounted(() => {
 const formData = reactive<API.SpaceUserAddRequest>({})
 
 const handleSubmit = async () => {
-  const spaceId = props.id
-  if (!spaceId) {
+  if (!spaceId.value) {
     return
   }
   const res = await addSpaceUserUsingPost({
-    spaceId,
+    spaceId: spaceId.value,
     ...formData,
   })
   if (res.data.code === 0) {
@@ -148,7 +149,7 @@ const handleSubmit = async () => {
   }
 }
 
-const editSpaceRole = async (value, record) => {
+const editSpaceRole = async (value: string, record: API.SpaceUserVO) => {
   const res = await editSpaceUserUsingPost({
     id: record.id,
     spaceRole: value,
@@ -160,7 +161,7 @@ const editSpaceRole = async (value, record) => {
   }
 }
 
-const doDelete = (id: string) => {
+const doDelete = (id: number) => {
   if (!id) return
   Modal.confirm({
     title: '确认移除',

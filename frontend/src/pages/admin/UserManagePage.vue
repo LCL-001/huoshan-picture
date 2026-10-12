@@ -209,12 +209,12 @@ const pagination = computed(() => {
     pageSize: searchParams.pageSize,
     total: total.value,
     showSizeChanger: true,
-    showTotal: (total) => `共 ${total} 条`,
+    showTotal: (total: number) => `共 ${total} 条`,
   }
 })
 
 // 表格变化之后，重新获取数据
-const doTableChange = (page: any) => {
+const doTableChange = (page: { current?: number; pageSize?: number }) => {
   searchParams.current = page.current
   searchParams.pageSize = page.pageSize
   fetchData()
@@ -262,7 +262,7 @@ const handleUpdateUser = async () => {
 }
 
 // 删除数据
-const doDelete = (id: string) => {
+const doDelete = (id: number) => {
   if (!id) return
   Modal.confirm({
     title: '确认删除',
