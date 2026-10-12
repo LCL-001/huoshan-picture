@@ -60,6 +60,11 @@
   - 验收：`type-check` 不净增基线、改动文件 eslint 干净、`check:assistant-format` 不破；本机真机走通删除→回收站→恢复→彻底删。
   - **2026-10-12 收口**：type-check 124＝基线、新页面 eslint 干净、assistant-format PASS，commit `befbbe3`；讲解见 `docs/features/F17-回收站.md`。**未做**浏览器人工验收（记为 F17 已知限制 7）。
 
+- [ ] T53（存量收敛；按规则 3 **不立字据**，2026-10-12 实测后开条目）**前端存量报错清零**：`npm run type-check` 124 → 0、`npx eslint .` 60错+1警 → 0（30 个 src 文件 + 1 个 node_modules/vue-cropper）。多为存量债；最大单点 = 生成 api 的 `requestType: 'form'` 不在 `AxiosRequestConfig` 里、致 axios 重载失配、`request<T>` 的 `T` 悬空（连带 15 错）。逐批一个 commit（B1–B7，见下），收口时把 `frontend/type-check-baseline.txt` 的 `errors` 下调到 0。
+  - 文件范围：frontend `src/**`（`api/`、`components/`、`pages/`、`stores/`、`utils/`、`constants/`）+ 新增 `src/types/vue-cropper.d.ts`；`frontend/type-check-baseline.txt`；`AGENTS.md`、`docs/decisions.md`、`docs/features/F11-AI助手MVP.md` 的口径订正；`docs/plans/records/T53-*.md`。
+  - 验收：`npm run type-check` 0 错、`npx eslint .` 0 错 0 警；文档一致性门禁绿（基线 errors=0）；`check:assistant-format` / `check:assistant-copy` 不破。
+  - 分批：B1 生成 api 层与全局类型（去 `requestType` 污染与无用 `// @ts-ignore`、补 `UserVO.email`、`SpaceRankAnalyzeRequest`、vue-cropper shim）→ B2 analyze 组件 → B3 图库组件 → B4 空间页 → B5 图片页 → B6 管理页与常量 → B7 边角与纯 eslint。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
@@ -67,6 +72,8 @@
 - **D2 引擎 `CorsConfig` 收紧（缓解未修）**：`allowCredentials(true)` + `allowedOriginPatterns("*")` 对所有站点反射 Origin 且允许带凭据；D1 回环绑定后远程浏览器够不到它，但**本机进程仍可利用**，不算已修好。
 - **数据卫生：逻辑删除的历史残留未清（另开任务才做）**：`user` 377 行 / `space` 206 行 / `picture` 362 行（`isDelete=1`）——对应用不可见，但占库、且**唯一索引仍被占用**（同名词条/账号不可再注册）。清理要跨表物理删除，属独立任务。已清记录见 `docs/plans/records/probe-data-purge-2026-09-15.md` 与 `backend/sql/cleanup/2026-09-15-purge-probe-data.sql`。
   - 规则沉淀：① MySQL 的 `LIKE` 不支持 `[_]` 字符类，精确前缀一律用 `left(col,N)='...'`；② 不能照账号名猜是不是探针（`1234`/`admin` 是带 144/10 张图的在用账号），删前必须看内容足迹。
+- **待人工验收：F17 回收站前端真机**（F17 已知限制 7；T52 未做）：浏览器走通「删除 → 回收站列表 → 恢复 → 彻底删除」，重点核对列表可见范围与配额回补；做完在 `docs/plans/records/` 留一条记录。
+- **待真机验证：F18 限流触发**（F18 已知限制 6；T49 未做）：对受保护的 13 个端点之一压到出 429 / 业务码 42900，核对限流键与开关；做完留一条记录。
 - **A/B 基线选取口径待用户拍板**：`tag_category` 自 T5 起查词表、已不是空跑接口，两轮 A/B 均出现"最慢基线高于被测路径"使 `net` 列算 0 或反向；`compare-ab.py` 未改。数字与明细见 `backend/jmeter/README.md` §5.6 与 `docs/plans/records/ab-first-run-2026-09-18.md`。
 
 ## 归档
