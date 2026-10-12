@@ -1,0 +1,16 @@
+# CI 专用占位配置（T48）：CI 里没有 application-local.yaml（被 .gitignore 排除），而
+#   - AliYunAiApi 的 @Value("${aliYunAi.apiKey}") 没有默认值
+#   - cos.client.* 为空会让 CosClientConfig 构造 COSClient 时失败
+# 两者都会让整个 Spring 上下文起不来。CI 的集成测试步骤以 -Dspring.profiles.active=local,ci
+# 激活本文件（local 在前、ci 在后，ci 覆盖冲突项）；本地默认 profile 不含 ci，故对本地零影响。
+# 只放"没有它上下文起不来"的项，不放任何业务开关。DB 口令走环境变量 DB_PASSWORD。
+aliYunAi:
+  apiKey: ci-placeholder-key
+cos:
+  client:
+    host: https://ci-placeholder-1250000000.cos.ap-guangzhou.myqcloud.com
+    secretId: ci-placeholder-secret-id
+    secretKey: ci-placeholder-secret-key
+    # region 会被 COS SDK 校验，必须是合法地域简称
+    region: ap-guangzhou
+    bucket: ci-placeholder-1250000000

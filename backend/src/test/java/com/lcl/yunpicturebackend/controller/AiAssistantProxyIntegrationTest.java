@@ -200,7 +200,7 @@ class AiAssistantProxyIntegrationTest {
 
         assertThatThrownBy(() -> aiAssistantController.chat("我有几个空间", null, null, chatRequest))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("缺少会话 Cookie")
+                .hasMessageContaining("登录信息不完整")
                 .extracting(e -> ((BusinessException) e).getCode())
                 .isEqualTo(ErrorCode.NOT_LOGIN_ERROR.getCode());
         assertThat(REQUESTS.get()).as("凭据不全必须在代理入口拦住，不能打到引擎").isZero();

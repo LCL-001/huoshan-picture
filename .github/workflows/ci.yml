@@ -1,7 +1,8 @@
 name: CI
 
-# 目标：在没有 MySQL / Redis 的干净环境里也能验证"编译通过 + 不依赖外部服务的用例通过"。
-# 最有价值的是 Bing 抓取契约测试——Bing 改版时让构建期就红，而不是等线上抓取到 0 张图。
+# 目标：干净环境里验证"编译通过 + 全部测试通过（含需要 MySQL / Redis 的集成测试）"。
+# 最有价值的是 Bing 抓取契约测试与缓存 / 权限 / 确认门一类的集成测试——改坏了在构建期就红，
+# 而不是等线上或发版前才发现。集成测试入 CI 的口径见 docs/decisions.md 2026-10-12。
 on:
   push:
   pull_request:
@@ -9,6 +10,32 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      # 集成测试（*IntegrationTest）与 RedisStringTest / YunPictureBaseApplicationTests 需要真服务。
+      # 端口映射到 127.0.0.1，正好对上 application.yaml 里写死的 localhost:3306 / 127.0.0.1:6379。
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: yu_picture
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      # Redis 用 5.x：仓内口径"新增 Redis 用法不得假定 6.2+ 命令"（见 docs/decisions.md 2026-09-14），
+      # 用 5.x 才能让 GETDEL 一类的误用在这里就红。
+      redis:
+        image: redis:5
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - uses: actions/checkout@v4
 
@@ -29,3 +56,27 @@ jobs:
           mvn -B test
           -Dtest='!*IntegrationTest,!RedisStringTest,!YunPictureBaseApplicationTests'
           -DfailIfNoTests=false
+
+      # 建表脚本分散在三个文件里：create_table.sql 只含 user/picture/space 等主表，
+      # tag 与 ai_conversation 各有独立脚本；缺一个就有集成测试红。
+      - name: Init MySQL schema
+        working-directory: backend
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mysql-client
+          for f in sql/create_table.sql sql/create_tag_table.sql sql/create_ai_conversation.sql; do
+            echo "applying $f"
+            mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -uroot -proot < "$f"
+          done
+
+      # 集成测试：CI 里没有 application-local.yaml（gitignored），故用 ci profile 提供
+      # 占位配置（cos.client.* / aliYunAi.apiKey）；DB 口令走环境变量。见 application-ci.yaml。
+      - name: Integration tests (MySQL + Redis)
+        working-directory: backend
+        env:
+          DB_PASSWORD: root
+        run: >
+          mvn -B test
+          -Dtest='*IntegrationTest,RedisStringTest,YunPictureBaseApplicationTests'
+          -DfailIfNoTests=false
+          -Dspring.profiles.active=local,ci
