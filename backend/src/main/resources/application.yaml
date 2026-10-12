@@ -119,6 +119,12 @@ app:
     # 额度写在注解上（见 PictureController / AiAssistantController / FileController）。
     # 压测/联调可用 --app.rate-limit.enabled=false 关闭。
     enabled: true
+  trash:
+    # 回收站保留天数（T51）：超过该天数的记录由定时任务彻底删除（含 COS）。口径见 docs/features/F17-回收站.md
+    retention-days: 30
+    # 清理任务间隔（毫秒，默认 1 小时）与首次延迟（默认 1 分钟）
+    cleanup-interval-ms: 3600000
+    cleanup-initial-delay-ms: 60000
   ai:
     assistant:
       # AI 助手引擎（ai/agent，独立进程，端口 8124，context-path /api）
