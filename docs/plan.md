@@ -38,6 +38,26 @@
   - 文件范围：backend `manager/ai/AiAssistantOperationManager.java` + `manager/ai/AiAssistantOperationManagerTest.java`。不碰引擎、前端。
   - 验收：单测先红后绿（有权限→名称；无权限 / 空间不存在→只 id；prepare 零写库断言仍在）；backend 门禁全绿。
 
+- [ ] T48（2026-10-12 用户批准；**推翻** 2026-09-13「集成测试不入 CI」决定——该行状态改已废弃）**CI 跑集成测试**：workflow 加 mysql:8 与 redis:5 service 容器（Redis 5.x 对齐仓内命令约束）、按序灌 `backend/sql/` 下 create_table / create_tag_table / create_ai_conversation 三个脚本、新增"集成测试"步骤跑 `*IntegrationTest` + `RedisStringTest` + `YunPictureBaseApplicationTests`；pre-commit 快速子集不动（规则 12）。
+  - 文件范围：`.github/workflows/ci.yml`；`AGENTS.md` 命令节措辞订正（pre-commit 快速子集 / CI 含集成测试）。
+  - 验收：本机真 MySQL/Redis 跑该 `-Dtest` 全绿（前置，红则按规则 5 停）→ CI 在 PR 上绿；文档一致性门禁绿。
+
+- [ ] T49（2026-10-12 用户批准）**接口限流**：新增 `@RateLimit` 注解 + 切面（复用 StringRedisTemplate、键 huoshantuku:ratelimit:*、INCR + 惰性 TTL、超限 42900、Redis 异常 fail-open、总开关 `app.rate-limit.enabled`）；只打高成本/敏感端点（助手 chat / 取票 / prepare / confirm、扩图、AI 打标、批量抓取、URL/文件上传、以图搜图）。
+  - 文件范围：backend `ErrorCode.java`、新增 `annotation/` 注解与 `aop/` 切面、`controller/` 受保护端点、`application.yaml`；新增两个测试类。
+  - 验收：切面单测先红后绿（恰好 limit 放行 / limit+1 抛 42900 / 关开关零 Redis / Redis 异常 fail-open / 键含 principal）+ 端点覆盖守卫；backend 全量门禁绿。
+
+- [ ] T50（2026-10-12 用户批准）**回收站后端**：picture 加 deleteTime 列（DDL + 索引）；`deletePicture` 改软删（isDelete=1 + deleteTime，**不再即时删 COS**）；新增列表/恢复/彻底删三个能力——裸 SQL mapper（本仓首处自定义 SQL）、恢复逐张复核权限 + 空间配额回补 + 清缓存、彻底删按引用计数删 COS 后物理删行。
+  - 文件范围：backend `Picture.java`、`mapper/` 与 `resources/mapper/`、`IPictureService.java` 与 `PictureServiceImpl.java`、`PictureController.java`；新增 DDL 脚本与集成测试。
+  - 验收：service 单测先红后绿（配额回补 / 超额拒 / 越权拒 / 清缓存 / purge 引用计数）；`PictureTrashIntegrationTest` 真库全绿（删→列表可见→恢复→计数回补→彻底删→行消失 + COS 清理）——随 T48 进 CI。
+
+- [ ] T51（2026-10-12 用户批准）**回收站保留期清理**：`@Scheduled` 组件分批扫 `deleteTime < now - app.trash.retention-days`（默认 30）后复用彻底删逻辑；异常不外溢。
+  - 文件范围：backend 新增清理组件、`application.yaml`（app.trash.retention-days）；新增单测与真库集成测试。
+  - 验收：单测（边界 / 过期集合 / 异常不中断 / 分批）先红后绿；真库集成（造过期行 → 跑一轮 → 行物理消失、COS 被清）。
+
+- [ ] T52（2026-10-12 用户批准）**回收站前端**：新增回收站页 + 路由 + 侧栏菜单项 + 手写 API（不跑生成器，decisions 2026-09-15-topic10）；删除确认文案订正为"已移入回收站，可恢复"。
+  - 文件范围：frontend `pages/`（新增页面）、`router/index.ts`、`components/GlobalSider.vue`、`api/pictureController.ts`、删除确认所在组件。
+  - 验收：`type-check` 不净增基线、改动文件 eslint 干净、`check:assistant-format` 不破；本机真机走通删除→回收站→恢复→彻底删。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
