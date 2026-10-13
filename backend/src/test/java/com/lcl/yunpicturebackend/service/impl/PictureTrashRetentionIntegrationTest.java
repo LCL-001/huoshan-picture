@@ -34,6 +34,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -123,9 +124,30 @@ class PictureTrashRetentionIntegrationTest {
                 .clearPictureFile(argThat(p -> expiredPicture.getUrl().equals(p.getUrl())));
     }
 
+    @Test
+    @DisplayName("共享 URL 的过期行：同 URL 的另一张仍在回收站 → 不清 COS")
+    void expiredPurgeKeepsCosWhenAnotherTrashedReferenceRemains() {
+        // expiredPicture 的 deleteTime 已回拨到保留期外；再造一张同 URL 的"刚进站"记录（仍在回收站、可恢复）
+        Picture sharer = newTrashedPictureWithUrl(expiredPicture.getUrl());
+
+        int purged = pictureService.purgeExpiredTrash(RETENTION_DAYS, BATCH_LIMIT);
+
+        assertThat(purged).as("至少清掉本次造的过期行").isGreaterThanOrEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM picture WHERE id = ?", Integer.class,
+                expiredPicture.getId())).as("过期行已物理删除").isZero();
+        assertThat(pictureMapper.selectTrashedById(sharer.getId())).as("同 URL 记录仍留在回收站").isNotNull();
+        verify(pictureFileCleanupService, never())
+                .clearPictureFile(argThat(p -> expiredPicture.getUrl().equals(p.getUrl())));
+    }
+
     private Picture newTrashedPicture() {
+        // 每条夹具独立 URL（互不干扰），见 newTrashedPictureWithUrl
+        return newTrashedPictureWithUrl("https://mock-cos.test/retention/" + System.nanoTime() + ".jpg");
+    }
+
+    private Picture newTrashedPictureWithUrl(String url) {
         Picture picture = new Picture();
-        picture.setUrl("https://mock-cos.test/retention/" + System.nanoTime() + ".jpg");
+        picture.setUrl(url);
         picture.setName("retention-test-" + System.nanoTime());
         picture.setPicSize(100L);
         picture.setSpaceId(ownerSpace.getId());

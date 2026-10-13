@@ -1356,18 +1356,20 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     }
 
     /**
-     * 按引用计数异步清理 COS 中的图片文件，仅当该 URL 已无任何存活记录引用时才真正删除。
+     * 按引用计数异步清理 COS 中的图片文件，仅当该 URL 已无任何存活/可恢复记录引用时才真正删除。
      * <p>
      * 三类调用前提：记录已删除、记录已改指向新 URL、事务回滚后清理刚上传的孤儿文件（T3.11）——
-     * 三种情形下 count 都只含其它存活引用，count > 0 即说明文件仍被占用，必须跳过清理。
+     * 三种情形下 count 都只含其它引用，count > 0 即说明文件仍被占用，必须跳过清理。
+     * <p>
+     * 引用计数同时算上"仍在回收站、可恢复"的行（T55）：它们仍指着这份 COS 文件，误清会让恢复出来的
+     * 图片成为死链。因此不能用 Wrapper 查询（全局逻辑删除会自动补 {@code isDelete = 0} 漏掉回收站行），
+     * 统一走 {@link PictureMapper#countUrlReferences}。
      *
      * @param picture 待清理的图片记录
      */
     private void cleanupPictureFile(Picture picture) {
         String pictureUrl = picture.getUrl();
-        long count = this.lambdaQuery()
-                .eq(Picture::getUrl, pictureUrl)
-                .count();
+        long count = getBaseMapper().countUrlReferences(pictureUrl);
         // 该 URL 仍被其它记录引用，不清理
         if (count > 0) {
             return;

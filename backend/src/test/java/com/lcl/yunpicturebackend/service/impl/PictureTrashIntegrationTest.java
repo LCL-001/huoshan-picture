@@ -167,6 +167,38 @@ class PictureTrashIntegrationTest {
     }
 
     @Test
+    @DisplayName("共享 URL：彻底删一张不清 COS，另一张仍可恢复；最后一条引用删除才清")
+    void sharedUrlPurgeKeepsCosUntilLastReferenceGone() {
+        // 两条记录指向同一份 COS 文件（同 URL），模拟"同图多引用"
+        String sharedUrl = "https://mock-cos.test/trash/shared-" + System.nanoTime() + ".jpg";
+        Picture first = newPictureWithUrl(null, owner.getId(), 100L, sharedUrl);
+        Picture second = newPictureWithUrl(null, owner.getId(), 100L, sharedUrl);
+        bindRequest(owner);
+        delete(first.getId());
+        delete(second.getId());
+
+        // 彻底删第一张：第二张仍在回收站（可恢复）→ 不能清 COS
+        List<PictureTrashResultVO> firstPurge =
+                pictureService.purgePictures(batch(first.getId()), currentRequest());
+        assertThat(firstPurge.get(0).isOk()).isTrue();
+        verify(pictureFileCleanupService, never())
+                .clearPictureFile(argThat(p -> sharedUrl.equals(p.getUrl())));
+
+        // 第二张仍可恢复（其 COS 文件未被误删）
+        List<PictureTrashResultVO> restored =
+                pictureService.restorePictures(batch(second.getId()), currentRequest());
+        assertThat(restored.get(0).isOk()).isTrue();
+        assertThat(pictureService.getById(second.getId())).as("恢复到图库").isNotNull();
+
+        // 删掉最后一条引用再彻底删除 → 这时才清 COS
+        delete(second.getId());
+        List<PictureTrashResultVO> secondPurge =
+                pictureService.purgePictures(batch(second.getId()), currentRequest());
+        assertThat(secondPurge.get(0).isOk()).isTrue();
+        verify(pictureFileCleanupService).clearPictureFile(argThat(p -> sharedUrl.equals(p.getUrl())));
+    }
+
+    @Test
     @DisplayName("列表：普通用户只看自己的，管理员看全部")
     void trashListShowsOwnOnlyUnlessAdmin() {
         bindRequest(owner);
@@ -268,8 +300,13 @@ class PictureTrashIntegrationTest {
     }
 
     private Picture newPicture(Long spaceId, long userId, long picSize) {
+        return newPictureWithUrl(spaceId, userId, picSize,
+                "https://mock-cos.test/trash/" + System.nanoTime() + ".jpg");
+    }
+
+    private Picture newPictureWithUrl(Long spaceId, long userId, long picSize, String url) {
         Picture picture = new Picture();
-        picture.setUrl("https://mock-cos.test/trash/" + System.nanoTime() + ".jpg");
+        picture.setUrl(url);
         picture.setName("trash-test-" + System.nanoTime());
         picture.setPicSize(picSize);
         picture.setSpaceId(spaceId);

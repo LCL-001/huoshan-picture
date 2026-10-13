@@ -71,4 +71,11 @@
         LIMIT #{limit}
     </select>
 
+    <!-- 引用计数（T55）：存活行 + 回收站内可恢复的行都算引用；永久删除（deleteTime 为空）不算 -->
+    <select id="countUrlReferences" resultType="long">
+        SELECT COUNT(*) FROM picture
+        WHERE url = #{url}
+          AND (isDelete = 0 OR (isDelete = 1 AND deleteTime IS NOT NULL))
+    </select>
+
 </mapper>

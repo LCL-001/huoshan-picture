@@ -24,6 +24,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.File;
@@ -79,10 +80,14 @@ class PictureReplaceQuotaIntegrationTest {
     private CosManager cosManager;
     @MockBean
     private PictureFileCleanupService pictureFileCleanupService;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private User owner;
     private Space space;
     private final List<Long> createdPictureIds = new ArrayList<>();
+    /** 已被裸 SQL 置为"回收站"的行，逻辑删拦不住，收尾必须物理删 */
+    private final List<Long> trashedSharerIds = new ArrayList<>();
 
     @BeforeAll
     void setUpFixtures() {
@@ -119,6 +124,7 @@ class PictureReplaceQuotaIntegrationTest {
 
     @AfterAll
     void cleanFixtures() {
+        trashedSharerIds.forEach(id -> jdbcTemplate.update("DELETE FROM picture WHERE id = ?", id));
         createdPictureIds.forEach(id -> pictureService.removeById(id));
         if (space != null) {
             spaceService.removeById(space.getId());
@@ -218,6 +224,27 @@ class PictureReplaceQuotaIntegrationTest {
         uploadInSpace(first.getId(), 250);
 
         assertSpaceQuota(250L, 1L);
+        verify(pictureFileCleanupService, never()).clearPictureFile(any());
+    }
+
+    @Test
+    void replaceShouldNotCleanupUrlStillReferencedByTrashedRecord() {
+        PictureVO first = uploadInSpace(null, 100);
+        // 同一 URL 的另一条记录，且已在回收站（isDelete=1 + deleteTime，仍可恢复）
+        Picture sharer = new Picture();
+        sharer.setUrl(first.getUrl());
+        sharer.setName("trashed-sharer");
+        sharer.setPicSize(100L);
+        sharer.setUserId(owner.getId());
+        sharer.setSpaceId(space.getId());
+        pictureService.save(sharer);
+        trashedSharerIds.add(sharer.getId());
+        jdbcTemplate.update("UPDATE picture SET isDelete = 1, deleteTime = NOW() WHERE id = ?", sharer.getId());
+
+        uploadInSpace(first.getId(), 250);
+
+        assertSpaceQuota(250L, 1L);
+        // 旧 URL 仍被回收站里的记录引用（可恢复）→ 不得清 COS
         verify(pictureFileCleanupService, never()).clearPictureFile(any());
     }
 

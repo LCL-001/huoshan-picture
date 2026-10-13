@@ -50,4 +50,17 @@ public interface PictureMapper extends BaseMapper<Picture> {
 
     /** 扫过期的回收站记录（保留期清理用，见 T51）；按 deleteTime 升序，最多 limit 条 */
     List<Picture> selectExpiredTrash(@Param("deadline") Date deadline, @Param("limit") int limit);
+
+    /**
+     * 统计仍在"占用"该 URL 的记录数，供 COS 引用计数使用：**存活行 + 回收站内仍可恢复的行**
+     * （{@code isDelete = 1} 且 {@code deleteTime} 不为空）都算引用。
+     * <p>
+     * 必须裸 SQL：全局逻辑删除会给所有 Wrapper 查询自动补 {@code isDelete = 0}，那样会把
+     * "仍在回收站、可恢复"的行漏掉，使同 URL 的图片被误清 COS，恢复后变成死链（T55）。
+     * 空间级联/用户级联的永久删除（{@code isDelete = 1} 且 {@code deleteTime} 为空）不可恢复，不计入引用。
+     *
+     * @param url 图片 COS 地址
+     * @return 引用该 URL 的存活 + 可恢复记录数
+     */
+    long countUrlReferences(@Param("url") String url);
 }
