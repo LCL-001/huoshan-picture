@@ -1355,6 +1355,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         this.clearPictureListCache(cacheScopeOf(oldPicture.getSpaceId()));
     }
 
+    @Override
+    public long countUrlReferences(String url) {
+        return getBaseMapper().countUrlReferences(url);
+    }
+
     /**
      * 按引用计数异步清理 COS 中的图片文件，仅当该 URL 已无任何存活/可恢复记录引用时才真正删除。
      * <p>

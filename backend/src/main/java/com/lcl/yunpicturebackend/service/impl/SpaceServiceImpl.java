@@ -314,8 +314,9 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space> implements
     }
 
     /**
-     * 事务提交后清理被删图片的 COS 文件：URL 仍被其它存活记录引用时跳过
-     * （查询自动排除已逻辑删的行，与 PictureServiceImpl#cleanupPictureFile 同口径）
+     * 事务提交后清理被删图片的 COS 文件：URL 仍被其它"存活或可恢复"记录引用时跳过。
+     * 口径与 {@code PictureServiceImpl#cleanupPictureFile} 一致（走 {@link IPictureService#countUrlReferences}）——
+     * 同 URL 的另一条记录若还在回收站（可恢复）也算引用，不能误清（T55）。
      */
     private void cleanupRemovedPictures(List<Picture> removedPictures) {
         if (CollUtil.isEmpty(removedPictures)) {
@@ -325,9 +326,7 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space> implements
             if (StrUtil.isBlank(picture.getUrl())) {
                 continue;
             }
-            long refCount = pictureService.lambdaQuery()
-                    .eq(Picture::getUrl, picture.getUrl())
-                    .count();
+            long refCount = pictureService.countUrlReferences(picture.getUrl());
             if (refCount == 0) {
                 pictureFileCleanupService.clearPictureFile(picture);
             }

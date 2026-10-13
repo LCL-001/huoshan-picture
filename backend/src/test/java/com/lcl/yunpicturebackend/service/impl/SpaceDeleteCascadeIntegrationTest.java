@@ -21,11 +21,13 @@ import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -66,6 +68,8 @@ class SpaceDeleteCascadeIntegrationTest {
     private UserController userController;
     @MockBean
     private PictureFileCleanupService pictureFileCleanupService;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private User admin;
     private User owner;
@@ -82,6 +86,9 @@ class SpaceDeleteCascadeIntegrationTest {
     private Picture deletedUserPicture;
     private Picture deletedUserUploadInTeamSpace;
     private final List<Long> createdPictureIds = new ArrayList<>();
+    /** T55 用例造的临时空间与"回收站"记录：逻辑删拦不住，收尾用裸 SQL 物理清 */
+    private final List<Long> extraSpaceIds = new ArrayList<>();
+    private final List<Long> trashedPictureIds = new ArrayList<>();
 
     @BeforeAll
     void setUpFixtures() {
@@ -124,6 +131,12 @@ class SpaceDeleteCascadeIntegrationTest {
 
     @AfterAll
     void cleanFixtures() {
+        // T55 用例的临时空间与"回收站"记录：裸 SQL 物理清，避免 isDelete=1 残留
+        trashedPictureIds.forEach(id -> jdbcTemplate.update("DELETE FROM picture WHERE id = ?", id));
+        extraSpaceIds.forEach(id -> {
+            jdbcTemplate.update("DELETE FROM picture WHERE spaceId = ?", id);
+            jdbcTemplate.update("DELETE FROM space WHERE id = ?", id);
+        });
         List.of(ownerSpace, teamSpace, deletedUserSpace).forEach(space -> {
             if (space != null) {
                 spaceService.removeById(space.getId());
@@ -159,6 +172,37 @@ class SpaceDeleteCascadeIntegrationTest {
         // 其他空间不受影响
         assertNotNull(spaceService.getById(teamSpace.getId()));
         assertNotNull(pictureService.getById(sharedInTeamSpace.getId()));
+    }
+
+    // ===== 删空间：同 URL 的另一条引用在回收站（可恢复）时，不得清 COS（T55）=====
+
+    @Test
+    void deleteSpaceShouldNotCleanupUrlStillReferencedByTrashedRecord() {
+        String sharedUrl = "https://mock-cos.test/cascade-trash-shared-" + System.nanoTime() + ".jpg";
+        Space space = newSpace("cascade-trash-owner-" + System.nanoTime(), 0, owner.getId());
+        extraSpaceIds.add(space.getId());
+        Picture inSpace = newPicture(sharedUrl, space.getId(), owner.getId());
+        // 同一 URL 的另一条记录，已在回收站（isDelete=1 + deleteTime，仍可恢复）
+        Picture trashed = newPicture(sharedUrl, teamSpace.getId(), otherOwner.getId());
+        trashedPictureIds.add(trashed.getId());
+        jdbcTemplate.update("UPDATE picture SET isDelete = 1, deleteTime = NOW() WHERE id = ?", trashed.getId());
+        clearInvocations(pictureFileCleanupService);
+
+        bindRequest(owner);
+        DeleteRequest request = new DeleteRequest();
+        request.setId(space.getId());
+        spaceService.deleteSpace(request, currentRequest());
+
+        assertNull(pictureService.getById(inSpace.getId()), "被删空间里的图应被逻辑删除");
+        // 该 URL 仍被回收站里的记录引用（可恢复）→ 不得清 COS
+        verify(pictureFileCleanupService, never())
+                .clearPictureFile(argThat(p -> sharedUrl.equals(p.getUrl())));
+        int trashedIsDelete = jdbcTemplate.queryForObject(
+                "SELECT isDelete FROM picture WHERE id = ?", Integer.class, trashed.getId());
+        assertEquals(1, trashedIsDelete, "回收站记录应保留、可恢复");
+        Timestamp trashedDeleteTime = jdbcTemplate.queryForObject(
+                "SELECT deleteTime FROM picture WHERE id = ?", Timestamp.class, trashed.getId());
+        assertNotNull(trashedDeleteTime, "回收站记录的 deleteTime 不应被清");
     }
 
     // ===== 删用户：名下空间级联、他人空间成员关系移除、他人空间内容保留 =====

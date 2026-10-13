@@ -247,4 +247,14 @@ public interface IPictureService extends IService<Picture> {
      * @return 实际彻底删除的条数
      */
     int purgeExpiredTrash(int retentionDays, int limit);
+
+    /**
+     * 统计仍在"占用"该 URL 的记录数供 COS 引用计数使用：**存活行 + 回收站内仍可恢复的行**都算引用
+     * （空间/用户级联的永久删除不可恢复，不计入）。回收站彻底删除、空间级联删除等路径共用同一口径，
+     * 避免"同 URL 还存在可恢复引用时误清 COS"（T55）。
+     *
+     * @param url 图片 COS 地址
+     * @return 引用该 URL 的存活 + 可恢复记录数
+     */
+    long countUrlReferences(String url);
 }
