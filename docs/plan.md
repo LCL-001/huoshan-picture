@@ -1,6 +1,6 @@
 # Plan — 火山图库（huoshan-picture）
 
-<!-- freshness: { owner: "lcl", reviewed: "2026-10-12" } -->
+<!-- freshness: { owner: "lcl", reviewed: "2026-10-13" } -->
 
 > 任务粒度：一个任务 = 一次可测试的改动 = 一个 commit。每个任务必须标注允许触碰的文件范围。
 > **本文件是索引**：只留活跃任务 + 当前里程碑；实施记录、红绿输出、证据写 `docs/plans/records/`，这里只留指针。已收口里程碑整批结转 `docs/plans/archive/`（见文末「归档」）。
@@ -72,6 +72,31 @@
   - 验收：类型收紧后 `type-check` 先红（49 错 / 22 文件）→ 修完回 0；`npx eslint .` 0 错；backend / 引擎门禁不破；浏览器真机复验图片详情页不再 40400。
   - **2026-10-13 收口**：typings 定向改写 120 行；`type-check` 49 错 → **0**、`npx eslint .` 0 错、三个 check 脚本 PASS、负向控制（回注 `Number(id)` 报 1 错）；真机图片详情页（`/picture/2102421103233830914`）正常渲染、无 40400；全站 15 条路由人工回归通过（含三个管理页，用临时提权的探针账号，验完还原）、AI 打标建议生成与 URL 上传/批量编辑写路径实测通过（测试数据已彻底清理），另修 `formatSize` 零字节显示（`c977de3`）。字据 `cff90c2` + 代码 `dbc77ae`；实施记录与证据见 `docs/plans/records/T54-前端API类型对齐Long到String.md`。
   - **2026-10-13 独立 review（规则 13，只读）：有条件通过**。3 条 P2 已在本任务内修毕（`typings.d.ts` 的 `BaseResponseLong_.data` 与 `SpaceCategoryAnalyzeResponse.count` 两处漏改 + 连带 `GlobalHeader.vue`；记录与 plan 的矛盾按勘误订正），2 条 P3 关闭（Post 停用模块的死类型字段分裂、口径数字不精确）。复核范围与「没能验证什么」见 handoff 0036，结论见 `docs/decisions.md` 同日行。
+
+
+### T55–T63：两日改动 review 修复批次（2026-10-13 用户确认）
+
+> 状态：均未开始；按 T55→T63 执行，先红后绿、逐任务代码提交，文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。
+> 文档指针：T55–T58 见 `docs/features/F17-回收站.md`；T59–T60 见 `docs/features/F12-图库助手档3工具与联调.md`；T61–T62 见 `docs/designs/2026-10-12-门卫召回第二轮设计.md`；T63 见 `docs/plans/records/T54-前端API类型对齐Long到String.md`。实施时各新增任务号对应 records（未实施不虚建证据），同步对应功能讲解。
+
+- [ ] T55（P1）**回收站共享 URL 引用计数**：正常记录和仍可恢复的回收站记录均阻止 COS 清理，统一守护彻底删除、过期清理、替换与回滚补偿。
+  - 文件范围：backend `service/impl/PictureServiceImpl.java`、`mapper/PictureMapper.java`、`resources/mapper/PictureMapper.xml` 及回收站/替换/补偿测试；验收：同 URL 两张均入站，删首张不清 COS且另一张可恢复，最后引用删除才清；覆盖过期清理。
+- [ ] T56（P1）**回收站写操作有效会话校验**：恢复、彻底删除与普通删除验证 Sa-Token 有效且与 Spring Session 同属一人，再做逐资源 RBAC；不扩大至全站鉴权重构。
+  - 文件范围：backend `service/impl/PictureServiceImpl.java`、`controller/PictureController.java`、`service/impl/UserServiceImpl.java`、`manager/auth/` 必要校验辅助及对应会话/回收站测试；验收：缺失/撤销/身份不一致凭据拒绝，改密/降权后旧会话失败，重新登录及公共/私有/团队正向通过。
+- [ ] T57（P2）**恢复配额并发安全**：将配额条件放入事务内原子更新，额度不足使当前图片恢复回滚，不重复记账。
+  - 文件范围：backend `service/impl/PictureServiceImpl.java` 与回收站服务/集成测试；验收：串行不足拒绝、并发名额和容量临界点不超限、同图并发只回补一次，失败记录仍在回收站。
+- [ ] T58（P2）**回收站 API Long→String 类型对齐**：去除三个回收站接口的 `request<any>`，补 VO/分页/操作结果类型，复用统一大小格式化；不运行 OpenAPI 覆盖生成。
+  - 文件范围：frontend `src/api/pictureController.ts`、`src/api/typings.d.ts`、`src/pages/RecycleBinPage.vue`、`src/utils/index.ts` 及相关断言；验收：19 位 id 原样透传、字符串 picSize 与零字节正确，错误类型负向控制、type-check/eslint 通过。
+- [ ] T59（P2）**AI 系统事实可信来源**：优先复用可持久化的消息 metadata 区分结果事实，历史隐藏不再仅凭用户可伪造的文本前缀；模型提示须区分来源，不宣称绝对防注入。
+  - 文件范围：引擎 `agent/BaseAgent.java`、`agent/HuoshanAssistantSession.java`、`controller/HuoshanAssistantController.java`、`utils/ChatHistoryAssembler.java`、`utils/MessageConverter.java`、`chatmemory/` 必要映射及消息测试；验收：普通前缀消息不隐藏、不获可信标记，真实来源经持久化/回放仍可识别，旧记录兼容策略明确；需改表则停止另议。
+- [ ] T60（P2；依赖 T59）**AI 结果 operationId 关联**：回灌携带 operationId/类型/结果与既存计划摘要，保留确认门绑定、单次消费及 best-effort；前端阻止待确认时继续生成新写计划。
+  - 文件范围：backend `controller/AiAssistantController.java`、`manager/ai/AiAssistantOperationManager.java`、`manager/ai/AiAssistantProxyManager.java` 及必要结果 DTO/VO；引擎 `controller/HuoshanAssistantController.java`、`agent/HuoshanAssistantSession.java`；frontend `src/pages/AssistantPage.vue` 与对应协议/纯函数测试；验收：既有多卡乱序确认结果可区分，失败可关联，阻止新计划不影响取消/查询和服务端授权。
+- [ ] T61（P2）**门卫否定式 IN_SCOPE 解析**：双向处理否定 token，明确范围外不得因先出现被否定的 IN_SCOPE 而放行，含糊输出 fail-closed。
+  - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：not IN_SCOPE→OUT 拒绝、not OUT→IN 放行，原 token 顺序/无 token 回归通过，断言拒绝路径不进工具链。
+- [ ] T62（P2）**门卫历史窗口边界**：先截取最近 4 条历史，再按既定角色/字数上限过滤，禁止无限向前凑助手行；沿用 T46 的 USER 锚点与结果事实可见性。
+  - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：连续拒绝轮不拼入过早回答，最近任务锚点/结果事实仍保留，短跟进和范围外负向真机复测，模型实测与确定性窗口断言分开记证据。
+- [ ] T63（P3；用户明确批准修复，非挂账限制）**前端字符串数值显式转换**：仅对大小/count 等算术和图表数值显式转换，不对 id 做 Number、不顺手重构。
+  - 文件范围：frontend `src/pages/admin/PictureManagePage.vue`、`src/components/analyze/SpaceSizeAnalyze.vue`、`SpaceTagAnalyze.vue`、`SpaceUserAnalyze.vue` 及相关断言；验收：字符串/零/缺值转换回归、图表输入为 number，type-check/eslint/助手格式检查通过。
 
 ## 未决与非任务事项（不建任务）
 
