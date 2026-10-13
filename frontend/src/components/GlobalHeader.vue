@@ -471,7 +471,7 @@ const unreadCount = ref(0)
 const fetchUnread = async () => {
   try {
     const res = await getUnreadCountUsingGet()
-    if (res.data.code === 0) unreadCount.value = res.data.data ?? 0
+    if (res.data.code === 0) unreadCount.value = Number(res.data.data ?? 0)
   } catch { /* ignore */ }
 }
 

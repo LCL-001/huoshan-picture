@@ -97,7 +97,7 @@ declare namespace API {
 
   type BaseResponseLong_ = {
     code?: number
-    data?: number
+    data?: string
     message?: string
   }
 
@@ -609,7 +609,7 @@ declare namespace API {
 
   type SpaceCategoryAnalyzeResponse = {
     category?: string
-    count?: number
+    count?: string
     totalSize?: string
   }
 

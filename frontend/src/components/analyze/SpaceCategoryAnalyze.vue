@@ -56,7 +56,7 @@ watchEffect(() => {
 // 图表选项
 const options = computed(() => {
   const categories = dataList.value.map((item) => item.category)
-  const countData = dataList.value.map((item) => item.count)
+  const countData = dataList.value.map((item) => Number(item.count ?? 0))
   const sizeData = dataList.value.map((item) => (Number(item.totalSize ?? 0) / (1024 * 1024)).toFixed(2)) // 转为 MB
 
   return {
