@@ -55,8 +55,10 @@ export const formatDateTime = (value: unknown, fallback = '-') => {
  * @param size
  */
 export const formatSize = (size?: number | string) => {
+  // 只在真缺值时算"未知"：0 字节是已知的，应显示 "0 B"（后端把 Long 下发成字符串，故形参放宽为 string）
+  if (size === undefined || size === null || size === '') return '未知'
   const bytes = Number(size)
-  if (!bytes) return '未知'
+  if (!Number.isFinite(bytes)) return '未知'
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
