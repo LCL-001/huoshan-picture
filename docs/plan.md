@@ -82,8 +82,9 @@
 - [x] T55（P1）**回收站共享 URL 引用计数**：正常记录和仍可恢复的回收站记录均阻止 COS 清理，统一守护彻底删除、过期清理、替换与回滚补偿。
   - 文件范围：backend `service/impl/PictureServiceImpl.java`、`service/IPictureService.java`、`service/impl/SpaceServiceImpl.java`、`mapper/PictureMapper.java`、`resources/mapper/PictureMapper.xml` 及回收站/替换/补偿/级联测试；验收：同 URL 两张均入站，删首张不清 COS且另一张可恢复，最后引用删除才清；覆盖过期清理与删空间级联。
   - **2026-10-13 收口**：回收站彻底删除 / 过期清理 / 替换 / 回滚补偿与删空间级联统一改走裸 SQL `PictureMapper#countUrlReferences`（存活行 + 回收站内可恢复行，绕开全局逻辑删除）；新增 4 例集成回归；全量集成 97/97、单测 169/169 通过，commit `c5bc15b` + `218f714`；实施记录与证据见 `docs/plans/records/T55-回收站共享URL引用计数.md`，级联扩展见 `docs/plans/records/T55-补记-删空间级联共享URL.md`。
-- [ ] T56（P1）**回收站写操作有效会话校验**：恢复、彻底删除与普通删除验证 Sa-Token 有效且与 Spring Session 同属一人，再做逐资源 RBAC；不扩大至全站鉴权重构。
-  - 文件范围：backend `service/impl/PictureServiceImpl.java`、`controller/PictureController.java`、`service/impl/UserServiceImpl.java`、`manager/auth/` 必要校验辅助及对应会话/回收站测试；验收：缺失/撤销/身份不一致凭据拒绝，改密/降权后旧会话失败，重新登录及公共/私有/团队正向通过。
+- [x] T56（P1）**回收站写操作有效会话校验**：恢复、彻底删除与普通删除验证 Sa-Token 有效且与 Spring Session 同属一人，再做逐资源 RBAC；不扩大至全站鉴权重构。
+  - 文件范围：backend `manager/auth/`（新增 `LoginSessionValidator`）、`service/impl/PictureServiceImpl.java` 及回收站/会话测试；`controller/PictureController.java`、`service/impl/UserServiceImpl.java` 核查后无需改动；验收：缺失/撤销/身份不一致凭据拒绝，改密/降权后旧会话失败，重新登录及公共/私有/团队正向通过。
+  - **2026-10-13 收口**：三个写操作入口先过双登录态一致性校验（`LoginSessionValidator#requireConsistentLogin`，不一致回 40102）再逐资源 RBAC；新增 13 例集成回归，受影响既有测试 40/40；全量集成 110/110、单测 169/169 通过，commit `d512c5d`；实施记录与证据见 `docs/plans/records/T56-回收站写操作会话校验.md`。
 - [ ] T57（P2）**恢复配额并发安全**：将配额条件放入事务内原子更新，额度不足使当前图片恢复回滚，不重复记账。
   - 文件范围：backend `service/impl/PictureServiceImpl.java` 与回收站服务/集成测试；验收：串行不足拒绝、并发名额和容量临界点不超限、同图并发只回补一次，失败记录仍在回收站。
 - [ ] T58（P2）**回收站 API Long→String 类型对齐**：去除三个回收站接口的 `request<any>`，补 VO/分页/操作结果类型，复用统一大小格式化；不运行 OpenAPI 覆盖生成。
