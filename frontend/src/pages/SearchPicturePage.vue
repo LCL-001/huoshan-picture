@@ -74,9 +74,9 @@ import SkeletonCard from '@/components/SkeletonCard.vue'
 
 const route = useRoute()
 
-const pictureId = computed<number | undefined>(() => {
+const pictureId = computed<string | undefined>(() => {
   const raw = route.query?.pictureId
-  return typeof raw === 'string' ? Number(raw) : undefined
+  return typeof raw === 'string' ? raw : undefined
 })
 const picture = ref<API.PictureVO>({})
 

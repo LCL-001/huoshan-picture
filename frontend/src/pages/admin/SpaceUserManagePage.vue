@@ -68,8 +68,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
-// 路由参数是字符串，后端接口以 number 收 spaceId，统一在此转换
-const spaceId = computed(() => Number(props.id))
+// 路由参数是字符串，后端 Long 也以字符串下发，原样透传（Number() 会丢雪花 id 精度）
+const spaceId = computed(() => props.id)
 
 const loading = ref(true)
 const hasPermission = ref(false)
@@ -161,7 +161,7 @@ const editSpaceRole = async (value: string, record: API.SpaceUserVO) => {
   }
 }
 
-const doDelete = (id: number) => {
+const doDelete = (id: string) => {
   if (!id) return
   Modal.confirm({
     title: '确认移除',

@@ -45,7 +45,7 @@
           <a-progress
             type="circle"
             :size="42"
-            :percent="(((space.totalSize ?? 0) * 100) / (space.maxSize ?? 0)).toFixed(1)"
+            :percent="((Number(space.totalSize ?? 0) * 100) / Number(space.maxSize ?? 0)).toFixed(1)"
           />
         </a-tooltip>
       </a-space>
@@ -104,12 +104,12 @@ import { BarChartOutlined, DeleteOutlined, EditOutlined, TeamOutlined } from '@a
 import { SPACE_PERMISSION_ENUM, SPACE_TYPE_MAP } from '../constants/space.ts'
 
 interface Props {
-  id: string | number
+  id: string
 }
 
 const props = defineProps<Props>()
-// 后端接口以 number 收 spaceId；路由参数是字符串，统一在此转换
-const spaceId = computed(() => Number(props.id))
+// 路由参数本身就是字符串，直接沿用；不可 Number()——19 位雪花 id 超出 JS 安全整数会丢精度
+const spaceId = computed(() => props.id)
 const space = ref<API.SpaceVO>({})
 
 const isMobile = ref(window.innerWidth < 768)
@@ -215,7 +215,7 @@ const fetchData = async (silent = false) => {
     } else {
       dataList.value = records
     }
-    total.value = res.data.data.total ?? 0
+    total.value = Number(res.data.data.total ?? 0)
   } else {
     message.error('获取数据失败，' + res.data.message)
   }

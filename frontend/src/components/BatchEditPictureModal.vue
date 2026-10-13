@@ -45,7 +45,7 @@ import { message } from 'ant-design-vue'
 
 interface Props {
   pictureList: API.PictureVO[]
-  spaceId: number
+  spaceId: string
   onSuccess: () => void
 }
 
@@ -86,7 +86,7 @@ const handleSubmit = async (values: API.PictureEditByBatchRequest) => {
   const res = await editPictureByBatchUsingPost({
     pictureIdList: props.pictureList
       .map((picture) => picture.id)
-      .filter((id): id is number => id !== undefined),
+      .filter((id): id is string => id !== undefined),
     spaceId: props.spaceId,
     ...values,
   })

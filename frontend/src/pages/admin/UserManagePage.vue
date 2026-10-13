@@ -191,7 +191,7 @@ const fetchData = async () => {
   })
   if (res.data.code === 0 && res.data.data) {
     dataList.value = res.data.data.records ?? []
-    total.value = res.data.data.total ?? 0
+    total.value = Number(res.data.data.total ?? 0)
   } else {
     message.error('获取数据失败，' + res.data.message)
   }
@@ -262,7 +262,7 @@ const handleUpdateUser = async () => {
 }
 
 // 删除数据
-const doDelete = (id: number) => {
+const doDelete = (id: string) => {
   if (!id) return
   Modal.confirm({
     title: '确认删除',

@@ -9,11 +9,11 @@ export interface PictureEditMessage {
 type PictureEditHandler = (data: PictureEditMessage) => void
 
 export default class PictureEditWebSocket {
-  private pictureId: number
+  private pictureId: string
   private socket: WebSocket | null
   private eventHandlers: Record<string, PictureEditHandler[]>
 
-  constructor(pictureId: number) {
+  constructor(pictureId: string) {
     this.pictureId = pictureId // 当前编辑的图片 ID
     this.socket = null // WebSocket 实例
     this.eventHandlers = {} // 自定义事件处理器

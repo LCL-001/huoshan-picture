@@ -27,14 +27,14 @@ export async function getUnreadCountUsingGet() {
 }
 
 /** markNotificationReadUsingPost POST /api/notification/read/:id */
-export async function markNotificationReadUsingPost(id: number) {
+export async function markNotificationReadUsingPost(id: string) {
   return request<API.BaseResponseBoolean_>(`/api/notification/read/${id}`, {
     method: 'POST',
   })
 }
 
 /** deleteNotificationUsingPost POST /api/notification/delete/:id */
-export async function deleteNotificationUsingPost(id: number) {
+export async function deleteNotificationUsingPost(id: string) {
   return request<API.BaseResponseBoolean_>(`/api/notification/delete/${id}`, {
     method: 'POST',
   })

@@ -142,7 +142,7 @@ import ShareModal from '@/components/ShareModal.vue'
 import { SPACE_PERMISSION_ENUM } from '@/constants/space.ts'
 
 interface Props {
-  id: string | number
+  id: string
 }
 
 const props = defineProps<Props>()
@@ -163,7 +163,8 @@ const canDelete = createPermissionChecker(SPACE_PERMISSION_ENUM.PICTURE_DELETE)
 const fetchPictureDetail = async () => {
   try {
     const res = await getPictureVoByIdUsingGet({
-      id: Number(props.id),
+      // 路由参数是字符串；不可 Number()——19 位雪花 id 超出 JS 安全整数会丢精度
+      id: props.id,
     })
     if (res.data.code === 0 && res.data.data) {
       picture.value = res.data.data

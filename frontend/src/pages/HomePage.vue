@@ -115,7 +115,7 @@ const fetchData = async (append = false, silent = false) => {
     } else {
       dataList.value = records
     }
-    total.value = res.data.data.total ?? 0
+    total.value = Number(res.data.data.total ?? 0)
     hasMore.value = dataList.value.length < total.value
   } else {
     message.error('获取数据失败，' + res.data.message)

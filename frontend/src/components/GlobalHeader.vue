@@ -506,7 +506,7 @@ const doClearNotifications = () => {
   })
 }
 
-const doDeleteNotification = async (id?: number) => {
+const doDeleteNotification = async (id?: string) => {
   if (!id) return
   try {
     await deleteNotificationUsingPost(id)

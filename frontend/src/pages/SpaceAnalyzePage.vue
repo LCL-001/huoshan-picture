@@ -51,10 +51,10 @@ import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
 
 const route = useRoute()
 
-// 空间 id（路由参数是字符串，后端接口收 number）
-const spaceId = computed<number | undefined>(() => {
+// 空间 id（路由参数是字符串，后端 Long 也以字符串下发，原样透传——Number() 会丢雪花 id 精度）
+const spaceId = computed<string | undefined>(() => {
   const raw = route.query?.spaceId
-  return typeof raw === 'string' ? Number(raw) : undefined
+  return typeof raw === 'string' ? raw : undefined
 })
 
 // 是否查询所有空间

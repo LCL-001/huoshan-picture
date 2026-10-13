@@ -143,9 +143,9 @@ const handleSubmit = async () => {
 const getOldSpace = async () => {
   // 获取到 id
   const id = route.query?.id
-  if (id) {
+  if (typeof id === 'string') {
     const res = await getSpaceVoByIdUsingGet({
-      id: Number(id),
+      id,
     })
     if (res.data.code === 0 && res.data.data) {
       const data = res.data.data

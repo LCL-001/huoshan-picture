@@ -22,7 +22,7 @@ import { message } from 'ant-design-vue'
 interface Props {
   queryAll?: boolean
   queryPublic?: boolean
-  spaceId?: number
+  spaceId?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -67,7 +67,7 @@ const fetchData = async () => {
     queryPublic: props.queryPublic,
     spaceId: props.spaceId,
     timeDimension: timeDimension.value,
-    userId: userId.value ? Number(userId.value) : undefined,
+    userId: userId.value,
   })
   if (res.data.code === 0 && res.data.data) {
     dataList.value = res.data.data ?? []
