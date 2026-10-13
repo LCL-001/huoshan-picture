@@ -59,6 +59,7 @@
   - 文件范围：frontend `pages/`（新增页面）、`router/index.ts`、`components/GlobalSider.vue`、`api/pictureController.ts`、删除确认所在组件。
   - 验收：`type-check` 不净增基线、改动文件 eslint 干净、`check:assistant-format` 不破；本机真机走通删除→回收站→恢复→彻底删。
   - **2026-10-12 收口**：type-check 124＝基线、新页面 eslint 干净、assistant-format PASS，commit `befbbe3`；讲解见 `docs/features/F17-回收站.md`。**未做**浏览器人工验收（记为 F17 已知限制 7）。
+  - **2026-10-13 补记（用户发现的缺陷，已修）**：入口当年落进了**死组件** `components/GlobalSider.vue`（全库零引用），现役侧栏 `layouts/BasicLayout.vue` 里没有回收站 ⇒ 界面上无入口、只能手输 URL。已把菜单项补进 `BasicLayout.vue` 的固定菜单并补图标导入；type-check / eslint 干净、浏览器点侧栏可跳转并高亮。实施记录与证据见 `docs/plans/records/F17-F18-人工验收.md` 补记节。
 
 - [x] T53（存量收敛；按规则 3 **不立字据**，2026-10-12 实测后开条目）**前端存量报错清零**：`npm run type-check` 124 → 0、`npx eslint .` 60错+1警 → 0（30 个 src 文件 + 1 个 node_modules/vue-cropper）。多为存量债；最大单点 = 生成 api 的 `requestType: 'form'` 不在 `AxiosRequestConfig` 里、致 axios 重载失配、`request<T>` 的 `T` 悬空（连带 15 错）。逐批一个 commit（B1–B7，见下），收口时把 `frontend/type-check-baseline.txt` 的 `errors` 下调到 0。
   - 文件范围：frontend `src/**`（`api/`、`components/`、`pages/`、`stores/`、`utils/`、`constants/`）+ 新增 `src/types/vue-cropper.d.ts`；`frontend/type-check-baseline.txt`；`AGENTS.md`、`docs/decisions.md`、`docs/features/F11-AI助手MVP.md` 的口径订正；`docs/plans/records/T53-*.md`。
