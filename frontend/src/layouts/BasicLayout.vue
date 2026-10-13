@@ -152,6 +152,7 @@ import { useRouter } from 'vue-router'
 import {
   AppstoreOutlined,
   DatabaseOutlined,
+  DeleteOutlined,
   HomeOutlined,
   PictureOutlined,
   PlusCircleOutlined,
@@ -217,6 +218,8 @@ const fixedMenuItems = computed(() => {
     { key: '/add_picture', icon: () => h(PlusCircleOutlined), label: '上传图片' },
     { key: '/assistant', icon: () => h(RobotOutlined), label: 'AI 助手' },
     { key: '/my_space', icon: () => h(AppstoreOutlined), label: '我的空间' },
+    // 回收站按登录用户过滤（T50），普通用户也可见；高亮走 watchEffect 的兜底分支
+    { key: '/recycle_bin', icon: () => h(DeleteOutlined), label: '回收站' },
     { key: '/add_space?type=' + SPACE_TYPE_ENUM.TEAM, icon: () => h(TeamOutlined), label: '创建团队' },
   ]
 })
