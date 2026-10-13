@@ -47,7 +47,20 @@ String(2102421103233830914) === "2102421103233831000"   // 末位丢失
 
 - 2026-10-13 本机浏览器（前端 5173 / 后端 8123）打开 `http://localhost:5173/picture/2102421103233830914`：
   图片正常加载，字段正确渲染（作者 `管理员-小霖`、名称 `猫2`、格式 `webp`、尺寸 `1024 × 819`、大小 `102.88 KB`、主色调 `0x447b7b`），**无 `40400` 提示**。复现步骤：登录任意账号 → 从图库列表点进任意图片详情。
-- 本任务**未做**全站人工回归（上传/编辑/批量编辑/空间分析/管理页分页等只经类型检查与静态审查，未逐页点验）。
+- **全站人工回归（2026-10-13 补做；本节原写「未做」，系当时尚未执行，属勘误）**：15 条路由 + 三个管理页（用临时提权的探针账号）+ AI 打标建议生成 + URL 上传/批量编辑写路径，均在浏览器实测通过；过程中发现并修了 `formatSize` 零字节显示（`c977de3`）。过程与未覆盖项见 `docs/handoff/0036-2026-10-13-*.md`。**仍未覆盖**：裁剪与 AI 扩图的写路径。
+
+## 独立 review 收口（2026-10-13，规则 13）
+
+只读 review 会话，结论 **有条件通过**。范围 = `fbaf380..HEAD` 的代码改动 + 本记录与口径文件；判据含独立比对本机 `api-docs` 的 format 归属。
+
+**① 现在修（P2，已在本任务内修毕）**：
+- `typings.d.ts` 的 `BaseResponseLong_.data` 漏改（声明 `number`，后端 `long` 以字符串下发）：根因是定义名归一化把 spec 的 `BaseResponseLong`（大写 L）与前端 `BaseResponseLong_` 匹配失败；连带 `GlobalHeader.vue` 未读数改为 `Number(...)`。
+- `typings.d.ts` 的 `SpaceCategoryAnalyzeResponse.count` 漏改——同类 `totalSize` 已是 `string` 而 `count` 仍是 `number`，同一定义里自相矛盾（后端字段确为 `Long`）；已改 `string`，并在 `SpaceCategoryAnalyze.vue` 与 size 系列对齐包 `Number(...)`。
+- 本文件原先「未做全站人工回归」与 plan/handoff 矛盾：已按上文补记订正。
+
+**② 判为已知限制并关闭（P3）**：
+- `PagePostVO_` / `PostVO` / `BaseResponsePostVO_` / `BaseResponsePagePostVO_` 内部字段类型分裂（`pages`/`size` 为 string、`current`/`total` 为 number）：根因是 Post 模块停用、spec 里无对应定义；这些类型在 `typings.d.ts` 之外**零引用**、运行时永不触及，修它需重建 Post 类型，成本大于收益。
+- 口径文件两处数字不精确：decision 记 spec 的 int64 字段「109 个」，独立复核为 scalar **117** / 含 `array<int64>` **121**；不影响「18 个恒为 int64 名」这条核心判据。
 
 ## 未做 / 边界
 

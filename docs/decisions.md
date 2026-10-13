@@ -107,3 +107,4 @@
 | 2026-10-12 | **门卫召回第二轮口径（T46，用户批准）**：门卫输入纳入历史尾巴的 USER 文本（含 T44 操作结果事实行），**修订** T43 的"USER 行不进输入"（拒绝话术仍排除）；移除生产恒空的工具名死信号；判定加否定式前言守卫 + 能力枚举补写/编辑操作；fail-closed 与"非授权边界"不变 | [设计与理由](designs/2026-10-12-门卫召回第二轮设计.md) | 生效 |
 | 2026-10-12 | **T47 判为已知限制关闭（用户决定；承接上一条 review 行的 T47）**：prepare 空间名无权限读取（IDOR，T27.10 引入）——只泄露空间名、需已知 19 位雪花 id、需登录、prepare 零写库，影响低；撤销任务、不立字据 | 见 docs/features/F12-图库助手档3工具与联调.md 已知限制 | 生效 |
 | 2026-10-13 | **前端 API 类型对齐后端 Long→String（T54）**：`typings.d.ts` 里恒为 int64 的字段由 `number` 改 `string`，落实 2026-09-14「id 按字符串透传」；生成器加 `hook.customType` 但仍不自动跑。图片详情 40400 = T53 的 `Number(id)` 强转 | [理由与影响面](decisions/2026-10-13-api-types-long-to-string.md) | 生效 |
+| 2026-10-13 | **T54 独立 review：有条件通过**——类型收紧经独立比对忠实于后端；3 条 P2 已修（`BaseResponseLong_.data`、`SpaceCategoryAnalyzeResponse.count` 漏改 + 记录与 plan 矛盾），2 条 P3 关闭（Post 死类型字段分裂、口径数字不精确） | 见 `docs/plans/records/T54-前端API类型对齐Long到String.md` | 生效（有条件通过） |

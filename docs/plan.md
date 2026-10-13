@@ -70,6 +70,7 @@
   - 文件范围：frontend `src/api/typings.d.ts`、`openapi.config.js`、因类型收紧需调整的 `src/**`；`docs/plans/records/T54-*.md`。
   - 验收：类型收紧后 `type-check` 先红（49 错 / 22 文件）→ 修完回 0；`npx eslint .` 0 错；backend / 引擎门禁不破；浏览器真机复验图片详情页不再 40400。
   - **2026-10-13 收口**：typings 定向改写 120 行；`type-check` 49 错 → **0**、`npx eslint .` 0 错、三个 check 脚本 PASS、负向控制（回注 `Number(id)` 报 1 错）；真机图片详情页（`/picture/2102421103233830914`）正常渲染、无 40400；全站 15 条路由人工回归通过（含三个管理页，用临时提权的探针账号，验完还原）、AI 打标建议生成与 URL 上传/批量编辑写路径实测通过（测试数据已彻底清理），另修 `formatSize` 零字节显示（`c977de3`）。字据 `cff90c2` + 代码 `dbc77ae`；实施记录与证据见 `docs/plans/records/T54-前端API类型对齐Long到String.md`。
+  - **2026-10-13 独立 review（规则 13，只读）：有条件通过**。3 条 P2 已在本任务内修毕（`typings.d.ts` 的 `BaseResponseLong_.data` 与 `SpaceCategoryAnalyzeResponse.count` 两处漏改 + 连带 `GlobalHeader.vue`；记录与 plan 的矛盾按勘误订正），2 条 P3 关闭（Post 停用模块的死类型字段分裂、口径数字不精确）。复核范围与「没能验证什么」见 handoff 0036，结论见 `docs/decisions.md` 同日行。
 
 ## 未决与非任务事项（不建任务）
 
@@ -78,8 +79,7 @@
 - **D2 引擎 `CorsConfig` 收紧（缓解未修）**：`allowCredentials(true)` + `allowedOriginPatterns("*")` 对所有站点反射 Origin 且允许带凭据；D1 回环绑定后远程浏览器够不到它，但**本机进程仍可利用**，不算已修好。
 - **数据卫生：逻辑删除的历史残留未清（另开任务才做）**：`user` 377 行 / `space` 206 行 / `picture` 362 行（`isDelete=1`）——对应用不可见，但占库、且**唯一索引仍被占用**（同名词条/账号不可再注册）。清理要跨表物理删除，属独立任务。已清记录见 `docs/plans/records/probe-data-purge-2026-09-15.md` 与 `backend/sql/cleanup/2026-09-15-purge-probe-data.sql`。
   - 规则沉淀：① MySQL 的 `LIKE` 不支持 `[_]` 字符类，精确前缀一律用 `left(col,N)='...'`；② 不能照账号名猜是不是探针（`1234`/`admin` 是带 144/10 张图的在用账号），删前必须看内容足迹。
-- **待人工验收：F17 回收站前端真机**（F17 已知限制 7；T52 未做）：浏览器走通「删除 → 回收站列表 → 恢复 → 彻底删除」，重点核对列表可见范围与配额回补；做完在 `docs/plans/records/` 留一条记录。
-- **待真机验证：F18 限流触发**（F18 已知限制 6；T49 未做）：对受保护的 13 个端点之一压到出 429 / 业务码 42900，核对限流键与开关；做完留一条记录。
+- **F17 回收站前端真机 / F18 限流触发：2026-10-13 已完成**（原「待人工验收」两条收口）：F17 浏览器走通「删除 → 回收站列表 → 恢复 → 彻底删除」并核对软删/配额回补/物理删行；F18 对 `POST /api/ai/assistant/ticket` 连打 31 次，第 31 次回 `42900`。结果、未覆盖面与一处环境限制（「彻底删除」按钮点击在本自动化环境未生效、改经同一接口）见 `docs/plans/records/F17-F18-人工验收.md`。
 - **A/B 基线选取口径待用户拍板**：`tag_category` 自 T5 起查词表、已不是空跑接口，两轮 A/B 均出现"最慢基线高于被测路径"使 `net` 列算 0 或反向；`compare-ab.py` 未改。数字与明细见 `backend/jmeter/README.md` §5.6 与 `docs/plans/records/ab-first-run-2026-09-18.md`。
 
 ## 归档
