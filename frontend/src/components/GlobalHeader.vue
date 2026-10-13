@@ -256,6 +256,11 @@ const originItems = [
     title: 'AI 助手',
   },
   {
+    key: '/recycle_bin',
+    label: '回收站',
+    title: '回收站',
+  },
+  {
     key: '/admin/userManage',
     label: '用户管理',
     title: '用户管理',
