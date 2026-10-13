@@ -66,6 +66,10 @@
   - 分批：B1 生成 api 层与全局类型（去 `requestType` 污染与无用 `// @ts-ignore`、补 `UserVO.email`、`SpaceRankAnalyzeRequest`、vue-cropper shim）→ B2 analyze 组件 → B3 图库组件 → B4 空间页 → B5 图片页 → B6 管理页与常量 → B7 边角与纯 eslint。
   - **2026-10-12 收口**：B1–B7 逐批提交，`npm run type-check` 124→**0**、`npx eslint .` 60错+1警→**0 错 0 警**，基线 `errors=0`；`check:assistant-format`/`check:assistant-copy`/`check:batch-crawl-result` PASS、`npm run build` 成功；各批门禁 backend 169 / 引擎 215 全绿。**未做浏览器人工回归**（记入 records）。实施记录与证据见 `docs/plans/records/T53-前端存量报错清理.md`。
 
+- [ ] T54（2026-10-13 用户批准；口径与影响面见 `docs/decisions/2026-10-13-api-types-long-to-string.md`）**前端 API 类型对齐后端 Long→String**：把 `frontend/src/api/typings.d.ts` 里恒为 int64 的字段（全部 id / spaceId / pictureId / 分页 total 等）由 `number` 改 `string`，落实 2026-09-14「id 按字符串透传」与 topic10「雪花 id 按 string 声明」；生成器 `openapi.config.js` 加 `hook.customType`（int64→string），但**不自动重生成**（2026-09-15-topic10 不变）。顺带删掉因类型收紧而暴露的 5 处 `Number(id)` 强转——图片详情页 `40400` 的根因（T53 为过 `vue-tsc` 引入）。
+  - 文件范围：frontend `src/api/typings.d.ts`、`openapi.config.js`、因类型收紧需调整的 `src/**`；`docs/plans/records/T54-*.md`。
+  - 验收：类型收紧后 `type-check` 先红（49 错 / 22 文件）→ 修完回 0；`npx eslint .` 0 错；backend / 引擎门禁不破；浏览器真机复验图片详情页不再 40400。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
