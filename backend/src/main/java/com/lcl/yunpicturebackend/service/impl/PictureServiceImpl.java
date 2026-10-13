@@ -40,6 +40,7 @@ import com.lcl.yunpicturebackend.config.CosClientConfig;
 import com.lcl.yunpicturebackend.manager.CosManager;
 import com.lcl.yunpicturebackend.manager.ai.PictureAiTagManager;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
+import com.lcl.yunpicturebackend.manager.auth.LoginSessionValidator;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
 import com.lcl.yunpicturebackend.manager.cache.PictureListCacheInvalidator;
@@ -203,6 +204,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private final ITagService tagService;
 
     private final SpaceUserAuthManager spaceUserAuthManager;
+
+    /** 写操作前的双登录态一致性校验（T56），见 {@link LoginSessionValidator} */
+    private final LoginSessionValidator loginSessionValidator;
 
     private final FilePictureUpload pictureUpload;
 
@@ -1050,7 +1054,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User loginUser = userService.getLoginUser(request);
+        // 写操作：先校验 Spring Session 与 Sa-Token 同属一人（T56），再逐张复核权限
+        User loginUser = loginSessionValidator.requireConsistentLogin(request);
         long pictureId = deleteRequest.getId();
         // 判断是否存在
         Picture oldPicture = getById(pictureId);
@@ -1102,7 +1107,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     @Override
     public List<PictureTrashResultVO> restorePictures(PictureTrashBatchRequest batchRequest,
                                                       HttpServletRequest request) {
-        User loginUser = userService.getLoginUser(request);
+        // 写操作：先校验 Spring Session 与 Sa-Token 同属一人（T56），再逐张复核权限
+        User loginUser = loginSessionValidator.requireConsistentLogin(request);
         List<Long> ids = validatedTrashIds(batchRequest);
         List<PictureTrashResultVO> results = new ArrayList<>(ids.size());
         Set<String> touchedScopes = new HashSet<>();
@@ -1118,7 +1124,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     @Override
     public List<PictureTrashResultVO> purgePictures(PictureTrashBatchRequest batchRequest,
                                                     HttpServletRequest request) {
-        User loginUser = userService.getLoginUser(request);
+        // 写操作：先校验 Spring Session 与 Sa-Token 同属一人（T56），再逐张复核权限
+        User loginUser = loginSessionValidator.requireConsistentLogin(request);
         List<Long> ids = validatedTrashIds(batchRequest);
         List<PictureTrashResultVO> results = new ArrayList<>(ids.size());
         Set<String> touchedScopes = new HashSet<>();

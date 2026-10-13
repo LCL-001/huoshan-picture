@@ -6,6 +6,7 @@ import com.lcl.yunpicturebackend.domain.po.Picture;
 import com.lcl.yunpicturebackend.domain.po.Space;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.mapper.PictureMapper;
+import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.service.IPictureService;
 import com.lcl.yunpicturebackend.service.ISpaceService;
 import com.lcl.yunpicturebackend.service.IUserService;
@@ -158,6 +159,9 @@ class PictureTrashRetentionIntegrationTest {
         MockHttpServletRequest request = new MockHttpServletRequest();
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request, new MockHttpServletResponse()));
         request.getSession(true).setAttribute(UserConstant.USER_LOGIN_STATE, owner);
+        // 删除是受 T56 双登录态校验的写操作：同时建立 Sa-Token 登录态
+        StpKit.SPACE.login(owner.getId());
+        StpKit.SPACE.getSession().set(UserConstant.USER_LOGIN_STATE, owner);
         DeleteRequest deleteRequest = new DeleteRequest();
         deleteRequest.setId(picture.getId());
         pictureService.deletePicture(deleteRequest, request);

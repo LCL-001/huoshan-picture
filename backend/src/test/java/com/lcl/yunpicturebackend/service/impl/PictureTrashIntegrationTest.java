@@ -11,6 +11,7 @@ import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.PictureTrashResultVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureTrashVO;
 import com.lcl.yunpicturebackend.mapper.PictureMapper;
+import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.service.IPictureService;
 import com.lcl.yunpicturebackend.service.ISpaceService;
 import com.lcl.yunpicturebackend.service.IUserService;
@@ -321,6 +322,9 @@ class PictureTrashIntegrationTest {
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request, new MockHttpServletResponse()));
         if (user != null) {
             request.getSession(true).setAttribute(UserConstant.USER_LOGIN_STATE, user);
+            // 写操作要求 Spring Session 与 Sa-Token 同属一人（T56）：同时建立 Sa-Token 登录态
+            StpKit.SPACE.login(user.getId());
+            StpKit.SPACE.getSession().set(UserConstant.USER_LOGIN_STATE, user);
         }
     }
 

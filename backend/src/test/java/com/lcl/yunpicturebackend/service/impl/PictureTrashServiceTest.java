@@ -10,6 +10,7 @@ import com.lcl.yunpicturebackend.domain.vo.PictureTrashResultVO;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.manager.auth.SpaceUserAuthManager;
+import com.lcl.yunpicturebackend.manager.auth.LoginSessionValidator;
 import com.lcl.yunpicturebackend.manager.auth.model.SpaceUserPermissionConstant;
 import com.lcl.yunpicturebackend.manager.cache.PictureListCacheInvalidator;
 import com.lcl.yunpicturebackend.mapper.PictureMapper;
@@ -58,6 +59,9 @@ class PictureTrashServiceTest {
     private ISpaceUserService spaceUserService;
     @Mock
     private SpaceUserAuthManager spaceUserAuthManager;
+    /** 双登录态一致性校验（T56）：本类只钉服务层分支，放行由集成测试覆盖 */
+    @Mock
+    private LoginSessionValidator loginSessionValidator;
     @Mock
     private PictureFileCleanupService pictureFileCleanupService;
     @Mock
@@ -85,6 +89,8 @@ class PictureTrashServiceTest {
         loginUser.setId(LOGIN_USER_ID);
         loginUser.setUserRole(UserConstant.DEFAULT_ROLE);
         when(userService.getLoginUser(any())).thenReturn(loginUser);
+        // 写操作先过双登录态一致性校验（T56）；校验本身的拒绝行为由集成测试钉住
+        when(loginSessionValidator.requireConsistentLogin(any())).thenReturn(loginUser);
         when(stringRedisTemplate.opsForValue()).thenReturn((ValueOperations<String, String>) org.mockito.Mockito.mock(ValueOperations.class));
         // 让事务模板真的执行回调（否则恢复逻辑整段被跳过）
         when(transactionTemplate.execute(ArgumentMatchers.<TransactionCallback<Object>>any()))
