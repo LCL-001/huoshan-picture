@@ -79,8 +79,9 @@
 > 状态：均未开始；按 T55→T63 执行，先红后绿、逐任务代码提交，文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。
 > 文档指针：T55–T58 见 `docs/features/F17-回收站.md`；T59–T60 见 `docs/features/F12-图库助手档3工具与联调.md`；T61–T62 见 `docs/designs/2026-10-12-门卫召回第二轮设计.md`；T63 见 `docs/plans/records/T54-前端API类型对齐Long到String.md`。实施时各新增任务号对应 records（未实施不虚建证据），同步对应功能讲解。
 
-- [ ] T55（P1）**回收站共享 URL 引用计数**：正常记录和仍可恢复的回收站记录均阻止 COS 清理，统一守护彻底删除、过期清理、替换与回滚补偿。
+- [x] T55（P1）**回收站共享 URL 引用计数**：正常记录和仍可恢复的回收站记录均阻止 COS 清理，统一守护彻底删除、过期清理、替换与回滚补偿。
   - 文件范围：backend `service/impl/PictureServiceImpl.java`、`mapper/PictureMapper.java`、`resources/mapper/PictureMapper.xml` 及回收站/替换/补偿测试；验收：同 URL 两张均入站，删首张不清 COS且另一张可恢复，最后引用删除才清；覆盖过期清理。
+  - **2026-10-13 收口**：`cleanupPictureFile` 的引用计数改走裸 SQL `PictureMapper#countUrlReferences`（存活行 + 回收站内可恢复行，绕开全局逻辑删除）；新增 3 例集成回归（彻底删 / 过期清理 / 替换）；全量集成 96/96、单测 169/169 通过，commit `c5bc15b`；实施记录与证据见 `docs/plans/records/T55-回收站共享URL引用计数.md`。
 - [ ] T56（P1）**回收站写操作有效会话校验**：恢复、彻底删除与普通删除验证 Sa-Token 有效且与 Spring Session 同属一人，再做逐资源 RBAC；不扩大至全站鉴权重构。
   - 文件范围：backend `service/impl/PictureServiceImpl.java`、`controller/PictureController.java`、`service/impl/UserServiceImpl.java`、`manager/auth/` 必要校验辅助及对应会话/回收站测试；验收：缺失/撤销/身份不一致凭据拒绝，改密/降权后旧会话失败，重新登录及公共/私有/团队正向通过。
 - [ ] T57（P2）**恢复配额并发安全**：将配额条件放入事务内原子更新，额度不足使当前图片恢复回滚，不重复记账。
