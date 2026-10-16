@@ -15,7 +15,7 @@
 
 ### T55–T63：两日改动 review 修复批次（2026-10-13 用户确认）
 
-> 状态：T55–T57 已收口（见各条收口行），**T58–T63 未开始**；按 T58→T63 执行，先红后绿、逐任务代码提交，文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。
+> 状态：T55–T58 已收口（见各条收口行），**T59–T63 未开始**；按 T59→T63 执行，先红后绿、逐任务代码提交，文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。
 > 文档指针：T57–T58 见 `docs/features/F17-回收站.md`；T59–T60 见 `docs/features/F12-图库助手档3工具与联调.md`；T61–T62 见 `docs/designs/2026-10-12-门卫召回第二轮设计.md`；T63 见 `docs/plans/records/T54-前端API类型对齐Long到String.md`。实施时各新增任务号对应 records（未实施不虚建证据），同步对应功能讲解。
 
 - [x] T55（P1）**回收站共享 URL 引用计数**：正常记录和仍可恢复的回收站记录均阻止 COS 清理，统一守护彻底删除、过期清理、替换与回滚补偿。
@@ -27,8 +27,9 @@
 - [x] T57（P2）**恢复配额并发安全**：将配额条件放入事务内原子更新，额度不足使当前图片恢复回滚，不重复记账。
   - 文件范围：backend `service/impl/PictureServiceImpl.java` 与回收站服务/集成测试；验收：串行不足拒绝、并发名额和容量临界点不超限、同图并发只回补一次，失败记录仍在回收站。
   - **2026-10-16 收口**：配额条件改由 `accumulateSpaceQuota` 写进 UPDATE 的 WHERE，影响 0 行即整笔回滚；实施记录、红绿与负向控制证据见 `docs/plans/records/T57-恢复配额并发安全.md`，讲解同步 `docs/features/F17-回收站.md`。
-- [ ] T58（P2）**回收站 API Long→String 类型对齐**：去除三个回收站接口的 `request<any>`，补 VO/分页/操作结果类型，复用统一大小格式化；不运行 OpenAPI 覆盖生成。
+- [x] T58（P2）**回收站 API Long→String 类型对齐**：去除三个回收站接口的 `request<any>`，补 VO/分页/操作结果类型，复用统一大小格式化；不运行 OpenAPI 覆盖生成。
   - 文件范围：frontend `src/api/pictureController.ts`、`src/api/typings.d.ts`、`src/pages/RecycleBinPage.vue`、`src/utils/index.ts` 及相关断言；验收：19 位 id 原样透传、字符串 picSize 与零字节正确，错误类型负向控制、type-check/eslint 通过。
+  - **2026-10-16 收口**：三个接口补类型、页面改用 `API.*` 与统一 `formatSize`，新增 `check:format-size` 常驻断言；实施记录、负向控制与真机证据见 `docs/plans/records/T58-回收站API类型对齐.md`，讲解同步 `docs/features/F17-回收站.md`。
 - [ ] T59（P2）**AI 系统事实可信来源**：优先复用可持久化的消息 metadata 区分结果事实，历史隐藏不再仅凭用户可伪造的文本前缀；模型提示须区分来源，不宣称绝对防注入。
   - 文件范围：引擎 `agent/BaseAgent.java`、`agent/HuoshanAssistantSession.java`、`controller/HuoshanAssistantController.java`、`utils/ChatHistoryAssembler.java`、`utils/MessageConverter.java`、`chatmemory/` 必要映射及消息测试；验收：普通前缀消息不隐藏、不获可信标记，真实来源经持久化/回放仍可识别，旧记录兼容策略明确；需改表则停止另议。
 - [ ] T60（P2；依赖 T59）**AI 结果 operationId 关联**：回灌携带 operationId/类型/结果与既存计划摘要，保留确认门绑定、单次消费及 best-effort；前端阻止待确认时继续生成新写计划。
