@@ -41,6 +41,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseListPictureTrashResultVO_ = {
+    code?: number
+    data?: PictureTrashResultVO[]
+    message?: string
+  }
+
   type BaseResponseListPictureVO_ = {
     code?: number
     data?: PictureVO[]
@@ -104,6 +110,12 @@ declare namespace API {
   type BaseResponsePagePicture_ = {
     code?: number
     data?: PagePicture_
+    message?: string
+  }
+
+  type BaseResponsePagePictureTrashVO_ = {
+    code?: number
+    data?: PagePictureTrashVO_
     message?: string
   }
 
@@ -291,6 +303,14 @@ declare namespace API {
     current?: string
     pages?: string
     records?: Picture[]
+    size?: string
+    total?: string
+  }
+
+  type PagePictureTrashVO_ = {
+    current?: string
+    pages?: string
+    records?: PictureTrashVO[]
     size?: string
     total?: string
   }
@@ -529,6 +549,34 @@ declare namespace API {
   type PictureTagCategory = {
     categoryList?: string[]
     tagList?: string[]
+  }
+
+  type PictureTrashBatchRequest = {
+    pictureIdList?: string[]
+  }
+
+  type PictureTrashQueryRequest = {
+    current?: number
+    pageSize?: number
+  }
+
+  type PictureTrashResultVO = {
+    message?: string
+    ok?: boolean
+    /** 逐条结果对应的图片 id（雪花 id，后端 Long 下发为字符串） */
+    pictureId?: string
+  }
+
+  type PictureTrashVO = {
+    /** 进回收站的时间 */
+    deleteTime?: string
+    id?: string
+    name?: string
+    /** 字节数，后端 Long 下发为字符串 */
+    picSize?: string
+    spaceId?: string
+    thumbnailUrl?: string
+    url?: string
   }
 
   type PictureUpdateRequest = {

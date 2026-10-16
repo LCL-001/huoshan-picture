@@ -73,22 +73,12 @@ import {
   purgePicturesUsingPost,
   restorePicturesUsingPost,
 } from '@/api/pictureController'
+import { formatSize } from '@/utils'
 
-interface TrashItem {
-  id: string
-  name?: string
-  url?: string
-  thumbnailUrl?: string
-  spaceId?: string
-  picSize?: number
-  deleteTime?: string
-}
-
-interface TrashOpResult {
-  pictureId?: string
-  ok?: boolean
-  message?: string
-}
+// 列表项与逐条结果直接用 API 类型（T58）：19 位雪花 id 与 picSize 都是后端 Long 下发的字符串，
+// 不再在本页重复声明一遍容易漂移的本地接口
+type TrashItem = API.PictureTrashVO
+type TrashOpResult = API.PictureTrashResultVO
 
 const dataList = ref<TrashItem[]>([])
 const loading = ref(false)
@@ -142,7 +132,7 @@ const doTableChange = (pag: { current?: number; pageSize?: number }) => {
 }
 
 /** 逐条结果里统计成功/失败，失败带原因提示（后端逐张复核权限与配额） */
-const reportResults = (list: TrashOpResult[], successVerb: string) => {
+const reportResults = (list: TrashOpResult[] | undefined, successVerb: string) => {
   if (!Array.isArray(list)) return
   const failed = list.filter((item) => !item.ok)
   const okCount = list.length - failed.length
@@ -197,13 +187,6 @@ const doPurge = async (ids: string[]) => {
   } finally {
     purging.value = false
   }
-}
-
-const formatSize = (size?: number) => {
-  if (!size && size !== 0) return '-'
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / 1024 / 1024).toFixed(2)} MB`
 }
 
 const formatTime = (time?: string) => {

@@ -335,10 +335,10 @@ export async function applyAiTagsUsingPost(
 
 /** listTrash POST /api/picture/trash/list（回收站列表，T50；归属过滤在服务端按登录用户判定） */
 export async function listTrashUsingPost(
-  body: { current?: number; pageSize?: number },
+  body: API.PictureTrashQueryRequest,
   options?: { [key: string]: any }
 ) {
-  return request<any>('/api/picture/trash/list', {
+  return request<API.BaseResponsePagePictureTrashVO_>('/api/picture/trash/list', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -350,10 +350,10 @@ export async function listTrashUsingPost(
 
 /** restorePictures POST /api/picture/trash/restore（从回收站恢复，T50；逐张返回结果） */
 export async function restorePicturesUsingPost(
-  body: { pictureIdList: string[] },
+  body: API.PictureTrashBatchRequest,
   options?: { [key: string]: any }
 ) {
-  return request<any>('/api/picture/trash/restore', {
+  return request<API.BaseResponseListPictureTrashResultVO_>('/api/picture/trash/restore', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -365,10 +365,10 @@ export async function restorePicturesUsingPost(
 
 /** purgePictures POST /api/picture/trash/purge（从回收站彻底删除，T50；不可撤销，逐张返回结果） */
 export async function purgePicturesUsingPost(
-  body: { pictureIdList: string[] },
+  body: API.PictureTrashBatchRequest,
   options?: { [key: string]: any }
 ) {
-  return request<any>('/api/picture/trash/purge', {
+  return request<API.BaseResponseListPictureTrashResultVO_>('/api/picture/trash/purge', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
