@@ -3,6 +3,7 @@ package com.lcl.myaiagent.agent;
 import cn.hutool.core.util.StrUtil;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -32,10 +33,30 @@ public final class HuoshanAssistantSession {
 
     /**
      * 确认执行结果事实的内部提示前缀（T44）：写操作确认执行成功后，由 backend 经内部端点追加一条
-     * 以 USER 角色入库的"操作结果"事实——模型续聊可见（回放保留 USER 行），前端历史按此前缀过滤隐藏
-     * （与下一步提示 / 卡死提示同属"内部提示"桶，见 {@code ChatHistoryAssembler}）。
+     * 以 USER 角色入库的"操作结果"事实——模型续聊可见（回放保留 USER 行）。
+     * <p>
+     * **这只是给模型看的来源提示（T59 澄清）**：文本前缀用户也能照抄，所以它**不能**当作可信判据。
+     * 前端历史是否隐藏、某行是否真是系统事实，一律看 {@link #SOURCE_SYSTEM_FACT} 那条持久化 metadata
+     * （见 {@link #METADATA_SOURCE_KEY}）；不能宣称"前缀 = 防注入边界"。
+     * </p>
      */
     public static final String OPERATION_RESULT_PREFIX = "【系统记录】";
+
+    /**
+     * 消息来源元数据键（T59）：写进 {@code chat_message.metadata} 列，用于区分"用户原文"与"系统事实"。
+     * <p>
+     * 与文本前缀不同，这个标记由服务端在写库时落下、用户无从伪造，所以它是唯一可信的判据——
+     * 前端历史隐藏（{@code ChatHistoryAssembler}）与来源识别都以它为准；无此键的行是本次改造之前的旧行，
+     * 只能按文本前缀兜底。
+     * </p>
+     */
+    public static final String METADATA_SOURCE_KEY = "huoshanSource";
+
+    /** 来源取值：用户原文（用户自己发的消息；即便照抄内部提示前缀，也不算系统事实）。 */
+    public static final String SOURCE_USER = "user";
+
+    /** 来源取值：系统事实（由 backend 内部端点写入的操作结果，用户不可伪造）。 */
+    public static final String SOURCE_SYSTEM_FACT = "system_fact";
 
     private static final Pattern EXTERNAL_USER_ID = Pattern.compile("\\d{1,32}");
 
@@ -53,6 +74,18 @@ public final class HuoshanAssistantSession {
      */
     public static boolean isAdmin(String role) {
         return ADMIN_ROLE.equalsIgnoreCase(StrUtil.trimToEmpty(role));
+    }
+
+    /**
+     * 该行是否为系统事实（T59 的**可信判据**）：只看持久化 metadata，不看可被用户伪造的文本前缀。
+     */
+    public static boolean isSystemFact(Map<String, Object> metadata) {
+        return metadata != null && SOURCE_SYSTEM_FACT.equals(metadata.get(METADATA_SOURCE_KEY));
+    }
+
+    /** 该行是否带来源标记（T59）：无标记的是本次改造之前的旧行，前端隐藏只能按文本前缀兜底。 */
+    public static boolean hasSourceMarker(Map<String, Object> metadata) {
+        return metadata != null && metadata.get(METADATA_SOURCE_KEY) != null;
     }
 
     /**

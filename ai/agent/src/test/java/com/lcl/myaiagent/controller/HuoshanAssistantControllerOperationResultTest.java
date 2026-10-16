@@ -46,10 +46,22 @@ class HuoshanAssistantControllerOperationResultTest {
         assertThat(response.getData()).isTrue();
         assertThat(capturedConversationId).isEqualTo(HuoshanAssistantSession.conversationId(
                 HuoshanAssistantSession.owner("100"), "chat-1"));
-        // 以 USER 角色承载：模型回放可见、前端历史按前缀过滤（见 ChatHistoryAssembler）
+        // 以 USER 角色承载：模型回放可见、前端历史按来源标记过滤（见 ChatHistoryAssembler）
         assertThat(capturedMessage.getMessageType()).isEqualTo(MessageType.USER);
         assertThat(capturedMessage.getText())
                 .isEqualTo(HuoshanAssistantSession.OPERATION_RESULT_PREFIX + "用户已确认并执行批量编辑：提交 2 张。");
+    }
+
+    /** T59：可信判据是持久化来源标记（system_fact），而不是可被用户伪造的文本前缀。 */
+    @Test
+    void marksRecordedFactAsSystemFact() {
+        HuoshanAssistantController controller = controller();
+
+        controller.recordOperationResult("chat-1", "100", note("用户已确认并执行批量编辑：提交 2 张。"));
+
+        assertThat(capturedMessage.getMetadata())
+                .containsEntry(HuoshanAssistantSession.METADATA_SOURCE_KEY,
+                        HuoshanAssistantSession.SOURCE_SYSTEM_FACT);
     }
 
     @Test

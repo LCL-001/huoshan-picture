@@ -18,8 +18,8 @@ import java.util.Map;
  * 把 chat_message 的扁平行组装成"轮"结构的前端历史视图。
  * <p>
  * 组装规则：
- * 1. 真实用户消息开启一轮；agent 内部提示（下一步提示/卡死提示）虽以 USER 角色入库，
- *    但归入当前 assistant 轮，不单独成轮；
+ * 1. 真实用户消息开启一轮；内部提示（下一步提示/卡死提示）与系统事实行虽以 USER 角色入库，
+ *    但不单独成轮——隐藏判据见 {@link #isHiddenUserRow}（T59：以来源 metadata 为准，前缀只作旧行兜底）；
  * 2. TOOL 行与空文本的 toolCall 行还原为该轮的 steps（折叠条内容），
  *    内容过长截断，[ASK_HUMAN] 响应还原为面向用户的提问；
  * 3. 最后一条面向用户的 assistant 文本作为该轮的 answer，并关闭本轮。
@@ -49,7 +49,7 @@ public final class ChatHistoryAssembler {
                 continue;
             }
             if ("USER".equals(type)) {
-                if (isInternalPrompt(content)) {
+                if (isHiddenUserRow(m)) {
                     continue;
                 }
                 flushTurn(result, assistantId, answer, steps, lastTime);
@@ -127,7 +127,33 @@ public final class ChatHistoryAssembler {
                 .build());
     }
 
-    private static boolean isInternalPrompt(String content) {
+    /**
+     * 该 USER 行是否不进前端历史（T59）。
+     * <p>
+     * 判据以**持久化的来源 metadata** 为准，而不是用户可伪造的文本前缀：
+     * <ul>
+     *   <li>来源标记为系统事实（{@link HuoshanAssistantSession#SOURCE_SYSTEM_FACT}）→ 隐藏——唯一可信判据；</li>
+     *   <li>带来源标记但不是系统事实（用户原文）→ 不隐藏——用户照抄内部提示前缀也不会被吃掉；</li>
+     *   <li>没有来源标记 → 本次改造之前的旧行，按文本前缀兜底（与旧行为一致），
+     *       兼容 T44 之前落库的事实行与旧时代的内部提示行。</li>
+     * </ul>
+     */
+    private static boolean isHiddenUserRow(ChatMessage m) {
+        Map<String, Object> metadata = m.getMetadata();
+        if (HuoshanAssistantSession.isSystemFact(metadata)) {
+            return true;
+        }
+        if (HuoshanAssistantSession.hasSourceMarker(metadata)) {
+            return false;
+        }
+        return isLegacyInternalPrompt(m.getContent());
+    }
+
+    /**
+     * 旧行的文本前缀兜底：下一步提示 / 卡死提示 / T44 操作结果事实（前缀形式）。
+     * 这些提示自 2026-09-27 起不再落库，只剩历史行需要过滤；新行一律走 metadata 判据。
+     */
+    private static boolean isLegacyInternalPrompt(String content) {
         return content != null && (content.startsWith(MyManus.NEXT_STEP_PROMPT_TEXT)
                 || content.startsWith(BaseAgent.STUCK_PROMPT_PREFIX)
                 // T44：确认执行结果事实（模型可见、对前端隐藏，见 HuoshanAssistantSession）

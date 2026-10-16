@@ -74,7 +74,8 @@ public class MessageConverter {
     /**
      * 将内部ChatMessage实体转换为Spring AI的Message对象
      * 根据消息类型（用户/助手/系统/工具）创建对应的Spring AI消息实例。
-     * 对 TOOL 类型会从 metadata 中恢复 ToolResponseMessage.responses。
+     * 对 TOOL 类型会从 metadata 中恢复 ToolResponseMessage.responses；
+     * 对 USER 类型保留 metadata（T59：来源标记必须活过回放，否则来源识别会退回可伪造的文本前缀）。
      *
      * @param chatMessage 内部聊天消息实体，包含消息类型、内容和元数据
      * @return Message 转换后的Spring AI消息对象，具体类型取决于消息类型
@@ -88,7 +89,7 @@ public class MessageConverter {
         }
 
         return switch (messageType) {
-            case USER -> new UserMessage(text);
+            case USER -> UserMessage.builder().text(text).metadata(metadata).build();
             case ASSISTANT -> {
                 AssistantMessage.Builder builder = AssistantMessage.builder()
                         .content(text)

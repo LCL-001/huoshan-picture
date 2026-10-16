@@ -289,7 +289,13 @@ public abstract class BaseAgent {
         if (this.chatMemory == null || this.conversationId == null) {
             return;
         }
-        this.chatMemory.add(this.conversationId, List.of(new UserMessage(userPrompt)));
+        // T59：用户原文带来源标记——前端历史据此把它当普通消息（照抄内部提示前缀也不会被隐藏/信任），
+        // 与内部的"系统事实行"（{@link HuoshanAssistantSession#SOURCE_SYSTEM_FACT}）区分开来
+        UserMessage userMessage = UserMessage.builder()
+                .text(userPrompt)
+                .metadata(Map.of(HuoshanAssistantSession.METADATA_SOURCE_KEY, HuoshanAssistantSession.SOURCE_USER))
+                .build();
+        this.chatMemory.add(this.conversationId, List.of(userMessage));
     }
 
     /** 每步模型调用的产出写回一次（原 advisor after() 的职责收编到这里；工具响应行仍不落库） */

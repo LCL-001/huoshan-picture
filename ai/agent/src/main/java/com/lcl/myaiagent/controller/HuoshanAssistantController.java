@@ -40,6 +40,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 图库助手 headless 端点（T8 档 1）：服务间 API key 鉴权 + 外部用户标识映射 + 用户真实 satoken 透传，
@@ -187,8 +188,10 @@ public class HuoshanAssistantController {
      * <p>
      * 鉴权沿用 {@code HeadlessApiKeyInterceptor}（覆盖 {@code /ai/huoshan/**}）；归属与只读历史端点同款：
      * {@link HuoshanAssistantSession#owner(String)} 校验 + 确定性 conversationId 派生，只写该会话。
-     * 落库以 <b>USER 角色 + 内部提示前缀</b>承载——模型回放可见，前端历史按前缀过滤隐藏（与下一步提示同桶）。
-     * 内容由 backend 生成（可信、非用户原文），本端点不接受用户可控的业务 payload。
+     * 落库以 <b>USER 角色 + 来源标记（{@link HuoshanAssistantSession#SOURCE_SYSTEM_FACT}）</b>承载——
+     * 模型回放可见（文本带内部前缀，作为给模型的来源提示）；前端历史按<b>持久化 metadata 标记</b>过滤隐藏
+     * （T59：不再只看用户可伪造的文本前缀）。内容由 backend 生成（可信、非用户原文），本端点不接受
+     * 用户可控的业务 payload。
      *
      * @param chatId      图库侧会话标识（与 prepare/confirm 同一 chatId）
      * @param userId      图库用户 id（由代理透传，仅用于会话归属）
@@ -208,8 +211,12 @@ public class HuoshanAssistantController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, e.getMessage());
         }
         String conversationId = HuoshanAssistantSession.conversationId(owner, chatId);
-        appendConversationMessage(conversationId,
-                new UserMessage(HuoshanAssistantSession.OPERATION_RESULT_PREFIX + noteRequest.getContent().trim()));
+        appendConversationMessage(conversationId, UserMessage.builder()
+                .text(HuoshanAssistantSession.OPERATION_RESULT_PREFIX + noteRequest.getContent().trim())
+                // T59：可信判据是这条持久化来源标记（用户不可伪造）；文本前缀只给模型看
+                .metadata(Map.of(HuoshanAssistantSession.METADATA_SOURCE_KEY,
+                        HuoshanAssistantSession.SOURCE_SYSTEM_FACT))
+                .build());
         log.info("图库助手记录操作结果, owner={}, conversationId={}", owner, conversationId);
         return ResultUtils.success(true);
     }

@@ -65,7 +65,12 @@ class AgentExplicitMemoryTest {
         assertThat(chatMemory.addedBatches).hasSize(3);
         assertThat(chatMemory.addedBatches.get(0))
                 .singleElement()
-                .isInstanceOfSatisfying(UserMessage.class, m -> assertThat(m.getText()).isEqualTo("这轮的问题"));
+                .isInstanceOfSatisfying(UserMessage.class, m -> {
+                    assertThat(m.getText()).isEqualTo("这轮的问题");
+                    // T59：用户原文写下来源标记 user——前端据此把它当普通消息，即便文本照抄内部提示前缀
+                    assertThat(m.getMetadata()).containsEntry(HuoshanAssistantSession.METADATA_SOURCE_KEY,
+                            HuoshanAssistantSession.SOURCE_USER);
+                });
         assertThat(chatMemory.addedBatches.get(1))
                 .singleElement()
                 .isInstanceOfSatisfying(AssistantMessage.class, m -> assertThat(m.getToolCalls()).isNotEmpty());

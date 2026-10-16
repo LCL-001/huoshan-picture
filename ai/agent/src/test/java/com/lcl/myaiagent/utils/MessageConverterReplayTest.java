@@ -7,6 +7,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 
 import java.util.HashMap;
 import java.util.List;
@@ -71,6 +72,47 @@ class MessageConverterReplayTest {
         List<Message> replay = MessageConverter.toReplayMessages(rows);
 
         assertThat(replay).extracting(Message::getText).contains(fact);
+    }
+
+    /**
+     * T59：来源标记必须活过持久化——写库时落在 metadata 列（{@code toChatMessage}），不能丢。
+     */
+    @Test
+    void persistsSourceMarkerIntoChatMessageMetadata() {
+        String fact = HuoshanAssistantSession.OPERATION_RESULT_PREFIX + "用户已确认并执行批量编辑：提交 2 张。";
+        Message marked = UserMessage.builder()
+                .text(fact)
+                .metadata(Map.of(HuoshanAssistantSession.METADATA_SOURCE_KEY,
+                        HuoshanAssistantSession.SOURCE_SYSTEM_FACT))
+                .build();
+
+        ChatMessage persisted = MessageConverter.toChatMessage(marked, "test-conversation");
+
+        assertThat(persisted.getMetadata())
+                .containsEntry(HuoshanAssistantSession.METADATA_SOURCE_KEY, HuoshanAssistantSession.SOURCE_SYSTEM_FACT);
+    }
+
+    /**
+     * T59：来源标记必须活过回放——从库里读回来转成模型消息时不得被丢掉，否则"真实来源经回放仍可识别"
+     * 一旦退回按文本前缀判断，就又变成用户可伪造的判据。
+     */
+    @Test
+    void retainsSourceMarkerWhenReplayingUserRows() {
+        String fact = HuoshanAssistantSession.OPERATION_RESULT_PREFIX + "用户已确认并执行批量编辑：提交 2 张。";
+        List<ChatMessage> rows = List.of(
+                row(MessageType.USER, "把这几张图改成风景",
+                        Map.of(HuoshanAssistantSession.METADATA_SOURCE_KEY, HuoshanAssistantSession.SOURCE_USER)),
+                row(MessageType.USER, fact,
+                        Map.of(HuoshanAssistantSession.METADATA_SOURCE_KEY, HuoshanAssistantSession.SOURCE_SYSTEM_FACT)));
+
+        List<Message> replay = MessageConverter.toReplayMessages(rows);
+
+        assertThat(replay).hasSize(2);
+        assertThat(replay.get(0).getMetadata())
+                .containsEntry(HuoshanAssistantSession.METADATA_SOURCE_KEY, HuoshanAssistantSession.SOURCE_USER);
+        assertThat(replay.get(1).getMetadata())
+                .containsEntry(HuoshanAssistantSession.METADATA_SOURCE_KEY, HuoshanAssistantSession.SOURCE_SYSTEM_FACT);
+        assertThat(replay.get(1).getText()).isEqualTo(fact);
     }
 
     private static ChatMessage row(MessageType type, String content, Map<String, Object> metadata) {
