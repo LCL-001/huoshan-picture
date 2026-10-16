@@ -8,6 +8,10 @@
 
 ## 活跃任务
 
+- [ ] T64（2026-10-16 字据；设计、现状根因与验收全文见 `docs/designs/2026-10-16-AI扩图降级为维护态设计.md`）**AI 扩图降级为维护态**：百炼 `image-out-painting` 已于 2026-10-10 官方下线（[公告 118434](https://www.aliyun.com/notice/118434)），官方替代 `qwen-image-3.0` 是指令式编辑、不保扩图语义，语义最接近的 `wanx2.1-imageedit` 的 500 张新人免费额度已于 2026-07-09 过期作废且官方明确不支持补发；用户决定**保留功能、不再付费调用**——backend 加维护门闩 `app.outpainting.enabled`（默认 false）：关闭时扩图两个入口一律返回维护提示，**不调百炼、不扣每日配额、不写幂等键**；维护状态经新增只读端点下发，前端弹窗据此展示维护通知并隐藏生成按钮；恢复只需翻转环境变量，**无需前端重新发版**。不删扩图代码、不动 spec 关键三行。
+  - 文件范围：backend `service/impl/PictureServiceImpl.java`、`service/IPictureService.java`、`controller/PictureController.java`、`application.yaml`；frontend `components/ImageOutPainting.vue`、`api/pictureController.ts`、`api/typings.d.ts`；`deploy/prod-checklist.md`；新增维护状态 VO 与服务层单测。
+  - 验收：服务层单测先红后绿（关闭时抛维护提示、零百炼调用、零 Redis 触碰；开启时门闩不拦）；既有扩图幂等集成测试补 `enabled=true` 后仍绿；前端 type-check 保持 0、改动文件 eslint 干净；浏览器真机点开扩图弹窗显示维护通知且无生成按钮。
+
 ### T55–T63：两日改动 review 修复批次（2026-10-13 用户确认）
 
 > 状态：T55/T56 已收口（见各条收口行），**T57–T63 未开始**；按 T57→T63 执行，先红后绿、逐任务代码提交，文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。

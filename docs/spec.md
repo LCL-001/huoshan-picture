@@ -26,7 +26,7 @@
 - [x] F2 空间与 RBAC：空间成员角色权限（SpaceUserController）
 - [x] F3 图片管理：上传（腾讯云 COS）、审核、搜索、批量抓取（Bing 抓取器，契约测试守护改版）
 - [x] F4 图片列表多级缓存：Caffeine + Redis、跨实例失效广播、命中率埋点、缓存重建锁预算化
-- [x] F5 AI 扩图（阿里百炼）：任务幂等 + 每日配额
+- [x] F5 AI 扩图（阿里百炼）：任务幂等 + 每日配额。**2026-10-16 起降级为维护态**——厂商模型已下线、替代模型的免费额度已作废，功能保留但默认关闭，前端只展示维护通知（讲解与已知限制见 `docs/features/F5-AI扩图.md`）
 - [x] F6 多人协同编辑：WebSocket + Disruptor，编辑锁 + 空闲超时兜底
 - [x] F7 帖子与社交（部分停用）：Post/PostInteraction/UserFollow 类注解已注释、不被 Spring 加载；SocialController 仅保留 /notification/*（顶栏铃铛在用），/timeline 已注释停用；前端三个社交路由与页面已清理（T22）
 - [x] F8 可观测性：traceId 全链路日志（异步透传）、Actuator/Prometheus 指标
