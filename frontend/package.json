@@ -16,6 +16,7 @@
     "check:batch-crawl-result": "node scripts/check-batch-crawl-result.mjs",
     "check:outpainting-status": "node scripts/check-outpainting-status.mjs",
     "check:format-size": "node scripts/check-format-size.mjs",
+    "check:analyze-numbers": "node scripts/check-analyze-numbers.mjs",
     "lint": "eslint . --fix",
     "format": "prettier --write src/"
   },

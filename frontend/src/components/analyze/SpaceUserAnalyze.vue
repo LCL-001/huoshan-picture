@@ -17,6 +17,7 @@ import VChart from 'vue-echarts'
 import 'echarts'
 import { computed, ref, watchEffect } from 'vue'
 import { getSpaceUserAnalyzeUsingPost } from '@/api/spaceAnalyzeController.ts'
+import { toNumber } from '@/utils/index.ts'
 import { message } from 'ant-design-vue'
 
 interface Props {
@@ -87,7 +88,7 @@ watchEffect(() => {
 // 图表选项
 const options = computed(() => {
   const periods = dataList.value.map((item) => item.period) // 时间区间
-  const counts = dataList.value.map((item) => item.count) // 上传数量
+  const counts = dataList.value.map((item) => toNumber(item.count)) // 上传数量（后端下发字符串，图表要 number）
 
   return {
     tooltip: { trigger: 'axis' },

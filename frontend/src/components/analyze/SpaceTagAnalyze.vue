@@ -12,6 +12,7 @@ import 'echarts'
 import 'echarts-wordcloud'
 import { computed, ref, watchEffect } from 'vue'
 import { getSpaceTagAnalyzeUsingPost } from '@/api/spaceAnalyzeController.ts'
+import { toNumber } from '@/utils/index.ts'
 import { message } from 'ant-design-vue'
 
 interface Props {
@@ -58,7 +59,7 @@ watchEffect(() => {
 const options =computed(() => {
   const tagData = dataList.value.map((item) => ({
     name: item.tag,
-    value: item.count,
+    value: toNumber(item.count),
   }))
 
   return {

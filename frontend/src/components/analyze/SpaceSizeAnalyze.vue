@@ -11,6 +11,7 @@ import VChart from 'vue-echarts'
 import 'echarts'
 import { computed, ref, watchEffect } from 'vue'
 import { getSpaceSizeAnalyzeUsingPost } from '@/api/spaceAnalyzeController.ts'
+import { toNumber } from '@/utils/index.ts'
 import { message } from 'ant-design-vue'
 
 interface Props {
@@ -57,7 +58,7 @@ watchEffect(() => {
 const options = computed(() => {
   const pieData = dataList.value.map((item) => ({
     name: item.sizeRange,
-    value: item.count,
+    value: toNumber(item.count),
   }))
 
   return {

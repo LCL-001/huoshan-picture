@@ -51,6 +51,19 @@ export const formatDateTime = (value: unknown, fallback = '-') => {
 }
 
 /**
+ * 把后端下发的字符串数值显式转成有限数（T63）。
+ *
+ * 为什么需要：T54 起 int64（图片大小、各维度 count 等）在 typings 里是 `string`；凡是要参与算术或
+ * 喂给图表的地方，靠 JS/echarts 隐式强制转换只会在缺值时变成 NaN（图表画歪、单元格显示 NaNKB）。
+ * 缺值/非数字一律回退 `fallback`（默认 0）——**真实 0 是已知值**，不会被当成缺值。
+ * **id 不要走这里**：19 位雪花 id 转 number 会丢精度、破坏字符串等值判断（decisions 2026-09-14 / 2026-10-13）。
+ */
+export const toNumber = (value?: number | string | null, fallback = 0): number => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+/**
  * 格式化文件大小
  * @param size
  */

@@ -79,7 +79,7 @@
           <div>宽度：{{ record.picWidth }}</div>
           <div>高度：{{ record.picHeight }}</div>
           <div>宽高比：{{ record.picScale }}</div>
-          <div>大小：{{ (record.picSize / 1024).toFixed(2) }}KB</div>
+          <div>大小：{{ formatSize(record.picSize) }}</div>
         </template>
         <template v-if="column.dataIndex === 'reviewMessage'">
           <div>审核状态：{{ PIC_REVIEW_STATUS_MAP[record.reviewStatus] }}</div>
@@ -156,6 +156,7 @@ import {
 } from '@/api/pictureController.ts'
 import AiTagPictureModal from '@/components/AiTagPictureModal.vue'
 import { toPictureIdList } from '@/utils/pictureSelection.ts'
+import { formatSize } from '@/utils/index.ts'
 import { message, Modal } from 'ant-design-vue'
 import {
   PIC_REVIEW_STATUS_ENUM,
