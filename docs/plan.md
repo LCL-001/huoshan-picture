@@ -52,9 +52,9 @@
 
 > 结论与复现边界见 `docs/decisions/2026-10-16-review-T59-T63.md`；T66 失败回灌边界见 `docs/decisions/2026-10-16-confirm-failure-facts.md`。不改确认门授权/单次消费与门卫首 token 口径，不新增依赖、进程或表。
 
-- [ ] T65（P2）**确认后摘要补读不得推翻写入结果**：文件范围 backend `manager/ai/AiAssistantOperationManager.java` 及对应 manager/controller 单测；验收：图片写入成功后空间名补读异常，confirm 仍返回真实结果、无「未执行」失败事实；批编与 URL 导入均覆盖。状态：review 已立项、未实施；见报告 R1。
-- [ ] T66（P2）**失败事实区分确认拒绝与执行失败**：文件范围 backend `controller/AiAssistantController.java`、`manager/ai/AiAssistantOperationManager.java`、必要结果 DTO 与对应单测；验收：未认证 operationId（含换行文本）不得进入隐藏系统事实，合法执行失败仍可关联且原异常不变。状态：review 已立项、未实施；见报告 R2。
-- [ ] T67（P2）**否定 token 的格式包裹兼容**：文件范围引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：反引号/引号/粗体包裹的否定 token 双向正确、范围外不进主模型工具链，原首 token/窗口/词表口径不变。状态：review 已立项、未实施；见报告 R3。
+- [x] T65（P2）**确认后摘要补读不得推翻写入结果**：文件范围 backend `manager/ai/AiAssistantOperationManager.java` 及对应 manager/controller 单测；验收：图片写入成功后空间名补读异常，confirm 仍返回真实结果、无「未执行」失败事实；批编与 URL 导入均覆盖。状态：已修复，空间名异常降级为空间 ID；红绿与回归见 `docs/plans/records/T65-确认摘要失败降级.md`。
+- [x] T66（P2）**失败事实区分确认拒绝与执行失败**：文件范围 backend `controller/AiAssistantController.java`、`manager/ai/AiAssistantOperationManager.java`、必要结果 DTO 与对应单测；验收：未认证 operationId（含换行文本）不得进入隐藏系统事实，合法执行失败仍可关联且原异常不变。状态：已修复，失败事实限定认证后生成；红绿与回归见 `docs/plans/records/T66-失败事实认证边界.md`。
+- [x] T67（P2）**否定 token 的格式包裹兼容**：文件范围引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：反引号/引号/粗体包裹的否定 token 双向正确、范围外不进主模型工具链，原首 token/窗口/词表口径不变。状态：已修复，首 token/窗口/词表不变；红绿与调用链回归见 `docs/plans/records/T67-否定token格式包裹.md`。
 
 ## 未决与非任务事项（不建任务）
 
