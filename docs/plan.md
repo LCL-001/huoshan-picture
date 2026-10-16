@@ -17,7 +17,7 @@
 
 ### T55–T63：两日改动 review 修复批次（2026-10-13 用户确认）
 
-> 状态：T55–T58 已收口（见各条收口行），**T59–T60 已收口、T61–T63 未开始**；按 T59→T63 执行，先红后绿、逐任务代码提交，文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。
+> 状态：T55–T58 已收口（见各条收口行），**T59–T61 已收口、T62–T63 未开始**；按 T59→T63 执行，先红后绿、逐任务代码提交，文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。
 > 文档指针：T57–T58 见 `docs/features/F17-回收站.md`；T59–T60 见 `docs/features/F12-图库助手档3工具与联调.md`；T61–T62 见 `docs/designs/2026-10-12-门卫召回第二轮设计.md`；T63 见 `docs/plans/records/T54-前端API类型对齐Long到String.md`。实施时各新增任务号对应 records（未实施不虚建证据），同步对应功能讲解。
 
 - [x] T55（P1）**回收站共享 URL 引用计数**：正常记录和仍可恢复的回收站记录均阻止 COS 清理，统一守护彻底删除、过期清理、替换与回滚补偿。
@@ -38,8 +38,9 @@
 - [x] T60（P2；依赖 T59）**AI 结果 operationId 关联**：回灌携带 operationId/类型/结果与既存计划摘要，保留确认门绑定、单次消费及 best-effort；前端阻止待确认时继续生成新写计划。
   - 文件范围：backend `controller/AiAssistantController.java`、`manager/ai/AiAssistantOperationManager.java`、`manager/ai/AiAssistantProxyManager.java` 及必要结果 DTO/VO；引擎 `controller/HuoshanAssistantController.java`、`agent/HuoshanAssistantSession.java`；frontend `src/pages/AssistantPage.vue` 与对应协议/纯函数测试；验收：既有多卡乱序确认结果可区分，失败可关联，阻止新计划不影响取消/查询和服务端授权。
   - **2026-10-16 收口**：回灌事实带 `operationId`/类型/结果与既存计划摘要（文本给模型、metadata 给机器），**确认失败也回灌** `failed`（原异常照旧上抛，修订 T44 边界）；前端待确认期间挡住新一轮（只挡发新消息，取消/查询/服务端授权不动）。实施记录与证据（backend 13 红→84/84、引擎 2 红→27/27、前端 5 红→PASS）见 `docs/plans/records/T60-AI结果operationId关联.md`，讲解同步 `docs/features/F12-图库助手档3工具与联调.md`，口径新增 `docs/decisions.md` 2026-10-16 行。
-- [ ] T61（P2）**门卫否定式 IN_SCOPE 解析**：双向处理否定 token，明确范围外不得因先出现被否定的 IN_SCOPE 而放行，含糊输出 fail-closed。
+- [x] T61（P2）**门卫否定式 IN_SCOPE 解析**：双向处理否定 token，明确范围外不得因先出现被否定的 IN_SCOPE 而放行，含糊输出 fail-closed。
   - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：not IN_SCOPE→OUT 拒绝、not OUT→IN 放行，原 token 顺序/无 token 回归通过，断言拒绝路径不进工具链。
+  - **2026-10-16 收口**：否定词改为**翻转**它修饰的那个 token（不再只是跳过被否定的 `OUT_OF_SCOPE`）——`not IN_SCOPE` 判拒（原先是洞）、`not OUT_OF_SCOPE` 放行；首 token 定生死与无 token fail-closed 不变。实施记录与证据（红 10 例 → 绿 26/26，负向控制恰好 6 例被否定的 IN_SCOPE 红；引擎门禁 235/235）见 `docs/plans/records/T61-门卫否定式token解析.md`，讲解同步 `docs/features/F11-AI助手MVP.md`，口径新增 `docs/decisions.md` 2026-10-16 行。
 - [ ] T62（P2）**门卫历史窗口边界**：先截取最近 4 条历史，再按既定角色/字数上限过滤，禁止无限向前凑助手行；沿用 T46 的 USER 锚点与结果事实可见性。
   - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：连续拒绝轮不拼入过早回答，最近任务锚点/结果事实仍保留，短跟进和范围外负向真机复测，模型实测与确定性窗口断言分开记证据。
 - [ ] T63（P3；用户明确批准修复，非挂账限制）**前端字符串数值显式转换**：仅对大小/count 等算术和图表数值显式转换，不对 id 做 Number、不顺手重构。
