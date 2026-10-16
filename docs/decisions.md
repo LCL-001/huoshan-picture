@@ -109,3 +109,4 @@
 | 2026-10-13 | **前端 API 类型对齐后端 Long→String（T54）**：`typings.d.ts` 里恒为 int64 的字段由 `number` 改 `string`，落实 2026-09-14「id 按字符串透传」；生成器加 `hook.customType` 但仍不自动跑。图片详情 40400 = T53 的 `Number(id)` 强转 | [理由与影响面](decisions/2026-10-13-api-types-long-to-string.md) | 生效 |
 | 2026-10-13 | **T54 独立 review：有条件通过**——类型收紧经独立比对忠实于后端；3 条 P2 已修（`BaseResponseLong_.data`、`SpaceCategoryAnalyzeResponse.count` 漏改 + 记录与 plan 矛盾），2 条 P3 关闭（Post 死类型字段分裂、口径数字不精确） | 见 `docs/plans/records/T54-前端API类型对齐Long到String.md` | 生效（有条件通过） |
 | 2026-10-16 | **AI 扩图降级为维护态（T64，用户批准）**：厂商模型已下线、替代模型免费额度作废，保留功能但加 `app.outpainting.enabled` 门闩（默认 false）——关闭时不调厂商、不扣配额、不写幂等键，维护状态由只读端点下发，恢复只翻环境变量 | [设计与理由](designs/2026-10-16-AI扩图降级为维护态设计.md) | 生效 |
+| 2026-10-16 | **空间额度计数口径（T57）**：配额判定一律写进 UPDATE 的 WHERE（与上传路径同口径），影响 0 行即超额；禁止"先读快照再判断、然后无条件自增"——并发下会各自读到同一旧快照一起通过，把计数加超上限 | 见 docs/plans/records/T57-恢复配额并发安全.md | 生效 |
