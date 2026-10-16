@@ -1189,8 +1189,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     }
 
     /**
-     * 恢复单张：先复核权限，再校验原空间是否还在与配额是否够（空间图会回补 totalCount/totalSize）。
-     * 逐张返回结果——一张失败不影响同批其它张。
+     * 恢复单张：先复核权限，再在**同一事务**内"恢复记录 + 回补空间名额"。
+     * <p>
+     * 配额条件写在 UPDATE 的 WHERE 里（T57）：并发恢复（或恢复与上传同时发生）时不拿 Java 侧读到的快照做判断，
+     * 由数据库保证 `totalCount / totalSize` 不越上限——条件不成立就是更新 0 行，抛异常让整笔事务回滚，
+     * 记录留在回收站。逐张返回结果——一张失败不影响同批其它张。
      */
     private PictureTrashResultVO restoreOne(Long id, User loginUser, Set<String> touchedScopes) {
         Picture picture = getBaseMapper().selectTrashedById(id);
@@ -1213,25 +1216,16 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
                 ThrowUtils.throwIf(getBaseMapper().restoreTrashedById(id) != 1,
                         ErrorCode.OPERATION_ERROR, "恢复失败");
             } else {
+                long picSize = nvl(picture.getPicSize());
                 // checkPictureAuth 已确认空间存在（查不到就抛 40400 了）
-                Space space = spaceService.getById(spaceId);
-                long picSize = picture.getPicSize() == null ? 0L : picture.getPicSize();
-                if (space.getMaxCount() != null && nvl(space.getTotalCount()) + 1 > space.getMaxCount()) {
-                    return PictureTrashResultVO.fail(id, "空间图片数量已达上限，无法恢复");
-                }
-                if (space.getMaxSize() != null && nvl(space.getTotalSize()) + picSize > space.getMaxSize()) {
-                    return PictureTrashResultVO.fail(id, "空间容量已达上限，无法恢复");
-                }
                 // 恢复 + 名额回补放在一个事务里，避免中途失败留下"已恢复但没记名额"的脏账
                 transactionTemplate.execute(status -> {
                     ThrowUtils.throwIf(getBaseMapper().restoreTrashedById(id) != 1,
                             ErrorCode.OPERATION_ERROR, "恢复失败");
-                    boolean updated = spaceService.lambdaUpdate()
-                            .eq(Space::getId, spaceId)
-                            .setSql("totalCount = totalCount + 1")
-                            .setSql("totalSize = totalSize + " + picSize)
-                            .update();
-                    ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "额度更新失败");
+                    if (!accumulateSpaceQuota(spaceId, picSize)) {
+                        throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                                restoreQuotaExceededMessage(spaceId, picSize));
+                    }
                     return true;
                 });
             }
@@ -1241,6 +1235,43 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
         }
         touchedScopes.add(cacheScopeOf(spaceId));
         return PictureTrashResultVO.ok(id, "已恢复");
+    }
+
+    /**
+     * 事务内回补空间名额：**配额条件放进 UPDATE 的 WHERE**（与上传路径同口径），返回 false 表示额度不足。
+     * <p>
+     * 不能"先读空间快照再判断、然后无条件加"：并发恢复（或与上传同时发生）会各自读到同一个旧快照一起通过，
+     * 最后把计数加超上限（T57）。条件放进 WHERE 后由数据库串行化判定，条件不成立时影响 0 行。
+     * `maxCount / maxSize` 为空视为不限；`totalCount / totalSize` 用 COALESCE 兜住历史 null。
+     */
+    private boolean accumulateSpaceQuota(Long spaceId, long picSize) {
+        return spaceService.lambdaUpdate()
+                .eq(Space::getId, spaceId)
+                .apply("(maxCount IS NULL OR COALESCE(totalCount, 0) + 1 <= maxCount)")
+                .apply("(maxSize IS NULL OR COALESCE(totalSize, 0) + {0} <= maxSize)", picSize)
+                .setSql("totalCount = COALESCE(totalCount, 0) + 1")
+                .setSql("totalSize = COALESCE(totalSize, 0) + " + picSize)
+                .update();
+    }
+
+    /**
+     * 额度不足时给用户看哪条：回读一次空间区分"数量触顶 / 容量触顶"。
+     * <p>
+     * **只影响文案**——判定以 {@link #accumulateSpaceQuota} 的 UPDATE 条件为准；万一两边不一致（例如刚被并发改过），
+     * 也只是回落到通用文案，不会影响"是否该拒绝"这个结论。
+     */
+    private String restoreQuotaExceededMessage(Long spaceId, long picSize) {
+        Space space = spaceService.getById(spaceId);
+        if (space == null) {
+            return "空间额度不足，无法恢复";
+        }
+        if (space.getMaxCount() != null && nvl(space.getTotalCount()) + 1 > space.getMaxCount()) {
+            return "空间图片数量已达上限，无法恢复";
+        }
+        if (space.getMaxSize() != null && nvl(space.getTotalSize()) + picSize > space.getMaxSize()) {
+            return "空间容量已达上限，无法恢复";
+        }
+        return "空间额度不足，无法恢复";
     }
 
     /**

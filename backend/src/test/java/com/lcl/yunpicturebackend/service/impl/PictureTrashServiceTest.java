@@ -1,6 +1,7 @@
 package com.lcl.yunpicturebackend.service.impl;
 
 import com.lcl.yunpicturebackend.common.DeleteRequest;
+import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import com.lcl.yunpicturebackend.constant.UserConstant;
 import com.lcl.yunpicturebackend.domain.dto.picture.PictureTrashBatchRequest;
 import com.lcl.yunpicturebackend.domain.po.Picture;
@@ -21,6 +22,7 @@ import com.lcl.yunpicturebackend.service.PictureFileCleanupService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Answers;
 import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -38,6 +40,7 @@ import java.util.stream.LongStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -139,25 +142,40 @@ class PictureTrashServiceTest {
     }
 
     @Test
-    @DisplayName("恢复：空间数量配额已满 → 拒绝，记录仍留回收站")
-    void restoreFailsWhenQuotaExceeded() {
+    @DisplayName("恢复：额度回补被 UPDATE 的条件挡下（并发下名额已被占）→ 拒绝，记录仍留回收站")
+    void restoreFailsWhenQuotaUpdateRejected() {
         Picture trashed = picture(5L, LOGIN_USER_ID, 100L);
         when(pictureMapper.selectTrashedById(9L)).thenReturn(trashed);
-        Space space = new Space();
-        space.setId(5L);
-        space.setSpaceType(0);
-        space.setUserId(LOGIN_USER_ID);
-        space.setMaxCount(0L);
-        space.setTotalCount(0L);
+        // 记录本身恢复成功，但额度条件不成立（影响 0 行）→ 整笔事务回滚
+        when(pictureMapper.restoreTrashedById(9L)).thenReturn(1);
+        Space space = space(5L, 0L);
         when(spaceService.getById(5L)).thenReturn(space);
         when(spaceUserAuthManager.getPermissionList(space, loginUser))
                 .thenReturn(List.of(SpaceUserPermissionConstant.PICTURE_DELETE));
+        stubSpaceQuotaUpdate(false);
 
         List<PictureTrashResultVO> results = pictureService.restorePictures(batch(9L), request);
 
+        assertThat(results).hasSize(1);
         assertThat(results.get(0).isOk()).isFalse();
         assertThat(results.get(0).getMessage()).contains("上限");
-        verify(pictureMapper, never()).restoreTrashedById(any());
+    }
+
+    @Test
+    @DisplayName("恢复：额度条件成立（UPDATE 影响 1 行）→ 通过")
+    void restoreSucceedsWhenQuotaUpdateApplies() {
+        Picture trashed = picture(5L, LOGIN_USER_ID, 100L);
+        when(pictureMapper.selectTrashedById(9L)).thenReturn(trashed);
+        when(pictureMapper.restoreTrashedById(9L)).thenReturn(1);
+        Space space = space(5L, 10L);
+        when(spaceService.getById(5L)).thenReturn(space);
+        when(spaceUserAuthManager.getPermissionList(space, loginUser))
+                .thenReturn(List.of(SpaceUserPermissionConstant.PICTURE_DELETE));
+        stubSpaceQuotaUpdate(true);
+
+        List<PictureTrashResultVO> results = pictureService.restorePictures(batch(9L), request);
+
+        assertThat(results.get(0).isOk()).isTrue();
     }
 
     @Test
@@ -209,6 +227,17 @@ class PictureTrashServiceTest {
         verify(pictureFileCleanupService, never()).clearPictureFile(any());
     }
 
+    /**
+     * 桩出额度回补的链式调用：返回的 wrapper 只关心 `update()` 的结果——它代表"配额条件是否成立"
+     * （条件写在 UPDATE 的 WHERE 里，见 T57；条件本身由真实库上的
+     * {@link PictureTrashQuotaConcurrencyIntegrationTest} 钉住，本类只钉"条件不成立 → 拒绝"这一分支）。
+     */
+    private void stubSpaceQuotaUpdate(boolean applied) {
+        LambdaUpdateChainWrapper<Space> wrapper = mock(LambdaUpdateChainWrapper.class, Answers.RETURNS_SELF);
+        when(wrapper.update()).thenReturn(applied);
+        when(spaceService.lambdaUpdate()).thenReturn(wrapper);
+    }
+
     private Picture picture(Long spaceId, long userId, long picSize) {
         Picture picture = new Picture();
         picture.setSpaceId(spaceId);
@@ -216,6 +245,22 @@ class PictureTrashServiceTest {
         picture.setPicSize(picSize);
         picture.setUrl("https://mock-cos.test/unit/" + System.nanoTime() + ".jpg");
         return picture;
+    }
+
+    /**
+     * 私有空间夹具：属主经 SpaceUserAuthManager 直接拿 admin 权限（含 picture:delete）。
+     * 额度回补是否通过由 `spaceService.lambdaUpdate().update()` 的返回值代表——条件已写进 UPDATE 的 WHERE（T57）。
+     */
+    private Space space(long id, Long maxCount) {
+        Space space = new Space();
+        space.setId(id);
+        space.setSpaceType(0);
+        space.setUserId(LOGIN_USER_ID);
+        space.setMaxCount(maxCount);
+        space.setMaxSize(1024L * 1024L);
+        space.setTotalCount(0L);
+        space.setTotalSize(0L);
+        return space;
     }
 
     private PictureTrashBatchRequest batch(Long... ids) {
