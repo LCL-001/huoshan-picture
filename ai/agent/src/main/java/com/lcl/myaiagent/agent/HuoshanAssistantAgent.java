@@ -119,7 +119,7 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
 
     /** 否定词（T46 A3' → T61）：紧邻出现在**任一**范围 token 前方时，翻转该 token 的语义 */
     private static final Pattern SCOPE_NEGATION_PATTERN =
-            Pattern.compile("(not|isn't|is not|非|不是|不属于)\\s*$", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("(not|isn't|is not|非|不是|不属于)\\s*(?:[`\"']|\\*\\*)?\\s*$", Pattern.CASE_INSENSITIVE);
 
     /** 否定词回看窗口（T46 A3'）：只看 token 前 16 个字符，避免长文本里的"不"字误伤 */
     private static final int SCOPE_NEGATION_LOOKBACK = 16;

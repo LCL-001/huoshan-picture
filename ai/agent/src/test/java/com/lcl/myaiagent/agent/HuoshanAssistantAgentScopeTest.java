@@ -5,6 +5,8 @@ import com.lcl.myaiagent.agent.event.RecordingAgentEventListener;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -25,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -328,6 +331,121 @@ class HuoshanAssistantAgentScopeTest {
         assertThat(listener.joinedAnswers()).isEqualTo("完成");
         assertThat(agent.mainModelCalls()).isEqualTo(2);
         verify(toolManager, times(1)).executeToolCalls(any(), any());
+    }
+
+    // ---------- T67：句内否定 token 的格式包裹 ----------
+
+    @ParameterizedTest(name = "句内否定包裹：{0} -> {1}")
+    @MethodSource("negatedWrappedScopeDecisions")
+    @DisplayName("T67：既有六种否定词与四种包裹组合均双向翻转")
+    void negatedWrappedScopeTokenFlipsDecision(String decision, boolean expected) {
+        assertThat(HuoshanAssistantAgent.isInScopeDecision(decision)).isEqualTo(expected);
+    }
+
+    @ParameterizedTest(name = "句内无否定包裹：{0} -> {1}")
+    @MethodSource("wrappedScopeDecisions")
+    @DisplayName("T67：没有否定词的包裹 token 保持原义")
+    void wrappedScopeTokenWithoutNegationKeepsDecision(String wrappedToken, boolean inScope) {
+        assertThat(HuoshanAssistantAgent.isInScopeDecision("This request is " + wrappedToken + "."))
+                .isEqualTo(inScope);
+    }
+
+    @ParameterizedTest(name = "首 token 决定：{0}")
+    @MethodSource("wrappedScopeDecisions")
+    @DisplayName("T67：被包裹的首 token 仍决定结果，不跳到后续 token")
+    void firstWrappedScopeTokenStillDecides(String wrappedToken, boolean inScope) {
+        String laterToken = inScope ? "OUT_OF_SCOPE" : "IN_SCOPE";
+        assertThat(HuoshanAssistantAgent.isInScopeDecision(
+                "This request is " + wrappedToken + "; later " + laterToken + "."))
+                .isEqualTo(inScope);
+        assertThat(HuoshanAssistantAgent.isInScopeDecision(
+                "This request is not " + wrappedToken + "; later " + laterToken + "."))
+                .isEqualTo(!inScope);
+    }
+
+    @ParameterizedTest(name = "16 字符回看边界：{0}")
+    @MethodSource("wrappedScopeDecisions")
+    @DisplayName("T67：包裹符计入原始 16 字符回看窗口，不扩大窗口")
+    void wrappedNegationKeepsSixteenCharacterLookback(String wrappedToken, boolean inScope) {
+        int openingLength = wrappedToken.startsWith("**") ? 2 : 1;
+        String atBoundary = "This request is not" + " ".repeat(16 - 3 - openingLength);
+        assertThat(HuoshanAssistantAgent.isInScopeDecision(atBoundary + wrappedToken + "."))
+                .as("not 完整落在 token 前 16 字符内时翻转")
+                .isEqualTo(!inScope);
+        assertThat(HuoshanAssistantAgent.isInScopeDecision(atBoundary + " " + wrappedToken + "."))
+                .as("多一个空格使 not 越窗时不翻转")
+                .isEqualTo(inScope);
+    }
+
+    @ParameterizedTest(name = "不扩词表或删除标点：{0}")
+    @MethodSource("wrappedScopeDecisions")
+    @DisplayName("T67：普通标点仍隔断否定，表外否定词不获新语义")
+    void wrappedTokenDoesNotBroadenNegation(String wrappedToken, boolean inScope) {
+        for (String prefix : List.of("not: ", "not, ", "not! ", "not? ", "never ", "no longer ", "不在 ")) {
+            assertThat(HuoshanAssistantAgent.isInScopeDecision("This request is " + prefix + wrappedToken + "."))
+                    .as("前缀 %s 不应成为紧邻否定词", prefix)
+                    .isEqualTo(inScope);
+        }
+    }
+
+    @ParameterizedTest(name = "句内包裹否定拒绝调用链：{0}")
+    @MethodSource("scopeDecisionWrappers")
+    @DisplayName("T67：被包裹的否定 IN_SCOPE 拒绝且不进主脑或工具")
+    void negatedWrappedInScopeRejectsBeforeMainModelAndTools(String wrapper) {
+        StubChatModel scopeModel = new StubChatModel(
+                response("This request is not " + wrapper.formatted("IN_SCOPE") + ".", List.of()));
+        TestAgent agent = new TestAgent(scopeModel,
+                response("我先查看你的空间。", List.of(toolCall("listSpaces"))),
+                response("这是一个通用回答。", List.of()));
+        ToolCallingManager toolManager = configureToolExecution(agent, "图库服务不可用");
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+        agent.runForTest("帮我写一段快速排序代码", listener);
+
+        assertThat(listener.joinedAnswers()).isEqualTo(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY);
+        assertThat(listener.count(AgentEvent.Step.class)).isZero();
+        assertThat(listener.count(AgentEvent.Done.class)).isEqualTo(1);
+        assertThat(agent.mainModelCalls()).isZero();
+        assertThat(scopeModel.calls()).isEqualTo(1);
+        verify(toolManager, never()).executeToolCalls(any(), any());
+    }
+
+    @ParameterizedTest(name = "句内包裹否定放行调用链：{0}")
+    @MethodSource("scopeDecisionWrappers")
+    @DisplayName("T67：被包裹的否定 OUT_OF_SCOPE 正常进入主脑与工具")
+    void negatedWrappedOutOfScopeAllowsMainModelAndTools(String wrapper) {
+        StubChatModel scopeModel = new StubChatModel(
+                response("This request is not " + wrapper.formatted("OUT_OF_SCOPE") + ".", List.of()));
+        TestAgent agent = new TestAgent(scopeModel,
+                response("我先查看你的空间。", List.of(toolCall("listSpaces"))),
+                response("完成", List.of()));
+        ToolCallingManager toolManager = configureToolExecution(agent, "{\"spaces\":[],\"total\":0}");
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+        agent.runForTest("列出我的空间", listener);
+
+        assertThat(listener.joinedAnswers()).isEqualTo("完成");
+        assertThat(listener.count(AgentEvent.Done.class)).isEqualTo(1);
+        assertThat(agent.mainModelCalls()).isEqualTo(2);
+        assertThat(scopeModel.calls()).isEqualTo(1);
+        verify(toolManager, times(1)).executeToolCalls(any(), any());
+    }
+
+    private static Stream<String> scopeDecisionWrappers() {
+        return Stream.of("`%s`", "\"%s\"", "'%s'", "**%s**");
+    }
+
+    private static Stream<Arguments> wrappedScopeDecisions() {
+        return scopeDecisionWrappers().flatMap(wrapper -> Stream.of(
+                Arguments.of(wrapper.formatted("IN_SCOPE"), true),
+                Arguments.of(wrapper.formatted("OUT_OF_SCOPE"), false)));
+    }
+
+    private static Stream<Arguments> negatedWrappedScopeDecisions() {
+        return Stream.of("not", "isn't", "is not", "非", "不是", "不属于")
+                .flatMap(negation -> scopeDecisionWrappers().flatMap(wrapper -> Stream.of(
+                        Arguments.of("This request is " + negation + " " + wrapper.formatted("IN_SCOPE") + ".", false),
+                        Arguments.of("This request is " + negation + " " + wrapper.formatted("OUT_OF_SCOPE") + ".", true))));
     }
 
     @Test
