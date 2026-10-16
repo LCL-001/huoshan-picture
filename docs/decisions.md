@@ -114,3 +114,4 @@
 | 2026-10-16 | **结果回灌带身份 + 失败也回灌（T60）**：回灌事实带 operationId/类型/结果与既存计划摘要（文本给模型、metadata 给机器）；**修订 T44**"confirm 硬失败不记录"——失败回灌 `failed` 事实（原因取用户安全口径），原异常照旧上抛；前端待确认期间挡住新一轮对话 | 见 docs/plans/records/T60-AI结果operationId关联.md | 生效 |
 | 2026-10-16 | **门卫否定式解析口径（T61，细化了 T46 A3'）**：否定词**翻转**它修饰的那个范围 token（不再只是跳过被否定的 OUT_OF_SCOPE）——`not IN_SCOPE` 判拒、`not OUT_OF_SCOPE` 放行，仍首 token 定生死、无 token 仍 fail-closed；否定词表与回看窗口不变 | 见 docs/plans/records/T61-门卫否定式token解析.md | 生效 |
 | 2026-10-16 | **门卫历史窗口口径（T62，落地 T46 设计 A1' 漏掉的那条）**：门卫上下文**先在原始历史上截最近 4 条**，再在窗口内丢弃拒绝话术行并按 USER≤2 / ASSISTANT≤1 与 500 字封顶——禁止为凑配额无限向前翻（连续拒绝轮会把过早的助手回答拖进输入）；越窗锚点找不回来是既定取舍 | 见 docs/plans/records/T62-门卫历史窗口边界.md | 生效 |
+| 2026-10-16 | **前端字符串数值显式转换口径（T63）**：int64 下发为 string 的字段凡参与算术或喂图表一律显式转换——大小走 `formatSize`、各维度 count 走新纯函数 `toNumber`（真实 0 不吞、缺值回退 0）；**id 一律不 Number**（19 位雪花丢精度）；禁靠 JS/echarts 隐式强制转换 | 见 docs/plans/records/T63-前端字符串数值显式转换.md | 生效 |

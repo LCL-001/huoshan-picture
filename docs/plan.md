@@ -17,8 +17,8 @@
 
 ### T55–T63：两日改动 review 修复批次（2026-10-13 用户确认）
 
-> 状态：T55–T58 已收口（见各条收口行），**T59–T62 已收口、T63 未开始**；按 T59→T63 执行，先红后绿、逐任务代码提交，文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。
-> 文档指针：T57–T58 见 `docs/features/F17-回收站.md`；T59–T60 见 `docs/features/F12-图库助手档3工具与联调.md`；T61–T62 见 `docs/designs/2026-10-12-门卫召回第二轮设计.md`；T63 见 `docs/plans/records/T54-前端API类型对齐Long到String.md`。实施时各新增任务号对应 records（未实施不虚建证据），同步对应功能讲解。
+> 状态：**T55–T63 全部收口**（各条收口行 + `docs/plans/records/` 对应记录）；执行口径：先红后绿、逐任务代码提交、文档另提；不新增依赖、进程或表。下列范围均为仓库相对路径，含对应测试；实现须另查生效决定，若改变既有口径先补字据，不在本次计划提交中改决定。
+> 文档指针：T57–T58 见 `docs/features/F17-回收站.md`；T59–T60 见 `docs/features/F12-图库助手档3工具与联调.md`；T61–T62 见 `docs/features/F11-AI助手MVP.md`（设计沿革 `docs/designs/2026-10-12-门卫召回第二轮设计.md`）；T63 见 `docs/plans/records/T54-前端API类型对齐Long到String.md`。各任务号对应 `docs/plans/records/`（未实施不虚建证据），同步对应功能讲解。
 
 - [x] T55（P1）**回收站共享 URL 引用计数**：正常记录和仍可恢复的回收站记录均阻止 COS 清理，统一守护彻底删除、过期清理、替换与回滚补偿。
   - 文件范围：backend `service/impl/PictureServiceImpl.java`、`service/IPictureService.java`、`service/impl/SpaceServiceImpl.java`、`mapper/PictureMapper.java`、`resources/mapper/PictureMapper.xml` 及回收站/替换/补偿/级联测试；验收：同 URL 两张均入站，删首张不清 COS且另一张可恢复，最后引用删除才清；覆盖过期清理与删空间级联。
@@ -44,8 +44,9 @@
 - [x] T62（P2）**门卫历史窗口边界**：先截取最近 4 条历史，再按既定角色/字数上限过滤，禁止无限向前凑助手行；沿用 T46 的 USER 锚点与结果事实可见性。
   - 文件范围：引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：连续拒绝轮不拼入过早回答，最近任务锚点/结果事实仍保留，短跟进和范围外负向真机复测，模型实测与确定性窗口断言分开记证据。
   - **2026-10-16 收口**：补上 T46 设计 A1' 漏掉的窗口——`gateContextMessages` 先在原始历史上截最近 4 条、再在窗口内丢弃拒绝话术行并角色/字数封顶；越窗不看（凑不满也不向前翻）。实施记录与证据（红 1 例 → 绿 28/28，负向控制恰好同一例红；引擎门禁 237/237。**模型实测部分本轮未做**，确定性断言与真机复测分开记）见 `docs/plans/records/T62-门卫历史窗口边界.md`，讲解同步 `docs/features/F11-AI助手MVP.md`，口径新增 `docs/decisions.md` 2026-10-16 行。
-- [ ] T63（P3；用户明确批准修复，非挂账限制）**前端字符串数值显式转换**：仅对大小/count 等算术和图表数值显式转换，不对 id 做 Number、不顺手重构。
+- [x] T63（P3；用户明确批准修复，非挂账限制）**前端字符串数值显式转换**：仅对大小/count 等算术和图表数值显式转换，不对 id 做 Number、不顺手重构。
   - 文件范围：frontend `src/pages/admin/PictureManagePage.vue`、`src/components/analyze/SpaceSizeAnalyze.vue`、`SpaceTagAnalyze.vue`、`SpaceUserAnalyze.vue` 及相关断言；验收：字符串/零/缺值转换回归、图表输入为 number，type-check/eslint/助手格式检查通过。
+  - **2026-10-16 收口**：新增纯函数 `toNumber`（真实 0 不吞、缺值回退 0、id 不走它），大小单元格改用统一 `formatSize`、三处图表 count 走 `toNumber`，并新增常驻断言 `check:analyze-numbers`（行为 + 结构两类：含"四个文件都不得把 id 喂给 Number"守卫）。实施记录与证据（先红 6 例 → PASS，负向控制恰好 4 例红；type-check 0 错 / eslint 干净 / 六个检查脚本全绿）见 `docs/plans/records/T63-前端字符串数值显式转换.md`，口径新增 `docs/decisions.md` 2026-10-16 行。
 
 ## 未决与非任务事项（不建任务）
 
