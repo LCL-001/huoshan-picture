@@ -55,6 +55,7 @@
 - [x] T65（P2）**确认后摘要补读不得推翻写入结果**：文件范围 backend `manager/ai/AiAssistantOperationManager.java` 及对应 manager/controller 单测；验收：图片写入成功后空间名补读异常，confirm 仍返回真实结果、无「未执行」失败事实；批编与 URL 导入均覆盖。状态：已修复，空间名异常降级为空间 ID；红绿与回归见 `docs/plans/records/T65-确认摘要失败降级.md`。
 - [x] T66（P2）**失败事实区分确认拒绝与执行失败**：文件范围 backend `controller/AiAssistantController.java`、`manager/ai/AiAssistantOperationManager.java`、必要结果 DTO 与对应单测；验收：未认证 operationId（含换行文本）不得进入隐藏系统事实，合法执行失败仍可关联且原异常不变。状态：已修复，失败事实限定认证后生成；红绿与回归见 `docs/plans/records/T66-失败事实认证边界.md`。
 - [x] T67（P2）**否定 token 的格式包裹兼容**：文件范围引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：反引号/引号/粗体包裹的否定 token 双向正确、范围外不进主模型工具链，原首 token/窗口/词表口径不变。状态：已修复，首 token/窗口/词表不变；红绿与调用链回归见 `docs/plans/records/T67-否定token格式包裹.md`。
+  - **2026-10-17 真机补验**（真实模型 + 浏览器端到端，补 handoff 0038 标记的未验证项）：T65 确认时摘要补读在真实 DB 下正确装配、T66 合法执行失败仍回灌/未认证拒绝零事实、拒绝路径不进工具链均**补验通过**；T67 的正则分支与真实 MySQL 故障注入仍未真机隔离（引擎无 loggers、门卫无日志，模型原始 token 不可见）。环境、复跑脚本与原始输出见 `docs/evidence/2026-10-17-real-model-browser-e2e.md`。
 
 ## 未决与非任务事项（不建任务）
 
