@@ -114,10 +114,10 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
             When you have the answer, summarise it in Chinese and end this run.
             """;
 
-    /** 判定（T43 A3）：第一个命中的范围 token 才算数——"OUT_OF_SCOPE…IN_SCOPE"仍拒（否定式前言例外见 T46 A3'） */
+    /** 判定（T43 A3）：第一个命中的范围 token 才算数——"OUT_OF_SCOPE…IN_SCOPE"仍拒；否定词翻转语义见 T61 */
     private static final Pattern SCOPE_DECISION_PATTERN = Pattern.compile("IN_SCOPE|OUT_OF_SCOPE");
 
-    /** 否定词（T46 A3'）：紧邻出现在 OUT_OF_SCOPE 前方时，该次匹配不算数 */
+    /** 否定词（T46 A3' → T61）：紧邻出现在**任一**范围 token 前方时，翻转该 token 的语义 */
     private static final Pattern SCOPE_NEGATION_PATTERN =
             Pattern.compile("(not|isn't|is not|非|不是|不属于)\\s*$", Pattern.CASE_INSENSITIVE);
 
@@ -240,13 +240,14 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
     }
 
     /**
-     * 判定（T43 A3 → T46 A3'）：剥掉代码 fence 与包裹引号、大写后取第一个范围 token——
-     * 是 IN_SCOPE 才放行；没有 token（模糊、解释性、空输出）一律 fail-closed。
-     * <p>
-     * T46 A3' 加**否定式前言守卫**：首个/某次命中的若是 OUT_OF_SCOPE，但它紧邻前方（{@value #SCOPE_NEGATION_LOOKBACK}
-     * 字符内）出现否定词（"not" / "isn't" / "is not" / "非" / "不是" / "不属于"），该次匹配不算数，继续找下一个 token。
-     * "OUT_OF_SCOPE…IN_SCOPE"这类无否定词的排序仍按首 token 拒。
-     * </p>
+     * 判定（T43 A3 → T46 A3' → T61）：剥掉代码 fence 与包裹引号、大写后取**第一个**范围 token 定生死，
+     * 否定词**翻转**该 token 的语义（T61 起双向，而不再只是"跳过被否定的 OUT_OF_SCOPE"）：
+     * <ul>
+     *   <li>{@code IN_SCOPE} → 放行；{@code OUT_OF_SCOPE} → 拒绝（首个 token 定生死）；</li>
+     *   <li>{@code not IN_SCOPE} → 范围外 → **拒绝**（T61：不得因为先出现的是被否定的 IN_SCOPE 就放行）；</li>
+     *   <li>{@code not OUT_OF_SCOPE} → 范围内 → 放行（T46 A3' 的"否定式前言"由这条统一规则表达）。</li>
+     * </ul>
+     * 没有出现任何 token（含糊、解释性、空输出，哪怕其中带否定词）一律 fail-closed。
      */
     static boolean isInScopeDecision(String decision) {
         if (decision == null) {
@@ -254,13 +255,10 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
         }
         String text = normalizeDecision(decision);
         Matcher matcher = SCOPE_DECISION_PATTERN.matcher(text);
-        while (matcher.find()) {
-            if (IN_SCOPE.equals(matcher.group())) {
-                return true;
-            }
-            if (!isNegated(text, matcher.start())) {
-                return false;
-            }
+        if (matcher.find()) {
+            boolean inScopeToken = IN_SCOPE.equals(matcher.group());
+            // 否定词把"是不是范围内"反过来：not IN_SCOPE = 范围外，not OUT_OF_SCOPE = 范围内
+            return isNegated(text, matcher.start()) ? !inScopeToken : inScopeToken;
         }
         return false;
     }

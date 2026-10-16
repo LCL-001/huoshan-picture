@@ -251,6 +251,85 @@ class HuoshanAssistantAgentScopeTest {
                 .isTrue();
     }
 
+    // ---------- T61：否定式 token 双向解析 ----------
+
+    /**
+     * T61 的核心：否定词**翻转**它修饰的那个 token，而不是"跳过它继续找下一个"。
+     * 被否定的 IN_SCOPE 就是"范围外"，绝不能因为"先出现的 token 是 IN_SCOPE"就放行。
+     */
+    @ParameterizedTest(name = "被否定的 IN_SCOPE 判范围外：{0}")
+    @ValueSource(strings = {
+            "not IN_SCOPE",
+            "This request is not IN_SCOPE.",
+            "不是 IN_SCOPE",
+            "not IN_SCOPE，虽然后面写着 IN_SCOPE",
+            "It isn't IN_SCOPE; the request is about travel planning."
+    })
+    @DisplayName("T61：被否定的 IN_SCOPE 一律 fail-closed 拒绝")
+    void negatedInScopeIsTreatedAsOutOfScope(String decision) {
+        assertThat(HuoshanAssistantAgent.isInScopeDecision(decision)).isFalse();
+    }
+
+    /** 反向同理：被否定的 OUT_OF_SCOPE 就是"范围内"（T46 A3' 的"否定式前言"由同一条规则统一表达） */
+    @ParameterizedTest(name = "被否定的 OUT_OF_SCOPE 判范围内：{0}")
+    @ValueSource(strings = {
+            "not OUT_OF_SCOPE",
+            "This is not OUT_OF_SCOPE; it is IN_SCOPE.",
+            "不属于 OUT_OF_SCOPE",
+            "is not OUT_OF_SCOPE"
+    })
+    @DisplayName("T61：被否定的 OUT_OF_SCOPE 放行")
+    void negatedOutOfScopeIsTreatedAsInScope(String decision) {
+        assertThat(HuoshanAssistantAgent.isInScopeDecision(decision)).isTrue();
+    }
+
+    /** 否定词 + 没有范围 token = 含糊输出：fail-closed（不能把"出现否定词"当成放行信号） */
+    @Test
+    @DisplayName("T61：只有否定词没有 token 时 fail-closed")
+    void negationWithoutAnyScopeTokenStaysFailClosed() {
+        assertThat(HuoshanAssistantAgent.isInScopeDecision("this is not in the picture scope")).isFalse();
+        assertThat(HuoshanAssistantAgent.isInScopeDecision("不是关于图库的问题")).isFalse();
+    }
+
+    /** T61 端到端：被否定的 IN_SCOPE 走拒绝路径——不进正式助手、不调工具链、恰好一个 Done */
+    @Test
+    @DisplayName("T61：被否定的 IN_SCOPE 拒绝且不进工具链")
+    void negatedInScopeRejectsWithoutEnteringToolChain() {
+        StubChatModel scopeModel = new StubChatModel(response("not IN_SCOPE", List.of()));
+        TestAgent agent = new TestAgent(scopeModel,
+                response("我先查看你的空间。", List.of(toolCall("listSpaces"))),
+                response("这是一个通用回答。", List.of()));
+        ToolCallingManager toolManager = configureToolExecution(agent, "图库服务不可用");
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+        agent.runForTest("帮我写一段快速排序代码", listener);
+
+        assertThat(listener.joinedAnswers()).isEqualTo(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY);
+        assertThat(listener.count(AgentEvent.Step.class)).isZero();
+        assertThat(listener.count(AgentEvent.Done.class)).isEqualTo(1);
+        assertThat(agent.mainModelCalls()).isZero();
+        assertThat(scopeModel.calls()).isEqualTo(1);
+        verify(toolManager, never()).executeToolCalls(any(), any());
+    }
+
+    /** T61 端到端：被否定的 OUT_OF_SCOPE 放行——正常走主模型与工具链 */
+    @Test
+    @DisplayName("T61：被否定的 OUT_OF_SCOPE 放行并进入工具链")
+    void negatedOutOfScopeAllowsToolChain() {
+        StubChatModel scopeModel = new StubChatModel(response("This is not OUT_OF_SCOPE.", List.of()));
+        TestAgent agent = new TestAgent(scopeModel,
+                response("我先查看你的空间。", List.of(toolCall("listSpaces"))),
+                response("完成", List.of()));
+        ToolCallingManager toolManager = configureToolExecution(agent, "{\"spaces\":[],\"total\":0}");
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+        agent.runForTest("列出我的空间", listener);
+
+        assertThat(listener.joinedAnswers()).isEqualTo("完成");
+        assertThat(agent.mainModelCalls()).isEqualTo(2);
+        verify(toolManager, times(1)).executeToolCalls(any(), any());
+    }
+
     @Test
     @DisplayName("T43 A2：拒绝轮把固定话术写回记忆（回放不再问了没答）")
     void rejectionIsRememberedAsAssistantMessage() {
