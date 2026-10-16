@@ -7,10 +7,10 @@
     @cancel="closeModal"
   >
     <a-alert
-      v-if="!outPaintingAvailable"
-      type="warning"
+      v-if="statusLoading || !outPaintingAvailable"
+      :type="statusLoading ? 'info' : 'warning'"
       show-icon
-      :message="maintenanceMessage || 'AI 扩图功能维护中'"
+      :message="statusLoading ? '正在确认 AI 扩图状态…' : maintenanceMessage"
       style="margin-bottom: 16px"
     />
     <a-row gutter="16">
@@ -69,22 +69,32 @@ const resultImageUrl = ref<string>('')
 // 任务 id
 const taskId = ref<string>()
 
-/**
- * 维护态（T64）：后端门闩关闭时展示维护通知并隐藏生成入口；
- * 取状态失败时维持现有界面——服务端门闩已经兜住，宁可少一次误报"坏了"，也不要把能用的功能显示成"维护中"
- */
-const outPaintingAvailable = ref(true)
+// Unknown status is not availability: only an explicit server true opens generation.
+const outPaintingAvailable = ref(false)
+const statusLoading = ref(false)
 const maintenanceMessage = ref('')
+const statusUnavailableMessage = '暂时无法确认 AI 扩图状态，请关闭后重试'
+let statusRequestVersion = 0
 
 const loadOutPaintingStatus = async () => {
+  const version = ++statusRequestVersion
+  outPaintingAvailable.value = false
+  statusLoading.value = true
+  maintenanceMessage.value = ''
   try {
     const res = await getPictureOutPaintingStatusUsingGet()
-    if (res.data.code === 0 && res.data.data) {
-      outPaintingAvailable.value = res.data.data.available !== false
-      maintenanceMessage.value = res.data.data.message ?? ''
-    }
+    if (version !== statusRequestVersion) return
+    const status = res?.data?.code === 0 ? res.data.data : undefined
+    outPaintingAvailable.value = status?.available === true
+    maintenanceMessage.value =
+      status?.available === false ? status.message || 'AI 扩图功能维护中' : statusUnavailableMessage
   } catch (error) {
     console.error('获取 AI 扩图维护状态失败', error)
+    if (version === statusRequestVersion) {
+      maintenanceMessage.value = statusUnavailableMessage
+    }
+  } finally {
+    if (version === statusRequestVersion) statusLoading.value = false
   }
 }
 
@@ -92,7 +102,7 @@ const loadOutPaintingStatus = async () => {
  * 创建任务
  */
 const createTask = async () => {
-  if (!props.picture?.id) {
+  if (!outPaintingAvailable.value || statusLoading.value || !props.picture?.id) {
     return
   }
   const res = await createPictureOutPaintingTaskUsingPost({
@@ -204,6 +214,9 @@ const openModal = async () => {
 
 // 关闭弹窗
 const closeModal = () => {
+  statusRequestVersion++
+  outPaintingAvailable.value = false
+  statusLoading.value = false
   visible.value = false
 }
 
