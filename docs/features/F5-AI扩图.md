@@ -61,10 +61,10 @@
 
 ## 怎么验证
 
-- **维护门闩（T64，纯 Mockito 无 Spring）**：`OutPaintingMaintenanceGateTest`——关闭时 `createOutPaintingTask` 抛维护文案且 `verifyNoInteractions(AliYunAiApi)`、零 `StringRedisTemplate` 交互；关闭时 `getOutPaintingTask` 同样被拦；开启时门闩不拦（走到后续校验）；状态 VO 关闭/开启两态。红绿与负向控制输出见 `docs/plans/records/T64-AI扩图降级为维护态.md`。
-- **开启态语义不回归**：`OutPaintingTaskIdempotencyIntegrationTest`（需 MySQL/Redis，随 CI）已补 `app.outpainting.enabled=true`，继续钉住幂等复用、超额拒绝与失败回滚。
-- **前端**：`npm run type-check` 保持 0 错、改动文件 `npx eslint .` 干净、`check:assistant-*` 三项不破。
-- **真机**：本机起前后端，点开扩图弹窗 → 显示维护通知、无「生成图片」按钮；后端日志无扩图调用、Redis 无 `huoshantuku:outpainting:*` 新键。证据见 T64 记录。
+- **维护门闩（T64，纯 Mockito 无 Spring）**：`OutPaintingMaintenanceGateTest` 5 例——关闭时 `createOutPaintingTask` 抛维护文案且**零查图、零百炼调用、零 Redis 触碰**；关闭时 `getOutPaintingTask` 同样被拦；开启时门闩不拦（走到后续校验）；状态 VO 两态。先红（5 跑 2 红）后绿 5/5；负向控制（门闩恒放行）恰好那 2 例红。
+- **开启态语义不回归**：`OutPaintingTaskIdempotencyIntegrationTest`（需 MySQL/Redis）已补 `app.outpainting.enabled=true`，3/3 绿继续钉住幂等复用、超额拒绝与失败回滚；**把它去掉（即用默认 false）3 例全红**，证明"不配环境变量就是维护态"。
+- **门禁**：后端单测口径 174/174 绿（本轮 +5）；前端 `type-check` 0 错、`npx eslint .` 无输出、`check:assistant-*` 与 `check:batch-crawl-result` 三项 PASS。
+- **真机**（本机 8123 + 5173）：`GET /out_painting/status` 返回 `available=false` + 维护文案；登录态下 `GET /out_painting/get_task` 回同文案（证明拦在归属校验之前）；探针前后 `huoshantuku:outpainting:*` 键均为空；浏览器点开弹窗只有维护 `a-alert`、**没有「生成图片」按钮**。红绿数字与完整证据见 `docs/plans/records/T64-AI扩图降级为维护态.md`。
 
 ## 已知限制
 
