@@ -133,6 +133,13 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
     /** 门卫上下文保留的 ASSISTANT 行数上限（T46 A1'） */
     static final int SCOPE_MAX_ASSISTANT_ROWS = 1;
 
+    /**
+     * 门卫历史窗口（T62）：**先**截取最近这么多条历史，**再**按角色/字数过滤。
+     * 没有这层窗口时，只要 2 条 USER / 1 条 ASSISTANT 凑不满，循环就一路向前翻——连续拒绝轮
+     * （拒绝话术行被丢弃）会把很早的助手回答也拖进输入。窗口口径同 T46 设计 A1' 的"最近至多 4 条"。
+     */
+    static final int SCOPE_CONTEXT_MAX_ROWS = 4;
+
     private final ChatModel scopeModel;
     private boolean scopeChecked;
 
@@ -199,24 +206,32 @@ public class HuoshanAssistantAgent extends ToolCallAgent {
     }
 
     /**
-     * 门卫上下文（T46 A1'）：从跨轮历史尾部近取 USER / ASSISTANT 文本，丢弃固定拒绝话术行，
-     * USER 至多 {@value #SCOPE_MAX_USER_ROWS} 行、ASSISTANT 至多 {@value #SCOPE_MAX_ASSISTANT_ROWS} 行，各截断后按原序返回。
+     * 门卫上下文（T46 A1'，T62 补上窗口）：从跨轮历史尾部的**最近至多 {@value #SCOPE_CONTEXT_MAX_ROWS} 条**里近取
+     * USER / ASSISTANT 文本，丢弃固定拒绝话术行，USER 至多 {@value #SCOPE_MAX_USER_ROWS} 行、
+     * ASSISTANT 至多 {@value #SCOPE_MAX_ASSISTANT_ROWS} 行，各截断后按原序返回。
      * <p>
      * **修订 T43 A1 的"USER 行不进输入"**：T43 排除 USER 行是为防"历史拒绝轮污染"，但那也把追问赖以成立的
      * 任务锚点（空间名、目标图片、操作类型）与 T44 的「操作结果」事实行一并排除了——真机上"已完成写操作"的
      * 追问因此被误拒。现纳入 USER 文本，仅丢弃等于拒绝话术的行；行数与字数封顶防长文挤占窗口。
      * </p>
+     * <p>
+     * **T62 补上窗口**：T46 的实现只做了角色封顶，漏了设计里的"先截最近 4 条"——于是凑不满配额时循环会
+     * 无限向前翻（连续拒绝轮尤其明显：拒绝话术行被丢弃，助手配额一直空着，只好去够很早的回答）。
+     * 现在**先在原始历史上截窗**，再在窗口内做丢弃与封顶，越窗的行一律不看。
+     * </p>
      */
     private List<Message> gateContextMessages() {
         List<Message> history = getHistoryContext();
+        int from = Math.max(0, history.size() - SCOPE_CONTEXT_MAX_ROWS);
+        List<Message> window = history.subList(from, history.size());
         List<Message> picked = new ArrayList<>();
         int users = 0;
         int assistants = 0;
-        for (int i = history.size() - 1; i >= 0; i--) {
+        for (int i = window.size() - 1; i >= 0; i--) {
             if (users >= SCOPE_MAX_USER_ROWS && assistants >= SCOPE_MAX_ASSISTANT_ROWS) {
                 break;
             }
-            Message message = history.get(i);
+            Message message = window.get(i);
             String text = message.getText();
             if (text == null || text.isBlank() || OUT_OF_SCOPE_REPLY.equals(text.trim())) {
                 continue;

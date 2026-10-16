@@ -347,6 +347,71 @@ class HuoshanAssistantAgentScopeTest {
         });
     }
 
+    // ---------- T62：门卫历史窗口边界 ----------
+
+    /**
+     * T62：门卫上下文先**截取最近 4 条**再按角色/字数过滤。
+     * 改前没有这层窗口——只要 2 条 USER / 1 条 ASSISTANT 凑不满，循环就一直往前翻；
+     * 连续拒绝轮（拒绝话术行被丢弃）时会把很早的助手回答也拖进输入。
+     */
+    @Test
+    @DisplayName("T62：窗口截最近 4 条——连续拒绝轮不把过早的助手回答拖进输入")
+    void gateWindowDoesNotReachBackToEarlierAssistantAnswer() {
+        RecordingChatMemory memory = new RecordingChatMemory(List.of(
+                new UserMessage("帮我找一些日落的图片"),
+                new AssistantMessage("这是很早的回答：共 3 张候选图。"),
+                new UserMessage("帮我写一段快速排序代码"),
+                new AssistantMessage(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY),
+                new UserMessage("给我一个三天旅游计划"),
+                new AssistantMessage(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY),
+                new UserMessage("解释一下量子纠缠"),
+                new AssistantMessage(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY)));
+        StubChatModel scopeModel = new StubChatModel(response("OUT_OF_SCOPE", List.of()));
+        TestAgent agent = new TestAgent(scopeModel, memory, response("不应调用正式助手", List.of()));
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+        agent.runForTest("继续讲编程", listener);
+
+        String joined = scopeModel.prompts().get(0).getInstructions().toString();
+        assertThat(joined)
+                .as("窗口之外（第 5 条起）的旧助手回答不得被'向前凑'进来")
+                .doesNotContain("这是很早的回答");
+        assertThat(joined)
+                .as("更早的 USER 行同样不越过窗口")
+                .doesNotContain("帮我找一些日落的图片");
+        assertThat(joined)
+                .as("窗口内的最近 USER 行仍进输入（T46 的锚点可见性不变）")
+                .contains("解释一下量子纠缠");
+        assertThat(joined)
+                .as("连续拒绝轮的话术仍不进输入")
+                .doesNotContain(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY);
+    }
+
+    /** T62 回归守护：加了窗口之后，最近的任务锚点与 T44 结果事实仍必须留在输入里 */
+    @Test
+    @DisplayName("T62：窗口内保留任务锚点与结果事实，窗口外的旧回答不进")
+    void gateWindowKeepsRecentAnchorsAndFact() {
+        RecordingChatMemory memory = new RecordingChatMemory(List.of(
+                new UserMessage("很久以前：帮我找一些日落的图片"),
+                new AssistantMessage("很早的回答：我在网上找到 3 张候选图。"),
+                new UserMessage("那是一段很旧的历史"),
+                new AssistantMessage(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY),
+                new UserMessage("帮我把 T62 smoke space 空间里的图片分类改成 landscape"),
+                new AssistantMessage("已找到 T62 smoke space（共 2 张图片），现在生成待确认操作："),
+                new UserMessage("【系统记录】用户已确认并执行批量编辑：提交 2 张。")));
+        StubChatModel scopeModel = new StubChatModel(response("IN_SCOPE", List.of()));
+        TestAgent agent = new TestAgent(scopeModel, memory, response("完成", List.of()));
+        RecordingAgentEventListener listener = new RecordingAgentEventListener();
+
+        agent.runForTest("刚才那个批量编辑完成了吗？结果怎么样", listener);
+
+        String joined = scopeModel.prompts().get(0).getInstructions().toString();
+        assertThat(joined).as("窗口内的任务锚点（空间名）仍在").contains("T62 smoke space");
+        assertThat(joined).as("T44 结果事实行仍在").contains("用户已确认并执行批量编辑");
+        assertThat(joined).as("窗口外的旧回答不进").doesNotContain("很早的回答");
+        assertThat(joined).doesNotContain(HuoshanAssistantAgent.OUT_OF_SCOPE_REPLY);
+    }
+
     private static ToolCallingManager configureToolExecution(TestAgent agent, String responseData) {
         ToolCallingManager toolManager = mock(ToolCallingManager.class);
         ToolExecutionResult toolResult = mock(ToolExecutionResult.class);
