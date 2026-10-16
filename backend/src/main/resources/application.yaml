@@ -112,6 +112,11 @@ app:
     # 重建耗时超过该值打 WARN，作为"TTL 余量可能不够"的早期信号
     rebuild-warn-ms: 5000
   outpainting:
+    # 维护门闩（T64）：百炼 image-out-painting 已于 2026-10-10 下线、替代模型免费额度已作废，
+    # 默认关闭＝维护态——两个入口直接返回维护提示，不调厂商、不扣配额、不写幂等键。
+    # 失败安全：漏配环境变量只会让功能不可用，不会开始按量计费。恢复时置 OUTPAINTING_ENABLED=true。
+    # 口径见 docs/decisions.md 2026-10-16、讲解见 docs/features/F5-AI扩图.md
+    enabled: ${OUTPAINTING_ENABLED:false}
     # 单用户每日可创建的 AI 扩图任务数上限（按量计费，防止狂点产生付费任务）
     daily-quota: 20
   rate-limit:

@@ -13,6 +13,7 @@ import com.lcl.yunpicturebackend.domain.vo.PictureAiTagSuggestionVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureTrashResultVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureTrashVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
+import com.lcl.yunpicturebackend.domain.vo.VOutPaintingStatusVO;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -190,6 +191,13 @@ public interface IPictureService extends IService<Picture> {
      * @return 外画任务结果
      */
     GetOutPaintingTaskResponse getOutPaintingTask(String taskId, User loginUser);
+
+    /**
+     * 查询 AI 扩图维护状态（T64）：只读、无副作用、不含用户数据，供前端决定是否展示维护通知。
+     *
+     * @return 维护状态（available=false 时 message 为维护文案）
+     */
+    VOutPaintingStatusVO getOutPaintingStatus();
 
     /**
      * AI 打标：逐张看图给出标签/分类建议（**仅管理员**，只读——不写库、不动审核状态）。

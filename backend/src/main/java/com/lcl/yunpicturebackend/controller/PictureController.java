@@ -22,6 +22,7 @@ import com.lcl.yunpicturebackend.domain.vo.PictureTrashVO;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.domain.vo.SpaceLevel;
+import com.lcl.yunpicturebackend.domain.vo.VOutPaintingStatusVO;
 import com.lcl.yunpicturebackend.enums.SpaceLevelEnum;
 import com.lcl.yunpicturebackend.enums.TagTypeEnum;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
@@ -331,6 +332,18 @@ public class PictureController {
         User loginUser = userService.getLoginUser(request);
         pictureService.editPictureByBatch(pictureEditByBatchRequest, loginUser);
         return ResultUtils.success(true);
+    }
+
+    /**
+     * 查询 AI 扩图维护状态（T64）
+     * <p>
+     * 只读、幂等、无副作用、不含用户数据，故不要求登录（该路径在 /picture/** 注解可信区内，
+     * 不入注解的端点不会被 SaInterceptor 拦；见 SaTokenConfigure）。
+     */
+    @ApiOperation("查询 AI 扩图维护状态")
+    @GetMapping("/out_painting/status")
+    public BaseResponse<VOutPaintingStatusVO> getOutPaintingStatus() {
+        return ResultUtils.success(pictureService.getOutPaintingStatus());
     }
 
     /**

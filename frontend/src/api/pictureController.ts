@@ -157,6 +157,14 @@ export async function getPictureOutPaintingTaskUsingGet(
   )
 }
 
+/** getPictureOutPaintingStatus GET /api/picture/out_painting/status */
+export async function getPictureOutPaintingStatusUsingGet(options?: { [key: string]: any }) {
+  return request<API.BaseResponseVOutPaintingStatusVO_>('/api/picture/out_painting/status', {
+    method: 'GET',
+    ...(options || {}),
+  })
+}
+
 /** doPictureReview POST /api/picture/review */
 export async function doPictureReviewUsingPost(
   body: API.PictureReviewRequest,

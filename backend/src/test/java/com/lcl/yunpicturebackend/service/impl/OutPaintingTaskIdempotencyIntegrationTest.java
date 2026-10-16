@@ -36,7 +36,7 @@ import static org.mockito.Mockito.when;
  * 只 mock 掉真正花钱的 {@link AliYunAiApi}，幂等键、配额计数、归属记录都走真实 Redis；
  * 用固定的测试用户/图片 id 隔离，避免碰到库里真实用户的数据。
  */
-@SpringBootTest(properties = "app.outpainting.daily-quota=1")
+@SpringBootTest(properties = {"app.outpainting.daily-quota=1", "app.outpainting.enabled=true"})
 class OutPaintingTaskIdempotencyIntegrationTest {
 
     /**

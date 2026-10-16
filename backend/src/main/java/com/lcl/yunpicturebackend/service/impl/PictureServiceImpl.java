@@ -31,6 +31,7 @@ import com.lcl.yunpicturebackend.domain.vo.PictureTrashResultVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureTrashVO;
 import com.lcl.yunpicturebackend.domain.vo.PictureVO;
 import com.lcl.yunpicturebackend.domain.vo.UserVO;
+import com.lcl.yunpicturebackend.domain.vo.VOutPaintingStatusVO;
 import com.lcl.yunpicturebackend.enums.PictureReviewStatusEnum;
 import com.lcl.yunpicturebackend.enums.TagTypeEnum;
 import com.lcl.yunpicturebackend.exception.BusinessException;
@@ -132,6 +133,13 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
     private static final String OUT_PAINTING_PENDING = "PENDING";
 
     /**
+     * 维护态文案（T64）：服务端抛出的异常与前端维护通知**共用这一句**，避免两处各写一句。
+     * 口径见 docs/decisions.md 2026-10-16。
+     */
+    public static final String OUT_PAINTING_MAINTENANCE_MESSAGE =
+            "AI 扩图功能维护中：厂商扩图模型已下线，暂时无法生成，恢复后本页会自动重新开放";
+
+    /**
      * 图片列表缓存版本号的 Redis key 前缀。实际 key 按 scope 分开（见 {@link #cacheVersionKey}）：
      * 空间图库是该空间 id，公共图库是 {@link #CACHE_SCOPE_PUBLIC}。
      */
@@ -196,6 +204,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
      */
     @Value("${app.outpainting.daily-quota:20}")
     private int outPaintingDailyQuota;
+
+    /**
+     * 扩图维护门闩（T64，默认关闭＝维护态）：厂商模型已下线、替代模型免费额度已作废。
+     * <p>
+     * 关闭时两个入口一律返回维护提示，不调百炼、不扣配额、不写幂等键；默认 false 是失败安全——
+     * 漏配环境变量只会让功能不可用，不会开始按量计费。恢复只需把它配成 true（前端无需发版）。
+     */
+    @Value("${app.outpainting.enabled:false}")
+    private boolean outPaintingEnabled;
 
     private final IUserService userService;
 
@@ -1644,7 +1661,26 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
 
 
     @Override
+    public VOutPaintingStatusVO getOutPaintingStatus() {
+        VOutPaintingStatusVO status = new VOutPaintingStatusVO();
+        status.setAvailable(outPaintingEnabled);
+        status.setMessage(outPaintingEnabled ? null : OUT_PAINTING_MAINTENANCE_MESSAGE);
+        return status;
+    }
+
+    /**
+     * 维护门闩（T64）：必须在图片存在性、权限、幂等与配额**之前**判——关闭态下既不给调用方
+     * "这张图存在与否"的探测信号，也不产生任何百炼调用、配额计数或幂等键。
+     */
+    private void checkOutPaintingAvailable() {
+        if (!outPaintingEnabled) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, OUT_PAINTING_MAINTENANCE_MESSAGE);
+        }
+    }
+
+    @Override
     public CreateOutPaintingTaskResponse createOutPaintingTask(CreatePictureOutPaintingTaskRequest createPictureOutPaintingTaskRequest, User loginUser) {
+        checkOutPaintingAvailable();
         // 获取图片信息
         Long pictureId = createPictureOutPaintingTaskRequest.getPictureId();
         Picture picture = Optional.ofNullable(this.getById(pictureId))
@@ -1734,6 +1770,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture> impl
 
     @Override
     public GetOutPaintingTaskResponse getOutPaintingTask(String taskId, User loginUser) {
+        checkOutPaintingAvailable();
         ThrowUtils.throwIf(StrUtil.isBlank(taskId), ErrorCode.PARAMS_ERROR, "任务 id 不能为空");
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NO_AUTH_ERROR);
         String owner = stringRedisTemplate.opsForValue().get(OUT_PAINTING_OWNER_KEY + taskId);

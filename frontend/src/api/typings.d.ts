@@ -191,6 +191,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseVOutPaintingStatusVO_ = {
+    code?: number
+    data?: VOutPaintingStatusVO
+    message?: string
+  }
+
   type CreateOutPaintingTaskResponse = {
     code?: string
     message?: string
@@ -885,6 +891,13 @@ declare namespace API {
     vipCode?: string
     vipExpireTime?: string
     vipNumber?: number
+  }
+
+  type VOutPaintingStatusVO = {
+    /** 功能是否可用（false = 维护态，隐藏生成入口） */
+    available?: boolean
+    /** 不可用时的维护文案（后端下发，前端只展示） */
+    message?: string
   }
 
   type VipExchangeRequest = {

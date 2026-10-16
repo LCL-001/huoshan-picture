@@ -6,6 +6,13 @@
     :footer="false"
     @cancel="closeModal"
   >
+    <a-alert
+      v-if="!outPaintingAvailable"
+      type="warning"
+      show-icon
+      :message="maintenanceMessage || 'AI 扩图功能维护中'"
+      style="margin-bottom: 16px"
+    />
     <a-row gutter="16">
       <a-col span="12">
         <h4>原始图片</h4>
@@ -23,7 +30,15 @@
     </a-row>
     <div style="margin-bottom: 16px" />
     <a-flex justify="center" gap="16">
-      <a-button type="primary" :loading="!!taskId" ghost @click="createTask">生成图片</a-button>
+      <a-button
+        v-if="outPaintingAvailable"
+        type="primary"
+        :loading="!!taskId"
+        ghost
+        @click="createTask"
+      >
+        生成图片
+      </a-button>
       <a-button v-if="resultImageUrl" type="primary" :loading="uploadLoading" @click="handleUpload">
         应用结果
       </a-button>
@@ -35,6 +50,7 @@
 import { ref } from 'vue'
 import {
   createPictureOutPaintingTaskUsingPost,
+  getPictureOutPaintingStatusUsingGet,
   getPictureOutPaintingTaskUsingGet,
   uploadPictureByUrlUsingPost,
 } from '@/api/pictureController.ts'
@@ -52,6 +68,25 @@ const resultImageUrl = ref<string>('')
 
 // 任务 id
 const taskId = ref<string>()
+
+/**
+ * 维护态（T64）：后端门闩关闭时展示维护通知并隐藏生成入口；
+ * 取状态失败时维持现有界面——服务端门闩已经兜住，宁可少一次误报"坏了"，也不要把能用的功能显示成"维护中"
+ */
+const outPaintingAvailable = ref(true)
+const maintenanceMessage = ref('')
+
+const loadOutPaintingStatus = async () => {
+  try {
+    const res = await getPictureOutPaintingStatusUsingGet()
+    if (res.data.code === 0 && res.data.data) {
+      outPaintingAvailable.value = res.data.data.available !== false
+      maintenanceMessage.value = res.data.data.message ?? ''
+    }
+  } catch (error) {
+    console.error('获取 AI 扩图维护状态失败', error)
+  }
+}
 
 /**
  * 创建任务
@@ -162,8 +197,9 @@ const handleUpload = async () => {
 const visible = ref(false)
 
 // 打开弹窗
-const openModal = () => {
+const openModal = async () => {
   visible.value = true
+  await loadOutPaintingStatus()
 }
 
 // 关闭弹窗

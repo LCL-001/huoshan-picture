@@ -60,6 +60,7 @@
 | `AI_ENGINE_BASE_URL` | 是 | 引擎地址，默认 `http://localhost:8124/api` |
 | `AI_ENGINE_INTERNAL_API_KEY` | 是 | 服务间密钥，**为空即 fail-closed（代理一律拒绝）**；**必须与引擎的 `HUOSHAN_HEADLESS_API_KEY` 完全同值** |
 | `AI_VISION_BASE_URL` / `AI_VISION_API_KEY` / `AI_VISION_MODEL` | AI 打标要 | 三个缺一即视为未配置（打标接口直接回"模型未配置"，不发注定失败的请求） |
+| `OUTPAINTING_ENABLED` | 否 | AI 扩图维护门闩（T64），**默认 `false` = 维护态**，不用配；见 2.2 |
 | `DB_PASSWORD` / `MAIL_*` | 已有 | 沿用现有 prod 配置 |
 
 ### 2.1 后端数据库变更与待同步配置（手工，按顺序）
@@ -80,6 +81,13 @@ mysql -u root -p --default-character-set=utf8mb4 yu_picture < backend/sql/create
 mysql -u root -p yu_picture -e "SHOW COLUMNS FROM picture LIKE 'sourceUrl';"
 mysql -u root -p yu_picture -e "SHOW TABLES LIKE 'ai_conversation';"
 ```
+
+### 2.2 AI 扩图当前为维护态（T64，默认不用做任何事）
+
+百炼 `image-out-painting` 已于 2026-10-10 下线，替代模型免费额度已作废，扩图**保留功能但默认关闭**：`app.outpainting.enabled=${OUTPAINTING_ENABLED:false}`。**不配 `OUTPAINTING_ENABLED` 就是维护态**——扩图两个入口直接回维护提示，不调厂商、不扣每日配额、不写幂等键；前端弹窗只显示维护通知、没有「生成图片」按钮（无需前端发版）。
+
+- **将来恢复**（需另立任务先改 `AliYunAiApi` 的模型与端点为当前可用模型）：配 `OUTPAINTING_ENABLED=true` 重启 backend 即恢复，前端零改动。
+- **核验**：`curl -s http://localhost:8123/api/picture/out_painting/status` 应返回 `{"code":0,"data":{"available":false,"message":"AI 扩图功能维护中：…"}}`；口径见 `docs/decisions.md` 2026-10-16，讲解见 `docs/features/F5-AI扩图.md`。
 
 ## 3. 引擎（`ai/agent`，新进程）
 
