@@ -9,6 +9,7 @@ import com.lcl.yunpicturebackend.domain.dto.ai.AiBatchEditPlan;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationConfirmRequest;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPlan;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPrepareRequest;
+import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationResultFact;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiUrlImportPlan;
 import com.lcl.yunpicturebackend.domain.dto.picture.PictureEditByBatchRequest;
 import com.lcl.yunpicturebackend.domain.dto.picture.PictureUploadRequest;
@@ -31,6 +32,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * AI 助手写操作确认门（T27.5）：后端持有待执行计划 + 原子确认。
@@ -161,6 +163,12 @@ public class AiAssistantOperationManager {
      * loginUser 取自 confirm 请求的登录态，传给既有 service 判 RBAC 与额度。
      */
     public AiOperationResultVO confirm(User loginUser, AiOperationConfirmRequest confirmRequest) {
+        return confirm(loginUser, confirmRequest, null);
+    }
+
+    /** 失败事实回调仅在绑定校验、单次消费和计划解析之后开放；不改变原异常与执行语义。 */
+    public AiOperationResultVO confirm(User loginUser, AiOperationConfirmRequest confirmRequest,
+                                       Consumer<AiOperationResultFact> failureRecorder) {
         ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR);
         String operationId = confirmRequest == null ? null : confirmRequest.getOperationId();
         String chatId = confirmRequest == null ? null : confirmRequest.getChatId();
@@ -172,16 +180,29 @@ public class AiAssistantOperationManager {
                 String.valueOf(loginUser.getId()), chatId, digest);
         ThrowUtils.throwIf(StrUtil.isBlank(planJson), ErrorCode.NOT_FOUND_ERROR, INVALID_OPERATION_MESSAGE);
         AiOperationPlan plan = parseStoredPlan(planJson, operationId);
-        if (AiOperationPlan.TYPE_BATCH_EDIT.equals(plan.getOperationType())) {
-            ThrowUtils.throwIf(plan.getBatchEdit() == null, ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
-            return withPlanContext(executeBatchEdit(loginUser, plan.getBatchEdit()), operationId, plan);
+        try {
+            if (AiOperationPlan.TYPE_BATCH_EDIT.equals(plan.getOperationType())) {
+                ThrowUtils.throwIf(plan.getBatchEdit() == null, ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
+                return withPlanContext(executeBatchEdit(loginUser, plan.getBatchEdit()), operationId, plan);
+            }
+            if (AiOperationPlan.TYPE_URL_IMPORT.equals(plan.getOperationType())) {
+                ThrowUtils.throwIf(plan.getUrlImport() == null, ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
+                return withPlanContext(executeUrlImport(loginUser, plan.getUrlImport()), operationId, plan);
+            }
+            log.warn("AI 助手待执行计划类型无效, operationId={}", operationId);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
+        } catch (RuntimeException failure) {
+            if (failureRecorder != null) {
+                try {
+                    failureRecorder.accept(new AiOperationResultFact(
+                            operationFailureNote(operationId, userSafeFailureReason(failure)),
+                            operationId, plan.getOperationType(), AiOperationResultFact.OUTCOME_FAILED));
+                } catch (RuntimeException recordingFailure) {
+                    log.warn("AI 助手执行失败事实回灌失败, operationId={}", operationId, recordingFailure);
+                }
+            }
+            throw failure;
         }
-        if (AiOperationPlan.TYPE_URL_IMPORT.equals(plan.getOperationType())) {
-            ThrowUtils.throwIf(plan.getUrlImport() == null, ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
-            return withPlanContext(executeUrlImport(loginUser, plan.getUrlImport()), operationId, plan);
-        }
-        log.warn("AI 助手待执行计划类型无效, operationId={}", operationId);
-        throw new BusinessException(ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
     }
 
     /**
@@ -344,12 +365,12 @@ public class AiAssistantOperationManager {
     }
 
     /**
-     * 失败事实说明（T60）：确认了但没执行，模型也要知道——否则它一直以为那张卡片还挂着。
+     * 已认证计划的执行失败事实（T66）：异常不能证明完全未写入，因此不宣称「未执行」。
      * 原因取用户安全口径（见 {@link #userSafeFailureReason}），内部异常原文一律不回灌。
      */
     public static String operationFailureNote(String operationId, String reason) {
         String safeReason = StrUtil.isBlank(reason) ? EXECUTE_FAILURE_MESSAGE : reason.trim();
-        return appendOperationContext("用户确认的写操作未执行：" + safeReason + "。", operationId, null);
+        return appendOperationContext("用户确认的写操作执行失败：" + safeReason + "。", operationId, null);
     }
 
     /**

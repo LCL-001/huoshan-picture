@@ -7,13 +7,13 @@ package com.lcl.yunpicturebackend.domain.dto.ai;
  * 为什么要带身份：同一次对话里可以并存多张确认卡片，用户还可能乱序确认——只回灌一句
  * "用户已确认并执行批量编辑：提交 2 张" 时，模型分不清是哪一张卡片的结果，处理失败的那张也无从关联。
  * {@code outcome} 取值见 {@link #OUTCOME_EXECUTED} / {@link #OUTCOME_FAILED}；失败路径没有计划摘要，
- * 只有 operationId 与原因（{@code operationType} 可能为空）。
+ * 带有 operationId、已知类型与原因（兼容旧调用时 {@code operationType} 可能为空）。
  */
 public record AiOperationResultFact(String content, String operationId, String operationType, String outcome) {
 
     /** 已确认并执行（成功 / 部分失败都算"执行过"） */
     public static final String OUTCOME_EXECUTED = "executed";
 
-    /** 确认了但未执行（确认门拒绝或执行失败） */
+    /** 通过确认门后的执行失败；不代表底层完全未发生写入 */
     public static final String OUTCOME_FAILED = "failed";
 }

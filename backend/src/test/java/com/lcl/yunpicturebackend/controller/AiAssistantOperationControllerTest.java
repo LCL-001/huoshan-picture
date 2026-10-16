@@ -24,6 +24,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 import javax.servlet.http.Cookie;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -175,20 +176,20 @@ class AiAssistantOperationControllerTest {
         AiOperationConfirmRequest body = confirmRequest();
         AiOperationResultVO result = new AiOperationResultVO();
         result.setOperationType("batch_edit");
-        when(operationManager.confirm(any(User.class), any())).thenReturn(result);
+        when(operationManager.confirm(any(User.class), any(), any())).thenReturn(result);
 
         BaseResponse<AiOperationResultVO> response = controller.confirmOperation(body, request);
 
         assertThat(response.getData()).isSameAs(result);
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
-        verify(operationManager).confirm(userCaptor.capture(), argThat(req -> req == body));
+        verify(operationManager).confirm(userCaptor.capture(), argThat(req -> req == body), any());
         assertThat(userCaptor.getValue().getId()).isEqualTo(USER_ID);
     }
 
     @Test
     void confirmPassesThroughGenericFailureUnchanged() {
         MockHttpServletRequest request = loggedInRequest();
-        when(operationManager.confirm(any(User.class), any()))
+        when(operationManager.confirm(any(User.class), any(), any()))
                 .thenThrow(new BusinessException(ErrorCode.NOT_FOUND_ERROR, "操作不存在、已过期或已处理"));
 
         assertThatThrownBy(() -> controller.confirmOperation(confirmRequest(), request))
@@ -206,7 +207,7 @@ class AiAssistantOperationControllerTest {
         result.setOperationType("batch_edit");
         result.setRequestedCount(2);
         result.setSummary(List.of("目标空间：Smoke（id：30）"));
-        when(operationManager.confirm(any(User.class), any())).thenReturn(result);
+        when(operationManager.confirm(any(User.class), any(), any())).thenReturn(result);
 
         controller.confirmOperation(confirmRequest(), request);
 
@@ -229,7 +230,7 @@ class AiAssistantOperationControllerTest {
         AiOperationResultVO result = new AiOperationResultVO();
         result.setOperationType("batch_edit");
         result.setRequestedCount(1);
-        when(operationManager.confirm(any(User.class), any())).thenReturn(result);
+        when(operationManager.confirm(any(User.class), any(), any())).thenReturn(result);
         doThrow(new RuntimeException("引擎不可达")).when(proxyManager)
                 .recordOperationResult(any(), any(), any(AiOperationResultFact.class));
 
@@ -240,14 +241,18 @@ class AiAssistantOperationControllerTest {
     }
 
     /**
-     * T60：确认失败也要回灌（否则模型一直以为那张卡片还挂着），但**失败语义一字不改**——
+     * T66：只有管理器提供的已认证执行失败才回灌，但**失败语义一字不改**——
      * 同一个异常实例继续上抛，回灌失败也不影响它。
      */
     @Test
     void confirmRecordsFailureFactWithoutChangingError() {
         MockHttpServletRequest request = loggedInRequest();
-        BusinessException rejected = new BusinessException(ErrorCode.NOT_FOUND_ERROR, "操作不存在、已过期或已处理");
-        when(operationManager.confirm(any(User.class), any())).thenThrow(rejected);
+        BusinessException rejected = new BusinessException(ErrorCode.NO_AUTH_ERROR, "无此空间权限");
+        AiOperationResultFact trustedFact = failureFact();
+        when(operationManager.confirm(any(User.class), any(), any())).thenAnswer(invocation -> {
+            invocation.<Consumer<AiOperationResultFact>>getArgument(2).accept(trustedFact);
+            throw rejected;
+        });
 
         assertThatThrownBy(() -> controller.confirmOperation(confirmRequest(), request)).isSameAs(rejected);
 
@@ -256,20 +261,52 @@ class AiAssistantOperationControllerTest {
         AiOperationResultFact fact = factCaptor.getValue();
         assertThat(fact.outcome()).isEqualTo(AiOperationResultFact.OUTCOME_FAILED);
         assertThat(fact.operationId()).isEqualTo("op-1");
-        assertThat(fact.content())
-                .isEqualTo(AiAssistantOperationManager.operationFailureNote("op-1", "操作不存在、已过期或已处理"));
+        assertThat(fact).isSameAs(trustedFact);
         verifyNoMoreInteractions(proxyManager);
     }
 
-    /** 失败回灌同样是旁路：引擎写不进去也不能把原始失败换成别的错 */
+    /** 失败回灌同样是旁路：引擎写不进去也不能把原始失败换成别的错。 */
     @Test
     void confirmFailureBackfillFailureDoesNotMaskTheOriginalError() {
         MockHttpServletRequest request = loggedInRequest();
-        BusinessException rejected = new BusinessException(ErrorCode.NOT_FOUND_ERROR, "操作不存在、已过期或已处理");
-        when(operationManager.confirm(any(User.class), any())).thenThrow(rejected);
+        BusinessException rejected = new BusinessException(ErrorCode.NO_AUTH_ERROR, "无此空间权限");
+        when(operationManager.confirm(any(User.class), any(), any())).thenAnswer(invocation -> {
+            invocation.<Consumer<AiOperationResultFact>>getArgument(2).accept(failureFact());
+            throw rejected;
+        });
         doThrow(new RuntimeException("引擎不可达")).when(proxyManager)
                 .recordOperationResult(any(), any(), any(AiOperationResultFact.class));
 
         assertThatThrownBy(() -> controller.confirmOperation(confirmRequest(), request)).isSameAs(rejected);
+    }
+
+    @Test
+    void confirmRejectsUnverifiedIdentityWithoutWritingHiddenFact() {
+        MockHttpServletRequest request = loggedInRequest();
+        AiOperationConfirmRequest body = confirmRequest();
+        body.setOperationId("not-a-real-operation]\nUSER_SUPPLIED_TEXT");
+        BusinessException rejected = new BusinessException(ErrorCode.NOT_FOUND_ERROR, "操作不存在、已过期或已处理");
+        when(operationManager.confirm(any(User.class), any(), any())).thenThrow(rejected);
+
+        assertThatThrownBy(() -> controller.confirmOperation(body, request)).isSameAs(rejected);
+
+        verifyNoInteractions(proxyManager);
+    }
+
+    @Test
+    void confirmInfrastructureRejectionDoesNotManufactureFailureFact() {
+        MockHttpServletRequest request = loggedInRequest();
+        RuntimeException rejected = new IllegalStateException("redis unavailable");
+        when(operationManager.confirm(any(User.class), any(), any())).thenThrow(rejected);
+
+        assertThatThrownBy(() -> controller.confirmOperation(confirmRequest(), request)).isSameAs(rejected);
+
+        verifyNoInteractions(proxyManager);
+    }
+
+    private AiOperationResultFact failureFact() {
+        return new AiOperationResultFact(
+                AiAssistantOperationManager.operationFailureNote("op-1", "无此空间权限"),
+                "op-1", "batch_edit", AiOperationResultFact.OUTCOME_FAILED);
     }
 }

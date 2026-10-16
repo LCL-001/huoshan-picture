@@ -7,6 +7,7 @@ import com.lcl.yunpicturebackend.domain.dto.ai.AiBatchEditPlan;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationConfirmRequest;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPlan;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPrepareRequest;
+import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationResultFact;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiUrlImportPlan;
 import com.lcl.yunpicturebackend.domain.dto.picture.PictureEditByBatchRequest;
 import com.lcl.yunpicturebackend.domain.po.Space;
@@ -26,6 +27,7 @@ import org.mockito.InOrder;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -695,14 +697,14 @@ class AiAssistantOperationManagerTest {
 
     @Test
     void operationFailureNoteCarriesOperationIdAndReason() {
-        assertThat(AiAssistantOperationManager.operationFailureNote("op-9", "操作不存在、已过期或已处理"))
-                .isEqualTo("用户确认的写操作未执行：操作不存在、已过期或已处理。[操作 op-9]");
+        assertThat(AiAssistantOperationManager.operationFailureNote("op-9", "空间额度不足"))
+                .isEqualTo("用户确认的写操作执行失败：空间额度不足。[操作 op-9]");
     }
 
     @Test
     void operationFailureNoteFallsBackWhenReasonBlank() {
         assertThat(AiAssistantOperationManager.operationFailureNote("op-9", "  "))
-                .isEqualTo("用户确认的写操作未执行：" + AiAssistantOperationManager.EXECUTE_FAILURE_MESSAGE
+                .isEqualTo("用户确认的写操作执行失败：" + AiAssistantOperationManager.EXECUTE_FAILURE_MESSAGE
                         + "。[操作 op-9]");
     }
 
@@ -806,6 +808,124 @@ class AiAssistantOperationManagerTest {
         assertThat(AiAssistantOperationManager.operationResultNote(vo))
                 .startsWith("用户已确认并执行批量编辑：提交 2 张。[操作 op-44]")
                 .contains("目标空间：Smoke（id：30）");
+    }
+
+    @Test
+    void confirmRejectsUntrustedOperationIdWithoutRecordingFact() {
+        stubConsume("");
+        List<AiOperationResultFact> facts = new ArrayList<>();
+
+        assertThatThrownBy(() -> manager.confirm(loginUser(),
+                confirmOf("not-a-real-operation]\nUSER_SUPPLIED_TEXT", CHAT_ID, "d"), facts::add))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(facts).isEmpty();
+        verifyNoInteractions(pictureService, spaceService);
+    }
+
+    @Test
+    void confirmBlankFieldsNeverRecordFailureFact() {
+        List<AiOperationResultFact> facts = new ArrayList<>();
+
+        assertThatThrownBy(() -> manager.confirm(loginUser(), confirmOf("op", CHAT_ID, ""), facts::add))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(facts).isEmpty();
+        verifyNoInteractions(stringRedisTemplate, pictureService, spaceService);
+    }
+
+    @Test
+    void confirmRedisFailureNeverRecordsUnverifiedFact() {
+        RuntimeException unavailable = new IllegalStateException("redis unavailable");
+        when(stringRedisTemplate.execute(any(), anyList(), any(), any(), any())).thenThrow(unavailable);
+        List<AiOperationResultFact> facts = new ArrayList<>();
+
+        assertThatThrownBy(() -> manager.confirm(loginUser(), confirmOf("op", CHAT_ID, "d"), facts::add))
+                .isSameAs(unavailable);
+
+        assertThat(facts).isEmpty();
+        verifyNoInteractions(pictureService, spaceService);
+    }
+
+    @Test
+    void confirmAuthenticatedExecutionFailureRecordsTrustedFactAndKeepsOriginalError() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(batchEditPlan(30L, "c1")));
+        BusinessException denied = new BusinessException(ErrorCode.NO_AUTH_ERROR, "无此空间权限");
+        doThrow(denied).when(pictureService).editPictureByBatch(any(), any());
+        List<AiOperationResultFact> facts = new ArrayList<>();
+
+        assertThatThrownBy(() -> manager.confirm(loginUser(), confirmOf("op-66", CHAT_ID, "d"), facts::add))
+                .isSameAs(denied);
+
+        assertThat(facts).singleElement().satisfies(fact -> {
+            assertThat(fact.operationId()).isEqualTo("op-66");
+            assertThat(fact.operationType()).isEqualTo(AiOperationPlan.TYPE_BATCH_EDIT);
+            assertThat(fact.outcome()).isEqualTo(AiOperationResultFact.OUTCOME_FAILED);
+            assertThat(fact.content()).isEqualTo("用户确认的写操作执行失败：无此空间权限。[操作 op-66]");
+        });
+    }
+
+    @Test
+    void confirmFailureRecorderCannotMaskOriginalExecutionError() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(batchEditPlan(30L, "c1")));
+        BusinessException denied = new BusinessException(ErrorCode.NO_AUTH_ERROR, "无此空间权限");
+        doThrow(denied).when(pictureService).editPictureByBatch(any(), any());
+        List<AiOperationResultFact> facts = new ArrayList<>();
+
+        assertThatThrownBy(() -> manager.confirm(loginUser(), confirmOf("op-66", CHAT_ID, "d"), fact -> {
+            facts.add(fact);
+            throw new IllegalStateException("engine unavailable");
+        })).isSameAs(denied);
+
+        assertThat(facts).hasSize(1);
+    }
+
+    @Test
+    void confirmUnexpectedExecutionFailureRecordsOnlySafeReason() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(batchEditPlan(30L, "c1")));
+        doThrow(new IllegalStateException("internal jdbc detail")).when(pictureService)
+                .editPictureByBatch(any(), any());
+        List<AiOperationResultFact> facts = new ArrayList<>();
+
+        assertThatThrownBy(() -> manager.confirm(loginUser(), confirmOf("op-66", CHAT_ID, "d"), facts::add))
+                .isInstanceOf(BusinessException.class).hasMessage(AiAssistantOperationManager.EXECUTE_FAILURE_MESSAGE);
+
+        assertThat(facts).singleElement().satisfies(fact ->
+                assertThat(fact.content()).contains(AiAssistantOperationManager.EXECUTE_FAILURE_MESSAGE)
+                        .doesNotContain("internal jdbc detail", "未执行"));
+    }
+
+    @Test
+    void confirmReplayDoesNotRecordFailureAfterSuccessfulExecution() throws Exception {
+        String plan = objectMapper.writeValueAsString(batchEditPlan(30L, "c1"));
+        when(stringRedisTemplate.execute(eq(AiAssistantOperationManager.CONSUME_SCRIPT), anyList(),
+                any(), any(), any())).thenReturn(plan, "");
+        List<AiOperationResultFact> facts = new ArrayList<>();
+        AiOperationConfirmRequest request = confirmOf("op-66", CHAT_ID, "d");
+
+        assertThat(manager.confirm(loginUser(), request, facts::add).getSuccess()).isTrue();
+        assertThatThrownBy(() -> manager.confirm(loginUser(), request, facts::add))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(facts).isEmpty();
+        verify(pictureService, times(1)).editPictureByBatch(any(), any());
+    }
+
+    @Test
+    void confirmPartialImportAndSummaryFallbackDoNotRecordHardFailure() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(
+                urlImportOnlyPlan(30L, "http://example.com/a.jpg", "http://example.com/b.jpg")));
+        when(pictureService.uploadPicture(any(), any(), any())).thenReturn(new PictureVO())
+                .thenThrow(new BusinessException(ErrorCode.OPERATION_ERROR, "空间额度不足"));
+        when(spaceService.getById(30L)).thenThrow(new IllegalStateException("summary unavailable"));
+        List<AiOperationResultFact> facts = new ArrayList<>();
+
+        AiOperationResultVO result = manager.confirm(loginUser(), confirmOf("op-66", CHAT_ID, "d"), facts::add);
+
+        assertThat(result.getSucceededCount()).isEqualTo(1);
+        assertThat(result.getFailedCount()).isEqualTo(1);
+        assertThat(result.getSummary()).contains("目标空间 id：30");
+        assertThat(facts).isEmpty();
     }
 
     /** T60 的两个操作类型用例共用的结果骨架 */
