@@ -48,6 +48,14 @@
   - 文件范围：frontend `src/pages/admin/PictureManagePage.vue`、`src/components/analyze/SpaceSizeAnalyze.vue`、`SpaceTagAnalyze.vue`、`SpaceUserAnalyze.vue` 及相关断言；验收：字符串/零/缺值转换回归、图表输入为 number，type-check/eslint/助手格式检查通过。
   - **2026-10-16 收口**：新增纯函数 `toNumber`（真实 0 不吞、缺值回退 0、id 不走它），大小单元格改用统一 `formatSize`、三处图表 count 走 `toNumber`，并新增常驻断言 `check:analyze-numbers`（行为 + 结构两类：含"四个文件都不得把 id 喂给 Number"守卫）。实施记录与证据（先红 6 例 → PASS，负向控制恰好 4 例红；type-check 0 错 / eslint 干净 / 六个检查脚本全绿）见 `docs/plans/records/T63-前端字符串数值显式转换.md`，口径新增 `docs/decisions.md` 2026-10-16 行。
 
+### T65–T67：T59–T63 独立 review 后续（仅建任务，未实施）
+
+> 结论与复现边界见 `docs/decisions/2026-10-16-review-T59-T63.md`；不改既定确认门与范围门卫口径，不新增依赖、进程或表。
+
+- [ ] T65（P2）**确认后摘要补读不得推翻写入结果**：文件范围 backend `manager/ai/AiAssistantOperationManager.java` 及对应 manager/controller 单测；验收：图片写入成功后空间名补读异常，confirm 仍返回真实结果、无「未执行」失败事实；批编与 URL 导入均覆盖。状态：review 已立项、未实施；见报告 R1。
+- [ ] T66（P2）**失败事实区分确认拒绝与执行失败**：文件范围 backend `controller/AiAssistantController.java`、`manager/ai/AiAssistantOperationManager.java`、必要结果 DTO 与对应单测；验收：未认证 operationId（含换行文本）不得进入隐藏系统事实，合法执行失败仍可关联且原异常不变。状态：review 已立项、未实施；见报告 R2。
+- [ ] T67（P2）**否定 token 的格式包裹兼容**：文件范围引擎 `agent/HuoshanAssistantAgent.java` 与 `agent/HuoshanAssistantAgentScopeTest.java`；验收：反引号/引号/粗体包裹的否定 token 双向正确、范围外不进主模型工具链，原首 token/窗口/词表口径不变。状态：review 已立项、未实施；见报告 R3。
+
 ## 未决与非任务事项（不建任务）
 
 > 只放**不属于任务**的东西：待办前置、待人工验收、按规则 13 判为"已知限制并关闭"的项。已关闭项不再挂账；要做的时候才开任务。已关闭/已收口的历史全文见 `docs/plans/archive/2026-09-未决与关闭事项.md`。
