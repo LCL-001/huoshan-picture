@@ -194,7 +194,15 @@ public class AiAssistantOperationManager {
      */
     private AiOperationResultVO withPlanContext(AiOperationResultVO vo, String operationId, AiOperationPlan plan) {
         vo.setOperationId(operationId);
-        vo.setSummary(buildSummary(plan, resolveSpaceName(planSpaceId(plan))));
+        Long spaceId = planSpaceId(plan);
+        String spaceName = null;
+        try {
+            spaceName = resolveSpaceName(spaceId);
+        } catch (RuntimeException e) {
+            // 写入已结束：辅助摘要只能降级为 ID，不能把成功/部分成功变成「未执行」。
+            log.warn("AI 助手确认结果空间名读取失败，摘要回退为空间 ID, spaceId={}", spaceId, e);
+        }
+        vo.setSummary(buildSummary(plan, spaceName));
         return vo;
     }
 

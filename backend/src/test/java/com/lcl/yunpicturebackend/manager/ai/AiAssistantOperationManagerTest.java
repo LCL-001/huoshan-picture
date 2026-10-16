@@ -744,6 +744,57 @@ class AiAssistantOperationManagerTest {
         assertThat(vo.getSummary()).contains("目标空间：Smoke（id：30）", "图片直链：2 条");
     }
 
+    @Test
+    void confirmBatchEditKeepsSuccessWhenSummaryLookupFails() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(batchEditPlan(30L, "c1")));
+        when(spaceService.getById(30L)).thenThrow(new IllegalStateException("summary lookup unavailable"));
+
+        AiOperationResultVO result = manager.confirm(loginUser(), confirmOf("op-65-edit", CHAT_ID, "d"));
+
+        assertThat(result.getSuccess()).isTrue();
+        assertThat(result.getOperationId()).isEqualTo("op-65-edit");
+        assertThat(result.getRequestedCount()).isEqualTo(2);
+        assertThat(result.getSummary()).contains("目标空间 id：30", "分类 → c1");
+        assertThat(AiAssistantOperationManager.operationResultNote(result)).startsWith("用户已确认并执行批量编辑");
+        verify(pictureService, times(1)).editPictureByBatch(any(), any());
+    }
+
+    @Test
+    void confirmUrlImportKeepsSuccessWhenSummaryLookupFails() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(
+                urlImportOnlyPlan(30L, "http://example.com/a.jpg", "http://example.com/b.jpg")));
+        when(pictureService.uploadPicture(any(), any(), any())).thenReturn(new PictureVO());
+        when(spaceService.getById(30L)).thenThrow(new IllegalStateException("summary lookup unavailable"));
+
+        AiOperationResultVO result = manager.confirm(loginUser(), confirmOf("op-65-import", CHAT_ID, "d"));
+
+        assertThat(result.getSuccess()).isTrue();
+        assertThat(result.getSucceededCount()).isEqualTo(2);
+        assertThat(result.getFailedCount()).isZero();
+        assertThat(result.getSummary()).contains("目标空间 id：30", "图片直链：2 条");
+        assertThat(AiAssistantOperationManager.operationResultNote(result)).contains("成功 2 / 2 条");
+        verify(pictureService, times(2)).uploadPicture(any(), any(), any());
+    }
+
+    @Test
+    void confirmUrlImportKeepsPartialResultWhenSummaryLookupFails() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(
+                urlImportOnlyPlan(30L, "http://example.com/a.jpg", "http://example.com/b.jpg")));
+        when(pictureService.uploadPicture(any(), any(), any())).thenReturn(new PictureVO())
+                .thenThrow(new BusinessException(ErrorCode.OPERATION_ERROR, "空间额度不足"));
+        when(spaceService.getById(30L)).thenThrow(new IllegalStateException("summary lookup unavailable"));
+
+        AiOperationResultVO result = manager.confirm(loginUser(), confirmOf("op-65-partial", CHAT_ID, "d"));
+
+        assertThat(result.getSuccess()).isFalse();
+        assertThat(result.getSucceededCount()).isEqualTo(1);
+        assertThat(result.getFailedCount()).isEqualTo(1);
+        assertThat(result.getItems()).hasSize(2);
+        assertThat(result.getSummary()).contains("目标空间 id：30");
+        assertThat(AiAssistantOperationManager.operationResultNote(result)).contains("成功 1 / 2 条");
+        verify(pictureService, times(2)).uploadPicture(any(), any(), any());
+    }
+
     /** T60 的既有连接点：结果 VO 上的 operationId/摘要可直接喂给回灌说明 */
     @Test
     void operationResultNoteUsesIdentityCarriedOnTheResult() throws Exception {
