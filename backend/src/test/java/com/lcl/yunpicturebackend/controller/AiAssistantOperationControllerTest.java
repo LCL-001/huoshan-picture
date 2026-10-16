@@ -4,6 +4,7 @@ import cn.dev33.satoken.SaManager;
 import com.lcl.yunpicturebackend.common.BaseResponse;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationConfirmRequest;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPrepareRequest;
+import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationResultFact;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.AiOperationPrepareVO;
 import com.lcl.yunpicturebackend.domain.vo.AiOperationResultVO;
@@ -22,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import javax.servlet.http.Cookie;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -200,15 +202,24 @@ class AiAssistantOperationControllerTest {
     void confirmRecordsOperationResultToEngineOnce() {
         MockHttpServletRequest request = loggedInRequest();
         AiOperationResultVO result = new AiOperationResultVO();
+        result.setOperationId("op-1");
         result.setOperationType("batch_edit");
         result.setRequestedCount(2);
+        result.setSummary(List.of("目标空间：Smoke（id：30）"));
         when(operationManager.confirm(any(User.class), any())).thenReturn(result);
 
         controller.confirmOperation(confirmRequest(), request);
 
-        // T44：执行结果回灌引擎恰一次，内容为模型面说明，绑定本次会话的 userId + chatId
-        verify(proxyManager).recordOperationResult(eq(USER_ID), eq("chat-1"),
-                eq(AiAssistantOperationManager.operationResultNote(result)));
+        // T44/T60：执行结果回灌引擎恰一次，内容为模型面说明，并带上本次操作的身份与计划摘要，
+        // 绑定本次会话的 userId + chatId
+        ArgumentCaptor<AiOperationResultFact> factCaptor = ArgumentCaptor.forClass(AiOperationResultFact.class);
+        verify(proxyManager).recordOperationResult(eq(USER_ID), eq("chat-1"), factCaptor.capture());
+        AiOperationResultFact fact = factCaptor.getValue();
+        assertThat(fact.content()).isEqualTo(AiAssistantOperationManager.operationResultNote(result));
+        assertThat(fact.content()).contains("[操作 op-1]", "目标空间：Smoke（id：30）");
+        assertThat(fact.operationId()).isEqualTo("op-1");
+        assertThat(fact.operationType()).isEqualTo("batch_edit");
+        assertThat(fact.outcome()).isEqualTo(AiOperationResultFact.OUTCOME_EXECUTED);
         verifyNoMoreInteractions(proxyManager);
     }
 
@@ -220,11 +231,45 @@ class AiAssistantOperationControllerTest {
         result.setRequestedCount(1);
         when(operationManager.confirm(any(User.class), any())).thenReturn(result);
         doThrow(new RuntimeException("引擎不可达")).when(proxyManager)
-                .recordOperationResult(any(), any(), any());
+                .recordOperationResult(any(), any(), any(AiOperationResultFact.class));
 
         // 回灌是旁路：失败也要原样返回已执行的结果（确认与执行才是主路径）
         BaseResponse<AiOperationResultVO> response = controller.confirmOperation(confirmRequest(), request);
 
         assertThat(response.getData()).isSameAs(result);
+    }
+
+    /**
+     * T60：确认失败也要回灌（否则模型一直以为那张卡片还挂着），但**失败语义一字不改**——
+     * 同一个异常实例继续上抛，回灌失败也不影响它。
+     */
+    @Test
+    void confirmRecordsFailureFactWithoutChangingError() {
+        MockHttpServletRequest request = loggedInRequest();
+        BusinessException rejected = new BusinessException(ErrorCode.NOT_FOUND_ERROR, "操作不存在、已过期或已处理");
+        when(operationManager.confirm(any(User.class), any())).thenThrow(rejected);
+
+        assertThatThrownBy(() -> controller.confirmOperation(confirmRequest(), request)).isSameAs(rejected);
+
+        ArgumentCaptor<AiOperationResultFact> factCaptor = ArgumentCaptor.forClass(AiOperationResultFact.class);
+        verify(proxyManager).recordOperationResult(eq(USER_ID), eq("chat-1"), factCaptor.capture());
+        AiOperationResultFact fact = factCaptor.getValue();
+        assertThat(fact.outcome()).isEqualTo(AiOperationResultFact.OUTCOME_FAILED);
+        assertThat(fact.operationId()).isEqualTo("op-1");
+        assertThat(fact.content())
+                .isEqualTo(AiAssistantOperationManager.operationFailureNote("op-1", "操作不存在、已过期或已处理"));
+        verifyNoMoreInteractions(proxyManager);
+    }
+
+    /** 失败回灌同样是旁路：引擎写不进去也不能把原始失败换成别的错 */
+    @Test
+    void confirmFailureBackfillFailureDoesNotMaskTheOriginalError() {
+        MockHttpServletRequest request = loggedInRequest();
+        BusinessException rejected = new BusinessException(ErrorCode.NOT_FOUND_ERROR, "操作不存在、已过期或已处理");
+        when(operationManager.confirm(any(User.class), any())).thenThrow(rejected);
+        doThrow(new RuntimeException("引擎不可达")).when(proxyManager)
+                .recordOperationResult(any(), any(), any(AiOperationResultFact.class));
+
+        assertThatThrownBy(() -> controller.confirmOperation(confirmRequest(), request)).isSameAs(rejected);
     }
 }

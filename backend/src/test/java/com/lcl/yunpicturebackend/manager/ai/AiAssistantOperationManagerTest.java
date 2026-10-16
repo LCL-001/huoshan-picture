@@ -644,6 +644,40 @@ class AiAssistantOperationManagerTest {
 
     @Test
     void operationResultNoteForBatchEditReportsSubmittedCount() {
+        AiOperationResultVO result = resultWithContext(AiOperationPlan.TYPE_BATCH_EDIT, "op-1", 2,
+                List.of("目标空间：Smoke（id：30）", "目标图片：2 张（id：1、2）"));
+
+        assertThat(AiAssistantOperationManager.operationResultNote(result))
+                .isEqualTo("用户已确认并执行批量编辑：提交 2 张。[操作 op-1]\n"
+                        + "目标空间：Smoke（id：30）\n目标图片：2 张（id：1、2）");
+    }
+
+    @Test
+    void operationResultNoteForUrlImportReportsFullSuccess() {
+        AiOperationResultVO result = resultWithContext(AiOperationPlan.TYPE_URL_IMPORT, "op-2", 3,
+                List.of("目标空间 id：30", "图片直链：3 条"));
+        result.setSucceededCount(3);
+        result.setFailedCount(0);
+
+        assertThat(AiAssistantOperationManager.operationResultNote(result))
+                .isEqualTo("用户已确认并执行 URL 导入：成功 3 / 3 条。[操作 op-2]\n"
+                        + "目标空间 id：30\n图片直链：3 条");
+    }
+
+    @Test
+    void operationResultNoteForUrlImportReportsPartialFailure() {
+        AiOperationResultVO result = resultWithContext(AiOperationPlan.TYPE_URL_IMPORT, "op-3", 3,
+                List.of("图片直链：3 条"));
+        result.setSucceededCount(1);
+        result.setFailedCount(2);
+
+        assertThat(AiAssistantOperationManager.operationResultNote(result))
+                .isEqualTo("用户已确认并执行 URL 导入：成功 1 / 3 条。其中 2 条未成功。[操作 op-3]\n图片直链：3 条");
+    }
+
+    /** 没有身份信息时退回旧形态（单行既成事实）：调用方漏填不该产出畸形文案 */
+    @Test
+    void operationResultNoteDegradesWithoutOperationContext() {
         AiOperationResultVO result = new AiOperationResultVO();
         result.setOperationType(AiOperationPlan.TYPE_BATCH_EDIT);
         result.setRequestedCount(2);
@@ -653,32 +687,85 @@ class AiAssistantOperationManagerTest {
     }
 
     @Test
-    void operationResultNoteForUrlImportReportsFullSuccess() {
-        AiOperationResultVO result = new AiOperationResultVO();
-        result.setOperationType(AiOperationPlan.TYPE_URL_IMPORT);
-        result.setRequestedCount(3);
-        result.setSucceededCount(3);
-        result.setFailedCount(0);
-
-        assertThat(AiAssistantOperationManager.operationResultNote(result))
-                .isEqualTo("用户已确认并执行 URL 导入：成功 3 / 3 条。");
-    }
-
-    @Test
-    void operationResultNoteForUrlImportReportsPartialFailure() {
-        AiOperationResultVO result = new AiOperationResultVO();
-        result.setOperationType(AiOperationPlan.TYPE_URL_IMPORT);
-        result.setRequestedCount(3);
-        result.setSucceededCount(1);
-        result.setFailedCount(2);
-
-        assertThat(AiAssistantOperationManager.operationResultNote(result))
-                .isEqualTo("用户已确认并执行 URL 导入：成功 1 / 3 条。其中 2 条未成功。");
-    }
-
-    @Test
     void operationResultNoteToleratesNullResult() {
         assertThat(AiAssistantOperationManager.operationResultNote(null)).isNotBlank();
+    }
+
+    // ---------- T60：失败事实与身份关联 ----------
+
+    @Test
+    void operationFailureNoteCarriesOperationIdAndReason() {
+        assertThat(AiAssistantOperationManager.operationFailureNote("op-9", "操作不存在、已过期或已处理"))
+                .isEqualTo("用户确认的写操作未执行：操作不存在、已过期或已处理。[操作 op-9]");
+    }
+
+    @Test
+    void operationFailureNoteFallsBackWhenReasonBlank() {
+        assertThat(AiAssistantOperationManager.operationFailureNote("op-9", "  "))
+                .isEqualTo("用户确认的写操作未执行：" + AiAssistantOperationManager.EXECUTE_FAILURE_MESSAGE
+                        + "。[操作 op-9]");
+    }
+
+    /** 失败原因的用户安全口径：业务拒绝本就是面向用户的文案，原样保留；其余内部异常一律收敛 */
+    @Test
+    void userSafeFailureReasonKeepsBusinessMessageButBuriesInternalDetail() {
+        assertThat(AiAssistantOperationManager.userSafeFailureReason(
+                new BusinessException(ErrorCode.NOT_FOUND_ERROR, "空间图片数量已达上限")))
+                .isEqualTo("空间图片数量已达上限");
+        assertThat(AiAssistantOperationManager.userSafeFailureReason(
+                new IllegalStateException("jdbc:mysql://10.0.0.1 internal state leaked")))
+                .isEqualTo(AiAssistantOperationManager.EXECUTE_FAILURE_MESSAGE);
+    }
+
+    /** 结果携带本次操作身份与既存计划摘要（T60）：回灌后的模型上下文里多张卡片才可区分 */
+    @Test
+    void confirmBatchEditCarriesOperationIdAndPlanSummary() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(batchEditPlan(30L, "c1")));
+        when(spaceService.getById(30L)).thenReturn(spaceWithName("Smoke"));
+
+        AiOperationResultVO vo = manager.confirm(loginUser(), confirmOf("op-42", CHAT_ID, "d"));
+
+        assertThat(vo.getOperationId()).isEqualTo("op-42");
+        assertThat(vo.getSummary()).contains("目标空间：Smoke（id：30）");
+        assertThat(vo.getSummary()).anySatisfy(line -> assertThat(line).contains("目标图片：2 张"));
+        assertThat(vo.getSummary()).anySatisfy(line -> assertThat(line).contains("分类 → c1"));
+    }
+
+    @Test
+    void confirmUrlImportCarriesOperationIdAndPlanSummary() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(
+                urlImportOnlyPlan(30L, "http://example.com/a.jpg", "http://example.com/b.jpg")));
+        when(pictureService.uploadPicture(any(), any(), any())).thenReturn(new PictureVO());
+        when(spaceService.getById(30L)).thenReturn(spaceWithName("Smoke"));
+
+        AiOperationResultVO vo = manager.confirm(loginUser(), confirmOf("op-43", CHAT_ID, "d"));
+
+        assertThat(vo.getOperationId()).isEqualTo("op-43");
+        assertThat(vo.getSummary()).contains("目标空间：Smoke（id：30）", "图片直链：2 条");
+    }
+
+    /** T60 的既有连接点：结果 VO 上的 operationId/摘要可直接喂给回灌说明 */
+    @Test
+    void operationResultNoteUsesIdentityCarriedOnTheResult() throws Exception {
+        stubConsume(objectMapper.writeValueAsString(batchEditPlan(30L, "c1")));
+        when(spaceService.getById(30L)).thenReturn(spaceWithName("Smoke"));
+
+        AiOperationResultVO vo = manager.confirm(loginUser(), confirmOf("op-44", CHAT_ID, "d"));
+
+        assertThat(AiAssistantOperationManager.operationResultNote(vo))
+                .startsWith("用户已确认并执行批量编辑：提交 2 张。[操作 op-44]")
+                .contains("目标空间：Smoke（id：30）");
+    }
+
+    /** T60 的两个操作类型用例共用的结果骨架 */
+    private AiOperationResultVO resultWithContext(String operationType, String operationId,
+                                                 Integer requestedCount, List<String> summary) {
+        AiOperationResultVO result = new AiOperationResultVO();
+        result.setOperationType(operationType);
+        result.setOperationId(operationId);
+        result.setRequestedCount(requestedCount);
+        result.setSummary(summary);
+        return result;
     }
 
     private Space spaceWithName(String spaceName) {

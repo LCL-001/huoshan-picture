@@ -174,14 +174,28 @@ public class AiAssistantOperationManager {
         AiOperationPlan plan = parseStoredPlan(planJson, operationId);
         if (AiOperationPlan.TYPE_BATCH_EDIT.equals(plan.getOperationType())) {
             ThrowUtils.throwIf(plan.getBatchEdit() == null, ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
-            return executeBatchEdit(loginUser, plan.getBatchEdit());
+            return withPlanContext(executeBatchEdit(loginUser, plan.getBatchEdit()), operationId, plan);
         }
         if (AiOperationPlan.TYPE_URL_IMPORT.equals(plan.getOperationType())) {
             ThrowUtils.throwIf(plan.getUrlImport() == null, ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
-            return executeUrlImport(loginUser, plan.getUrlImport());
+            return withPlanContext(executeUrlImport(loginUser, plan.getUrlImport()), operationId, plan);
         }
         log.warn("AI 助手待执行计划类型无效, operationId={}", operationId);
         throw new BusinessException(ErrorCode.SYSTEM_ERROR, EXECUTE_FAILURE_MESSAGE);
+    }
+
+    /**
+     * 把本次操作的身份与**既存计划摘要**附在结果上（T60）：回灌进模型上下文后，
+     * 同一会话里多张确认卡片的乱序确认结果才彼此可区分。
+     * <p>
+     * 摘要从刚解析出来的存储计划现算（与 prepare 时展示在卡片上的同源同构）；空间名多一次
+     * 主键回读——确认本就是低频重操作（批编 / 逐条下载入库），这次读换来的是结果可核对。
+     * </p>
+     */
+    private AiOperationResultVO withPlanContext(AiOperationResultVO vo, String operationId, AiOperationPlan plan) {
+        vo.setOperationId(operationId);
+        vo.setSummary(buildSummary(plan, resolveSpaceName(planSpaceId(plan))));
+        return vo;
     }
 
     /** 形状校验 + 归一：类型与子计划一一对应、字段齐全且不超上限；trim 掉首尾空白并丢弃空标签/空 URL */
@@ -318,6 +332,31 @@ public class AiAssistantOperationManager {
         if (result == null) {
             return "用户已确认并执行了一个写操作。";
         }
+        return appendOperationContext(outcomeLine(result), result.getOperationId(), result.getSummary());
+    }
+
+    /**
+     * 失败事实说明（T60）：确认了但没执行，模型也要知道——否则它一直以为那张卡片还挂着。
+     * 原因取用户安全口径（见 {@link #userSafeFailureReason}），内部异常原文一律不回灌。
+     */
+    public static String operationFailureNote(String operationId, String reason) {
+        String safeReason = StrUtil.isBlank(reason) ? EXECUTE_FAILURE_MESSAGE : reason.trim();
+        return appendOperationContext("用户确认的写操作未执行：" + safeReason + "。", operationId, null);
+    }
+
+    /**
+     * 失败原因的用户安全口径（T60）：{@link BusinessException} 的文案本就是面向用户设计的（确认门统一文案、
+     * 或既有 picture service 的业务拒绝文案），原样保留；其余内部异常一律收敛为固定文案，不进模型上下文。
+     */
+    public static String userSafeFailureReason(RuntimeException failure) {
+        if (failure instanceof BusinessException && StrUtil.isNotBlank(failure.getMessage())) {
+            return failure.getMessage();
+        }
+        return EXECUTE_FAILURE_MESSAGE;
+    }
+
+    /** 结果事实的第一行：既成事实（模型面），不含任何可被当作新指令的祈使内容 */
+    private static String outcomeLine(AiOperationResultVO result) {
         if (AiOperationPlan.TYPE_URL_IMPORT.equals(result.getOperationType())) {
             int requested = result.getRequestedCount() == null ? 0 : result.getRequestedCount();
             int succeeded = result.getSucceededCount() == null ? 0 : result.getSucceededCount();
@@ -327,6 +366,25 @@ public class AiAssistantOperationManager {
         }
         int requested = result.getRequestedCount() == null ? 0 : result.getRequestedCount();
         return "用户已确认并执行批量编辑：提交 " + requested + " 张。";
+    }
+
+    /**
+     * 事实说明拼装（T60）：第一行是既成事实，随后附操作 id 与既存计划摘要（逐行），
+     * 让同一会话里多张确认卡片的结果彼此可区分；身份/摘要缺失时退回单行，不产出畸形文案。
+     */
+    static String appendOperationContext(String outcomeLine, String operationId, List<String> summary) {
+        StringBuilder text = new StringBuilder(outcomeLine);
+        if (StrUtil.isNotBlank(operationId)) {
+            text.append("[操作 ").append(operationId.trim()).append(']');
+        }
+        if (summary != null) {
+            for (String line : summary) {
+                if (StrUtil.isNotBlank(line)) {
+                    text.append('\n').append(line);
+                }
+            }
+        }
+        return text.toString();
     }
 
     private AiOperationPlan parseStoredPlan(String planJson, String operationId) {

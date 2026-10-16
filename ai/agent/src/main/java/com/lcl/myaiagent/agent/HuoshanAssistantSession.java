@@ -58,6 +58,18 @@ public final class HuoshanAssistantSession {
     /** 来源取值：系统事实（由 backend 内部端点写入的操作结果，用户不可伪造）。 */
     public static final String SOURCE_SYSTEM_FACT = "system_fact";
 
+    /**
+     * 操作标识类 metadata 键（T60）：系统事实行上额外记下"是哪一次写操作、什么类型、成了没有"，
+     * 与来源标记同列持久化——同一会话里多张确认卡片的乱序结果在库里也彼此可辨。
+     */
+    public static final String METADATA_OPERATION_ID_KEY = "operationId";
+
+    /** 操作类型键（T60）：batch_edit / url_import */
+    public static final String METADATA_OPERATION_TYPE_KEY = "operationType";
+
+    /** 操作结果键（T60）：executed / failed */
+    public static final String METADATA_OUTCOME_KEY = "outcome";
+
     private static final Pattern EXTERNAL_USER_ID = Pattern.compile("\\d{1,32}");
 
     private HuoshanAssistantSession() {

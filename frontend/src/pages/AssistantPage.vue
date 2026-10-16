@@ -95,18 +95,26 @@
           <a-textarea
             v-model:value="input"
             :auto-size="{ minRows: 2, maxRows: 4 }"
-            :disabled="running"
+            :disabled="running || pendingConfirmation"
             :placeholder="
               running
                 ? '助手正在回答，请稍候…（可点“停止”中断）'
-                : '输入与空间、图片、标签或素材搜索有关的问题…'
+                : pendingConfirmation
+                  ? '请先确认或取消上面的待确认操作，再继续对话…'
+                  : '输入与空间、图片、标签或素材搜索有关的问题…'
             "
             @press-enter="onPressEnter"
           />
           <div class="assistant-input__actions">
             <span class="assistant-input__shortcut">Enter 发送 · Shift+Enter 换行</span>
             <a-button v-if="running" danger @click="stop">停止</a-button>
-            <a-button v-else type="primary" :disabled="!input.trim()" @click="send">发送</a-button>
+            <a-button v-else type="primary" :disabled="!input.trim() || pendingConfirmation" @click="send">
+              发送
+            </a-button>
+          </div>
+          <!-- T60：有待确认卡片时先别开新一轮（前端无从预判下一句会不会又生成写计划）；取消/查询不受影响 -->
+          <div v-if="pendingConfirmation" class="assistant-input__pending">
+            还有待确认的操作：先在上方确认或取消，再继续对话
           </div>
         </div>
       </a-card>
@@ -144,6 +152,8 @@ import {
   assistantConfirmationTitle,
   describeAssistantConfirmFailure,
   describeAssistantOperationResult,
+  hasPendingConfirmation,
+  type AssistantConfirmCardStatus,
 } from '@/utils/assistantFormat.ts'
 import AssistantText from '@/components/assistant/AssistantText.vue'
 import StepTimeline from '@/components/assistant/StepTimeline.vue'
@@ -185,7 +195,7 @@ const scrollToBottom = () => {
 
 // ---------- 确认卡片状态簿记（T27.7） ----------
 
-type ConfirmationCardStatus = 'pending' | 'confirming' | 'done' | 'cancelled' | 'failed'
+type ConfirmationCardStatus = AssistantConfirmCardStatus
 interface ConfirmationCardView {
   status: ConfirmationCardStatus
   resultText?: string[]
@@ -198,6 +208,18 @@ const confirmationCards = ref<Record<string, ConfirmationCardView>>({})
 
 const cardView = (operationId: string): ConfirmationCardView =>
   confirmationCards.value[operationId] ?? { status: 'pending' }
+
+/**
+ * 还停在用户面前的待确认卡片（T60）：只统计**当前可见轮次**里的卡片——
+ * 切会话/开新对话后 turns 会重置，旧会话残留的状态不会把输入框永久锁死。
+ */
+const pendingConfirmation = computed(() =>
+  hasPendingConfirmation(
+    turns.value.flatMap((turn) =>
+      (turn.confirmations ?? []).map((card) => cardView(card.operationId).status),
+    ),
+  ),
+)
 
 const confirmOperation = async (card: AssistantConfirmation) => {
   if (cardView(card.operationId).status !== 'pending') {
@@ -271,7 +293,8 @@ const onPressEnter = (event: KeyboardEvent) => {
 
 const send = async () => {
   const question = input.value.trim()
-  if (!question || running.value) {
+  // T60：有待确认卡片时不开始新一轮（与输入框/按钮的禁用同一判据，Enter 也走这里）
+  if (!question || running.value || pendingConfirmation.value) {
     return
   }
   turns.value.push({ question, answer: '', steps: [], running: true })
@@ -562,6 +585,13 @@ onUnmounted(() => stream.stop())
 .assistant-input__shortcut {
   color: var(--app-text-secondary);
   font-size: 12px;
+}
+
+/* T60：待确认卡片挡住新一轮时的说明行 */
+.assistant-input__pending {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--app-primary);
 }
 
 /* ---------- 会话侧栏布局（T38） ---------- */

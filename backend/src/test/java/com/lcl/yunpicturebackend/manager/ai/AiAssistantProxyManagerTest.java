@@ -3,6 +3,7 @@ package com.lcl.yunpicturebackend.manager.ai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lcl.yunpicturebackend.config.AiAssistantProperties;
 import com.lcl.yunpicturebackend.constant.UserConstant;
+import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationResultFact;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.sun.net.httpserver.HttpExchange;
@@ -211,12 +212,14 @@ class AiAssistantProxyManagerTest {
                 "[DONE]");
     }
 
-    /** T44：确认执行结果回灌引擎——POST 到内部端点，带内部密钥，body 是模型面说明 JSON */
+    /** T44/T60：确认执行结果回灌引擎——POST 到内部端点，带内部密钥，body 是模型面说明 + 操作身份 JSON */
     @Test
     void recordsOperationResultToEngineWithInternalKeyAndJsonBody() {
         RecordingManager manager = manager();
 
-        manager.recordOperationResult(123L, "chat-1", "用户已确认并执行批量编辑：提交 2 张。");
+        manager.recordOperationResult(123L, "chat-1", new AiOperationResultFact(
+                "用户已确认并执行批量编辑：提交 2 张。[操作 op-1]",
+                "op-1", "batch_edit", AiOperationResultFact.OUTCOME_EXECUTED));
 
         assertThat(REQUESTS.get()).isEqualTo(1);
         assertThat(stubMethod).isEqualTo("POST");
@@ -224,7 +227,25 @@ class AiAssistantProxyManagerTest {
         assertThat(stubApiKey).isEqualTo(API_KEY);
         assertThat(stubRequestBody)
                 .contains("\"content\"")
-                .contains("用户已确认并执行批量编辑：提交 2 张。");
+                .contains("用户已确认并执行批量编辑：提交 2 张。[操作 op-1]")
+                // T60：身份与结果随 body 一起交给引擎（多卡片乱序确认时结果才可区分）
+                .contains("\"operationId\":\"op-1\"")
+                .contains("\"operationType\":\"batch_edit\"")
+                .contains("\"outcome\":\"executed\"");
+    }
+
+    /** 失败回灌：没有计划摘要与类型，operationId 与失败结果仍要如实带上 */
+    @Test
+    void recordsFailureFactWithOperationIdOnly() {
+        RecordingManager manager = manager();
+
+        manager.recordOperationResult(123L, "chat-1", new AiOperationResultFact(
+                "用户确认的写操作未执行：操作不存在、已过期或已处理。[操作 op-9]",
+                "op-9", null, AiOperationResultFact.OUTCOME_FAILED));
+
+        assertThat(stubRequestBody)
+                .contains("\"operationId\":\"op-9\"")
+                .contains("\"outcome\":\"failed\"");
     }
 
     /** 回灌是旁路：引擎不可达时必须吞掉失败，不把异常抛给调用方（confirm 的返回不受影响） */
@@ -232,7 +253,8 @@ class AiAssistantProxyManagerTest {
     void recordOperationResultSwallowsEngineFailure() {
         RecordingManager manager = new RecordingManager(properties("http://127.0.0.1:1/api", API_KEY), executor);
 
-        manager.recordOperationResult(123L, "chat-1", "已执行");
+        manager.recordOperationResult(123L, "chat-1", new AiOperationResultFact("已执行", "op-1", "batch_edit",
+                AiOperationResultFact.OUTCOME_EXECUTED));
     }
 
     /** 引擎地址/密钥未配置时抛错（由控制器侧兜住）：记录契约仍是"未配置即拒"，不做静默丢弃 */
@@ -240,7 +262,8 @@ class AiAssistantProxyManagerTest {
     void recordOperationResultFailsClosedWhenKeyMissing() {
         RecordingManager manager = new RecordingManager(properties(engineBaseUrl, "  "), executor);
 
-        assertThatThrownBy(() -> manager.recordOperationResult(123L, "chat-1", "已执行"))
+        assertThatThrownBy(() -> manager.recordOperationResult(123L, "chat-1",
+                new AiOperationResultFact("已执行", "op-1", "batch_edit", AiOperationResultFact.OUTCOME_EXECUTED)))
                 .isInstanceOf(BusinessException.class);
     }
 

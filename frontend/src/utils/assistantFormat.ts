@@ -221,6 +221,19 @@ export const describeAssistantOperationResult = (result: AssistantOperationResul
   return lines
 }
 
+/** 确认卡片的界面状态：pending/confirming 表示还没落定（等用户拍板 / 请求在途） */
+export type AssistantConfirmCardStatus = 'pending' | 'confirming' | 'done' | 'cancelled' | 'failed'
+
+/**
+ * 是否还有没落定的确认卡片（T60）。
+ *
+ * 前端无从预判"下一句话会不会又生成一张写计划"，所以只要有卡片停在 pending/confirming，
+ * 就先挡住开启新一轮对话——免得同一次整理里堆出多张卡片、确认顺序与结果对不上。
+ * 只挡"发新消息"：取消按钮、会话/历史查询与服务端授权都不受影响。
+ */
+export const hasPendingConfirmation = (statuses: AssistantConfirmCardStatus[]): boolean =>
+  statuses.some((status) => status === 'pending' || status === 'confirming')
+
 /** axios 的传输失败（超时/网络中断）与后端业务拒绝的区分标记：只有 axios 错误对象带这个字段 */
 const isTransportFailure = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && (error as { isAxiosError?: unknown }).isAxiosError === true

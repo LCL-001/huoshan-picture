@@ -7,6 +7,7 @@ import com.lcl.yunpicturebackend.common.ResultUtils;
 import com.lcl.yunpicturebackend.constant.UserConstant;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationConfirmRequest;
 import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationPrepareRequest;
+import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationResultFact;
 import com.lcl.yunpicturebackend.domain.po.User;
 import com.lcl.yunpicturebackend.domain.vo.AiConversationVO;
 import com.lcl.yunpicturebackend.domain.vo.AiOperationPrepareVO;
@@ -177,27 +178,61 @@ public class AiAssistantController {
     public BaseResponse<AiOperationResultVO> confirmOperation(@RequestBody AiOperationConfirmRequest confirmRequest,
                                                               HttpServletRequest request) {
         TrustedCaller caller = requireTrustedCaller(request);
-        AiOperationResultVO result = operationManager.confirm(caller.user(), confirmRequest);
+        AiOperationResultVO result;
+        try {
+            result = operationManager.confirm(caller.user(), confirmRequest);
+        } catch (RuntimeException e) {
+            // T60：确认失败也要回灌（否则模型一直以为那张卡片还挂着），但失败语义一字不改——原异常继续上抛
+            recordOperationFailureQuietly(caller.user().getId(), confirmRequest, e);
+            throw e;
+        }
         // T44：把执行结果回灌引擎会话记忆（旁路事实，失败不影响本次确认的返回）
-        recordOperationResultQuietly(caller.user().getId(), confirmRequest.getChatId(), result);
+        recordOperationResultQuietly(caller.user().getId(), confirmRequest, result);
         return ResultUtils.success(result);
     }
 
     /**
-     * 把确认执行结果回灌引擎（T44）：下一轮模型续聊就能读到"刚才那个操作已执行"。
+     * 把确认执行结果回灌引擎（T44/T60）：下一轮模型续聊就能读到"刚才那个操作已执行"以及是**哪一个**
+     * （operationId + 既存计划摘要随 content 一起交付）。
      * <p>
      * **旁路**：代理侧已是 best-effort（内部吞 IO 异常），这里再兜一层 RuntimeException
      * （引擎地址/密钥未配置时 requireConfigured 会抛），保证回灌失败绝不改变 confirm 的既成结果。
      */
-    private void recordOperationResultQuietly(Long userId, String chatId, AiOperationResultVO result) {
+    private void recordOperationResultQuietly(Long userId, AiOperationConfirmRequest confirmRequest,
+                                              AiOperationResultVO result) {
+        String chatId = confirmRequest == null ? null : confirmRequest.getChatId();
         if (StrUtil.isBlank(chatId)) {
             return;
         }
         try {
-            proxyManager.recordOperationResult(userId, chatId,
-                    AiAssistantOperationManager.operationResultNote(result));
+            proxyManager.recordOperationResult(userId, chatId, new AiOperationResultFact(
+                    AiAssistantOperationManager.operationResultNote(result),
+                    result == null ? null : result.getOperationId(),
+                    result == null ? null : result.getOperationType(),
+                    AiOperationResultFact.OUTCOME_EXECUTED));
         } catch (RuntimeException e) {
             log.warn("AI 助手确认结果回灌引擎失败, userId={}", userId, e);
+        }
+    }
+
+    /**
+     * 确认失败的回灌（T60）：operationId + 用户安全原因，让模型能把"这张卡片已经废了"与具体操作对上。
+     * 同样是旁路——回灌失败不改动、也不吞掉原始的失败。
+     */
+    private void recordOperationFailureQuietly(Long userId, AiOperationConfirmRequest confirmRequest,
+                                               RuntimeException failure) {
+        String chatId = confirmRequest == null ? null : confirmRequest.getChatId();
+        if (StrUtil.isBlank(chatId)) {
+            return;
+        }
+        String operationId = confirmRequest.getOperationId();
+        try {
+            proxyManager.recordOperationResult(userId, chatId, new AiOperationResultFact(
+                    AiAssistantOperationManager.operationFailureNote(operationId,
+                            AiAssistantOperationManager.userSafeFailureReason(failure)),
+                    operationId, null, AiOperationResultFact.OUTCOME_FAILED));
+        } catch (RuntimeException e) {
+            log.warn("AI 助手确认失败结果回灌引擎失败, userId={}", userId, e);
         }
     }
 

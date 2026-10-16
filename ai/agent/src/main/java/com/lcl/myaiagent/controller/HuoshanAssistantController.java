@@ -39,6 +39,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -214,11 +215,27 @@ public class HuoshanAssistantController {
         appendConversationMessage(conversationId, UserMessage.builder()
                 .text(HuoshanAssistantSession.OPERATION_RESULT_PREFIX + noteRequest.getContent().trim())
                 // T59：可信判据是这条持久化来源标记（用户不可伪造）；文本前缀只给模型看
-                .metadata(Map.of(HuoshanAssistantSession.METADATA_SOURCE_KEY,
-                        HuoshanAssistantSession.SOURCE_SYSTEM_FACT))
+                // T60：operationId/类型/结果一并落库，多张卡片的乱序结果在库里也彼此可辨
+                .metadata(operationFactMetadata(noteRequest))
                 .build());
         log.info("图库助手记录操作结果, owner={}, conversationId={}", owner, conversationId);
         return ResultUtils.success(true);
+    }
+
+    /** 事实行的 metadata：来源标记恒在，操作标识三项非空才写（旧调用方只给 content 时退化为仅来源标记） */
+    private static Map<String, Object> operationFactMetadata(OperationResultNoteRequest noteRequest) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put(HuoshanAssistantSession.METADATA_SOURCE_KEY, HuoshanAssistantSession.SOURCE_SYSTEM_FACT);
+        putIfNotBlank(metadata, HuoshanAssistantSession.METADATA_OPERATION_ID_KEY, noteRequest.getOperationId());
+        putIfNotBlank(metadata, HuoshanAssistantSession.METADATA_OPERATION_TYPE_KEY, noteRequest.getOperationType());
+        putIfNotBlank(metadata, HuoshanAssistantSession.METADATA_OUTCOME_KEY, noteRequest.getOutcome());
+        return metadata;
+    }
+
+    private static void putIfNotBlank(Map<String, Object> metadata, String key, String value) {
+        if (StrUtil.isNotBlank(value)) {
+            metadata.put(key, value.trim());
+        }
     }
 
     /** 写缝隙（测试用）：FlowWindowBasedChatMemory 需真实仓储，抽出来让单测以匿名子类捕获写入 */
@@ -226,9 +243,14 @@ public class HuoshanAssistantController {
         flowWindowBasedChatMemory.add(conversationId, List.of(message));
     }
 
-    /** 确认执行结果说明的请求体（T44）：只有一段由 backend 生成的文本，无用户可控 payload */
+    /** 确认执行结果说明的请求体（T44/T60）：content 是由 backend 生成的模型面文本，
+     *  operationId/operationType/outcome 是这次操作的身份与结果（旧调用方只给 content 也能落库），
+     *  三者都由 backend 生成、无用户可控 payload。 */
     @Data
     static class OperationResultNoteRequest {
         private String content;
+        private String operationId;
+        private String operationType;
+        private String outcome;
     }
 }

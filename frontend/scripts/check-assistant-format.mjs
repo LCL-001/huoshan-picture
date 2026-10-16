@@ -225,5 +225,16 @@ checkTrue('confirm request overrides the global axios timeout',
   /timeout:\s*0/.test(confirmCallSrc),
   'confirmAssistantOperation must pass { timeout: 0 } (see T27.9)')
 
+// ---------- T60: a pending/confirming card blocks starting a new turn ----------
+// The frontend cannot know whether the next message will produce another write plan, so it
+// blocks new turns while a card is still awaiting the user (cancel/query/server auth untouched).
+const pendingConfirmation = format.hasPendingConfirmation
+checkTrue('T60: hasPendingConfirmation exists', typeof pendingConfirmation === 'function')
+check('T60: no cards -> no block', pendingConfirmation?.([]), false)
+check('T60: done/cancelled/failed do not block',
+  pendingConfirmation?.(['done', 'cancelled', 'failed']), false)
+check('T60: pending blocks', pendingConfirmation?.(['done', 'pending']), true)
+check('T60: confirming blocks', pendingConfirmation?.(['confirming']), true)
+
 console.log(failed === 0 ? '\nRESULT: PASS (assistant format)' : `\nRESULT: ${failed} FAILED`)
 process.exit(failed === 0 ? 0 : 1)

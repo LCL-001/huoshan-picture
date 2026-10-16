@@ -15,8 +15,17 @@ import java.util.List;
 @Data
 public class AiOperationResultVO implements Serializable {
 
+    /** 本次执行对应的待确认操作 id（T60）：回灌引擎时与卡片、执行结果一一对应 */
+    private String operationId;
+
     /** 操作类型（batch_edit / url_import） */
     private String operationType;
+
+    /**
+     * 既存计划摘要（T60）：prepare 时生成、展示在确认卡片上，确认后随结果回传——
+     * 回灌进模型上下文后，同一会话里多张卡片的乱序确认结果才彼此可区分。
+     */
+    private List<String> summary = new ArrayList<>();
 
     /** 本次执行是否成功（batch_edit = 服务调用成功；url_import = 全部条目成功） */
     private Boolean success;

@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lcl.yunpicturebackend.config.AiAssistantProperties;
+import com.lcl.yunpicturebackend.domain.dto.ai.AiOperationResultFact;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
@@ -222,13 +223,16 @@ public class AiAssistantProxyManager {
     }
 
     /**
-     * 把一条确认执行结果事实写进引擎会话记忆（T44）：写操作确认执行成功后调用，下一轮模型续聊即可读到。
+     * 把一条确认执行结果事实写进引擎会话记忆（T44/T60）：写操作确认执行后调用，下一轮模型续聊即可读到。
      * <p>
      * 与既有引擎调用同一内部密钥信道（{@link #INTERNAL_API_KEY_HEADER}），不跟随重定向；
      * 归属由引擎按 userId+chatId 派生会话 id。**best-effort**：任何失败只记 warn，不抛——
      * 结果回灌是旁路事实，确认与执行才是主路径，不能因它失败而改变 confirm 的返回。
+     * <p>
+     * body 是 {@link AiOperationResultFact}：content（模型面说明）+ operationId/type/outcome——
+     * 同一会话里多张确认卡片乱序确认时，结果才彼此可区分、失败才可关联。
      */
-    public void recordOperationResult(Long userId, String chatId, String content) {
+    public void recordOperationResult(Long userId, String chatId, AiOperationResultFact fact) {
         String baseUrl = requireConfigured(properties.getEngineBaseUrl(), "图库助手引擎地址未配置");
         String apiKey = requireConfigured(properties.getInternalApiKey(), "图库助手引擎密钥未配置");
         HttpURLConnection connection = null;
@@ -242,7 +246,7 @@ public class AiAssistantProxyManager {
             connection.setReadTimeout(toMillis(properties.getReadTimeout()));
             connection.setDoOutput(true);
             try (OutputStream out = connection.getOutputStream()) {
-                out.write(objectMapper.writeValueAsBytes(Map.of("content", content)));
+                out.write(objectMapper.writeValueAsBytes(fact));
             }
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) {
