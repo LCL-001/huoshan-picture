@@ -60,6 +60,7 @@
     </a-form-item>
     <!-- 图片列表 -->
     <PictureList
+      :key="`pictures-${privateContentVersion}`"
       :dataList="dataList"
       :loading="loading"
       :showOp="true"
@@ -77,6 +78,7 @@
       @change="onPageChange"
     />
     <BatchEditPictureModal
+      :key="`batch-edit-${privateContentVersion}`"
       ref="batchEditPictureModalRef"
       :spaceId="spaceId"
       :pictureList="dataList"
@@ -86,8 +88,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, onActivated, onBeforeUnmount, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { deleteSpaceUsingPost, getSpaceVoByIdUsingGet } from '@/api/spaceController.ts'
 import { message, Modal } from 'ant-design-vue'
 import {
@@ -154,26 +157,6 @@ const doDeleteSpace = () => {
   })
 }
 
-// -------- 获取空间详情 --------
-const fetchSpaceDetail = async () => {
-  try {
-    const res = await getSpaceVoByIdUsingGet({
-      id: spaceId.value,
-    })
-    if (res.data.code === 0 && res.data.data) {
-      space.value = res.data.data
-    } else {
-      message.error('获取空间详情失败，' + res.data.message)
-    }
-  } catch (e) {
-    message.error('获取空间详情失败：' + (e instanceof Error ? e.message : String(e)))
-  }
-}
-
-onMounted(() => {
-  fetchSpaceDetail()
-})
-
 // --------- 获取图片列表 --------
 
 // KeepAlive 缓存标识（见 PageTransition 的 cachedPages）
@@ -183,6 +166,7 @@ defineOptions({ name: 'SpaceDetailPage' })
 const dataList = ref<API.PictureVO[]>([])
 const total = ref(0)
 const loading = ref(true)
+const privateContentVersion = ref(0)
 
 // 搜索条件
 const searchParams = ref<API.PictureQueryRequest>({
@@ -192,49 +176,109 @@ const searchParams = ref<API.PictureQueryRequest>({
   sortOrder: 'descend',
 })
 
-// 获取数据；silent 用于 KeepAlive 激活时的静默刷新
-const fetchData = async (silent = false) => {
-  if (!silent) {
-    loading.value = true
-  }
-  // 转换搜索参数
-  const params = {
-    spaceId: spaceId.value,
-    ...searchParams.value,
-  }
-  const res = await listPictureVoByPageWithCacheUsingPost(params)
-  if (res.data.code === 0 && res.data.data) {
-    const records = res.data.data.records ?? []
-    if (silent && dataList.value.length > 0) {
-      // 静默刷新：仅把新出现的图片插入头部，保留当前列表状态
-      const seen = new Set(dataList.value.map((p) => String(p.id)))
-      const fresh = records.filter((p) => !seen.has(String(p.id)))
-      if (fresh.length > 0) {
-        dataList.value = [...fresh, ...dataList.value]
-      }
-    } else {
-      dataList.value = records
-    }
-    total.value = Number(res.data.data.total ?? 0)
-  } else {
-    message.error('获取数据失败，' + res.data.message)
-  }
-  loading.value = false
+// 请求仅能回填创建它的身份/空间；拒绝访问会使此前所有在途请求失效。
+const loginUserStore = useLoginUserStore()
+const pageIdentity = String(loginUserStore.loginUser.id ?? 'anonymous')
+let contextVersion = 0
+let spaceRequestVersion = 0
+let pictureRequestVersion = 0
+let disposed = false
+let hasSpaceAccess = false
+const requestContext = () => {
+  const version = contextVersion
+  const id = spaceId.value
+  return () => !disposed && version === contextVersion && id === spaceId.value
+    && pageIdentity === String(loginUserStore.loginUser.id ?? 'anonymous')
 }
 
-// 页面加载时获取数据，请求一次
-onMounted(() => {
-  fetchData()
+const clearPrivateContent = () => {
+  // 清空父状态时一并销毁分享链接、弹窗和批量编辑表单等子组件本地状态。
+  privateContentVersion.value++
+  contextVersion++
+  hasSpaceAccess = false
+  space.value = {}
+  dataList.value = []
+  total.value = 0
+  loading.value = false
+}
+// 渲染/离场动画尚未完成时，也不能继续保留前身份的内容与权限。
+watch(() => loginUserStore.loginUser.id, clearPrivateContent, { flush: 'sync' })
+onBeforeUnmount(() => {
+  disposed = true
+  contextVersion++
 })
 
-// 从详情页返回时静默刷新数据（首次挂载已由 onMounted 请求过，跳过避免重复）
+const fetchSpaceDetail = async () => {
+  const isCurrent = requestContext()
+  const requestVersion = ++spaceRequestVersion
+  const canApply = () => isCurrent() && requestVersion === spaceRequestVersion
+  if (!canApply()) return false
+  try {
+    const res = await getSpaceVoByIdUsingGet({ id: spaceId.value })
+    if (!canApply()) return false
+    if (res.data.code === 0 && res.data.data) {
+      space.value = res.data.data
+      hasSpaceAccess = true
+      return true
+    }
+    clearPrivateContent()
+    message.error('获取空间详情失败，' + res.data.message)
+  } catch (e) {
+    if (!canApply()) return false
+    clearPrivateContent()
+    message.error('获取空间详情失败：' + (e instanceof Error ? e.message : String(e)))
+  }
+  return false
+}
+
+// 获取数据；silent 用于 KeepAlive 激活时的静默刷新
+const fetchData = async (silent = false) => {
+  const isCurrent = requestContext()
+  const requestVersion = ++pictureRequestVersion
+  const canApply = () => isCurrent() && requestVersion === pictureRequestVersion
+  if (!hasSpaceAccess || !canApply()) return
+  if (!silent) loading.value = true
+  const params = { spaceId: spaceId.value, ...searchParams.value }
+  try {
+    const res = await listPictureVoByPageWithCacheUsingPost(params)
+    if (!canApply()) return
+    if (res.data.code === 0 && res.data.data) {
+      const records = res.data.data.records ?? []
+      if (silent && dataList.value.length > 0) {
+        const seen = new Set(dataList.value.map((p) => String(p.id)))
+        const fresh = records.filter((p) => !seen.has(String(p.id)))
+        if (fresh.length > 0) dataList.value = [...fresh, ...dataList.value]
+      } else {
+        dataList.value = records
+      }
+      total.value = Number(res.data.data.total ?? 0)
+    } else {
+      clearPrivateContent()
+      message.error('获取数据失败，' + res.data.message)
+    }
+  } catch (e) {
+    if (!canApply()) return
+    clearPrivateContent()
+    message.error('获取数据失败：' + (e instanceof Error ? e.message : String(e)))
+  } finally {
+    if (canApply()) loading.value = false
+  }
+}
+
+// 激活时先重取详情与权限，拒绝后不允许图片回包恢复旧内容。
+const refreshSpace = async (silent = false) => {
+  const isCurrent = requestContext()
+  if (await fetchSpaceDetail() && isCurrent()) await fetchData(silent)
+}
+onMounted(() => { void refreshSpace() })
+
 let activatedOnce = false
 onActivated(() => {
   if (!activatedOnce) {
     activatedOnce = true
     return
   }
-  fetchData(true)
+  void refreshSpace(true)
 })
 
 // 分页参数
@@ -259,19 +303,28 @@ const onSearch = (newSearchParams: API.PictureQueryRequest) => {
 
 // 按照颜色搜索
 const onColorChange = async (color: string) => {
+  const isCurrent = requestContext()
+  const requestVersion = ++pictureRequestVersion
+  const canApply = () => isCurrent() && requestVersion === pictureRequestVersion
+  if (!hasSpaceAccess || !canApply()) return
   loading.value = true
-  const res = await searchPictureByColorUsingPost({
-    picColor: color,
-    spaceId: spaceId.value,
-  })
-  if (res.data.code === 0 && res.data.data) {
-    const data = res.data.data ?? []
-    dataList.value = data
-    total.value = data.length
-  } else {
-    message.error('获取数据失败，' + res.data.message)
+  try {
+    const res = await searchPictureByColorUsingPost({ picColor: color, spaceId: spaceId.value })
+    if (!canApply()) return
+    if (res.data.code === 0 && res.data.data) {
+      dataList.value = res.data.data
+      total.value = res.data.data.length
+    } else {
+      clearPrivateContent()
+      message.error('获取数据失败，' + res.data.message)
+    }
+  } catch (e) {
+    if (!canApply()) return
+    clearPrivateContent()
+    message.error('获取数据失败：' + (e instanceof Error ? e.message : String(e)))
+  } finally {
+    if (canApply()) loading.value = false
   }
-  loading.value = false
 }
 
 // ---- 批量编辑图片 -----
@@ -293,9 +346,10 @@ const doBatchEdit = () => {
 watch(
   () => props.id,
   () => {
-    fetchSpaceDetail()
-    fetchData()
+    clearPrivateContent()
+    void refreshSpace()
   },
+  { flush: 'sync' },
 )
 </script>
 

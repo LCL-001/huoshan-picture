@@ -1,7 +1,7 @@
 <template>
   <router-view v-slot="{ Component }">
     <Transition :name="transitionName" mode="out-in">
-      <KeepAlive :include="cachedPages" :max="8">
+      <KeepAlive :key="cacheIdentity" :include="cachedPages" :max="8">
         <component :is="Component" :key="route.path" />
       </KeepAlive>
     </Transition>
@@ -9,10 +9,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useLoginUserStore } from '@/stores/useLoginUserStore'
 
 const route = useRoute()
+const loginUserStore = useLoginUserStore()
+// 身份变化销毁整个容器；同步递增也覆盖同一 tick 内退出后重新登录。
+const cacheIdentity = ref(0)
+watch(
+  () => String(loginUserStore.loginUser.id ?? 'anonymous'),
+  () => { cacheIdentity.value++ },
+  { flush: 'sync' },
+)
 
 // 浏览类列表页纳入 KeepAlive：从图片详情返回时复用页面实例，
 // 不再重新请求数据、重放骨架屏与入场动画（页面内配合 onActivated 静默刷新）
