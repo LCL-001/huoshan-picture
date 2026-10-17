@@ -36,6 +36,12 @@ graphify-out/
 .zcode/
 .zcodeignore
 
+# AI 编码工具（Serena MCP）的代码索引工作目录：符号缓存 + 本机项目配置，属产物而非源码（2026-10-17 补）
+.serena/
+
+# spec-workflow 技能的工作目录（审批 / 规格 / 模板）：工具产物，可随时重建（2026-10-17 补）
+.spec-workflow/
+
 # 本机自用的求职材料（自我介绍 / 面试稿）：与 project-guide/ 同理，避免误入公开仓库（2026-10-13 补）
 自我介绍*.md
 面试*.md
