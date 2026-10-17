@@ -1,0 +1,37 @@
+T68 REAL HTTP E2E fixture=e2e_t68_20261017_8575d9e3e1
+FIXTURE POLICY: seeded email codes + own HTTP captcha Redis reads; no real mail delivery
+HTTP 1: /user/register status=200 business=0
+FIXTURE: account=e2e_t68_20261017_8575d9e3e1_a userId=2111414628478640129
+HTTP 2: /user/register status=200 business=0
+FIXTURE: account=e2e_t68_20261017_8575d9e3e1_b userId=2111414629598519298
+PASS 1: Two dedicated accounts registered over real HTTP; MySQL confirmed; registration codes consumed
+HTTP 3: /user/captcha/img status=200 business=0
+HTTP 4: /user/login status=200 business=0
+HTTP 5: /user/captcha/img status=200 business=0
+HTTP 6: /user/login status=200 business=0
+PASS 2: Both HTTP logins establish matching real Redis token mappings with finite TTL
+HTTP 7: /user/email/bind status=200 business=40102
+PASS 3: Spring Session without token; business=40102; DB unchanged; Redis code unconsumed
+HTTP 8: /user/email/bind status=200 business=40102
+PASS 4: Foreign token with A Spring Session; business=40102; DB unchanged; Redis code unconsumed
+HTTP 9: /user/email/bind status=200 business=40100
+PASS 5: Token without Spring Session; business=40100; DB unchanged; Redis code unconsumed
+HTTP 10: /user/email/bind status=200 business=0
+PASS 6: Valid same-user bind; business=0; MySQL changed; Redis code consumed
+HTTP 11: /user/password/reset status=200 business=0
+PASS 7: Actual resetPassword HTTP endpoint; business=0; old token mapping revoked in Redis
+HTTP 12: /user/get/login status=200 business=0
+PASS 8: Old Spring Session demonstrably survives reset; real HTTP read and Redis key agree
+HTTP 13: /user/email/bind status=200 business=40102
+PASS 9: Revoked old token plus surviving Session; business=40102; DB unchanged; Redis code unconsumed
+HTTP 14: /user/captcha/img status=200 business=0
+HTTP 15: /user/login status=200 business=40000
+PASS 10: Old password rejected by real HTTP login; business=40000
+HTTP 16: /user/captcha/img status=200 business=0
+HTTP 17: /user/login status=200 business=0
+PASS 11: New password login succeeds with valid new Redis token mapping; business=0
+HTTP 18: /user/email/bind status=200 business=0
+PASS 12: New-password fresh login binds successfully; business=0; MySQL updated; code consumed; B unchanged
+RESULT: PASS (12/12 groups; 18 real HTTP requests; 2 retained fixture accounts)
+RESIDUALS: 2 accounts; dedicated unconsumed codes expire within 300s; authentication and one failed-login rate key retain application TTLs
+LIMITS: local direct backend HTTP only; no nginx/TLS/browser or real mailbox ownership/delivery proof; no model/COS

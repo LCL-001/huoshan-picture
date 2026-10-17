@@ -1,0 +1,10 @@
+BROWSER E2E fixture=e2e_browser_55dc9552
+BROWSER: Chrome 154.0.8037.100; Playwright 1.64.0-alpha-1790635538000
+STEP: Create independent account fixtures over HTTP
+FIXTURE: account=e2e_browser_55dc9552_a userId=2111416877187620866
+FIXTURE: account=e2e_browser_55dc9552_b userId=2111416877745463297
+STEP: Real UI login A, no session injection
+PASS 1: Login UI + real captcha/login/get-login HTTP establish account A
+STEP: Create private A space and synthetic picture metadata
+RESULT: FAIL phase=Create private A space and synthetic picture metadata; MySQL failed (details suppressed)
+RESIDUALS: fixture=e2e_browser_55dc9552; completed=1; no deletion/cleanup attempted; inspect retained fixture rows and local service logs
