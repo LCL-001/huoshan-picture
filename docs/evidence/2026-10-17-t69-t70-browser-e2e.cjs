@@ -52,7 +52,8 @@ const dbName = dbUrl.pathname.slice(1);
 ensure(/^\w+$/.test(dbName), 'Invalid local schema');
 function command(exe, args, env, label) {
   const r = spawnSync(exe, args, { encoding: 'utf8', env: { ...process.env, ...env }, windowsHide: true, timeout: 20000 });
-  ensure(!r.error && r.status === 0, `${label} failed (details suppressed)`);
+  const safeCode = String(r.stderr || '').match(/ERROR \d+ \([0-9A-Z]+\)/)?.[0];
+  ensure(!r.error && r.status === 0, `${label} failed${safeCode ? ' ' + safeCode : ''} (details suppressed)`);
   return r.stdout.trim();
 }
 function sql(query) {
@@ -86,7 +87,9 @@ function fixturePng() {
   const pixels = Buffer.alloc(32 * (1 + 32 * 3));
   for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
     const offset = y * 97 + 1 + x * 3;
-    pixels[offset] = x * 8; pixels[offset + 1] = y * 8; pixels[offset + 2] = 128;
+    pixels[offset] = x < 16 ? 32 : 196;
+    pixels[offset + 1] = y < 16 ? 32 : 196;
+    pixels[offset + 2] = 128;
   }
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', deflateSync(pixels)), chunk('IEND', Buffer.alloc(0))]);
 }
@@ -115,6 +118,10 @@ async function spa(route) {
     const router = document.querySelector('#app').__vue_app__.config.globalProperties.$router;
     await router.push(route);
   }, route);
+  if (route === '/') {
+    await page.locator('#homePage').waitFor();
+    await page.locator('#spaceDetailPage').waitFor({ state: 'detached' });
+  }
 }
 async function uiLogin(key, initial = false) {
   if (!initial) await page.locator('img[alt="验证码，点击刷新"]').waitFor();
@@ -161,28 +168,50 @@ function pictureRow(id) {
 }
 async function holdRealResponse(pattern, trigger, accept = () => true) {
   let resolveEntered;
+  let rejectEntered;
   let resolveFinished;
-  const finished = new Promise(r => { resolveFinished = r; });
   let release;
-  const entered = new Promise(r => { resolveEntered = r; });
+  let request;
+  let started;
+  let routeError;
+  const finished = new Promise(r => { resolveFinished = r; });
+  const entered = new Promise((resolve, reject) => { resolveEntered = resolve; rejectEntered = reject; });
   const gate = new Promise(r => { release = r; });
   let captured = false;
   const handler = async route => {
     if (captured || !accept(route.request())) { await route.continue(); return; }
     captured = true;
-    const response = await route.fetch();
-    const body = await response.json();
-    ensure(body.code === 0, 'Delayed backend response is not successful');
-    resolveEntered(body);
-    await gate;
-    await route.fulfill({ response });
-    resolveFinished();
+    request = route.request();
+    started = Date.now();
+    try {
+      const response = await route.fetch();
+      const body = await response.json();
+      ensure(body.code === 0, 'Delayed backend response is not successful');
+      resolveEntered(body);
+      await gate;
+      await route.fulfill({ response });
+    } catch (error) { routeError = error; rejectEntered(error); }
+    finally { resolveFinished(); }
   };
   await page.route(pattern, handler);
   try {
     await trigger();
     const body = await Promise.race([entered, new Promise((_, reject) => setTimeout(() => reject(new Error('Delayed response not reached')), 15000))]);
-    return { body, release: async () => { release(); await finished; await page.unroute(pattern, handler); } };
+    return { body, release: async () => {
+      const elapsed = Date.now() - started;
+      const responsePromise = page.waitForResponse(r => r.request() === request, { timeout: 5000 });
+      const completedPromise = page.waitForEvent('requestfinished', { predicate: r => r === request, timeout: 5000 });
+      release();
+      try {
+        await finished;
+        ensure(!routeError, 'Delayed route could not fulfill actual response');
+        const [response, completed] = await Promise.all([responsePromise, completedPromise]);
+        ensure(!completed.failure(), 'Delayed request failed rather than completed');
+        ensure(response.status() === 200 && JSON.stringify(await response.json()) === JSON.stringify(body), 'Delayed browser response differs from actual successful backend response');
+        ensure(elapsed < 8000, 'Delayed response exceeded Axios timeout safety window');
+        console.log(`DELIVERY: ${new URL(request.url()).pathname} real response completed in browser; held=${elapsed}ms (<8000); body unchanged`);
+      } finally { await page.unroute(pattern, handler); }
+    } };
   } catch (e) { release(); await page.unroute(pattern, handler); throw e; }
 }
 async function main() {
@@ -208,6 +237,9 @@ async function main() {
     if (hasId) { blockedUpload = true; await route.abort('blockedbyclient'); return; }
     await route.continue();
   });
+  ensure(imageUrl.length <= 512, 'Fixture image URL exceeds current picture URL column');
+  ensure((fixture + '_private_a').length <= 30, 'Fixture space name exceeds backend limit');
+  console.log(`PREFLIGHT: PNG=${png.length} bytes; dataURL=${imageUrl.length}/512 chars; spaceName=${(fixture + '_private_a').length}/30 chars`);
   step('Create independent account fixtures over HTTP');
   for (const key of ['a', 'b']) {
     const account = `${fixture}_${key}`;
@@ -237,6 +269,45 @@ async function main() {
   const originalA = pictureRow(pictures.a.id);
   const editA = `/add_picture?id=${pictures.a.id}&spaceId=${accounts.a.spaceId}`;
   const editB = `/add_picture?id=${pictures.b.id}&spaceId=${accounts.a.spaceId}`;
+  if (process.env.BROWSER_E2E_PENDING_DETAIL_PROBE === '1') {
+    step('T69 same-context pending detail vs real successful upload regression probe');
+    await spa(editB);
+    await waitName(pictures.b.name);
+    const pending = await holdRealResponse(`**/api/picture/get/vo?id=${pictures.a.id}`, () => spa(editA));
+    let uploadedId;
+    try {
+      ensure(pending.body.data.id === pictures.a.id, 'Wrong held detail');
+      await emptyUpload();
+      const requestPromise = page.waitForRequest(r => new URL(r.url()).pathname === '/api/picture/upload' && r.method() === 'POST');
+      const responsePromise = page.waitForResponse(r => new URL(r.url()).pathname === '/api/picture/upload' && r.request().method() === 'POST');
+      const started = Date.now();
+      await page.locator('.picture-upload input[type=file]').setInputFiles({ name: fixture + '_race.png', mimeType: 'image/png', buffer: png });
+      const request = await requestPromise;
+      ensure(!new URL(request.url()).searchParams.has('id'), 'Race upload unexpectedly has id');
+      const uploaded = await (await responsePromise).json();
+      ensure(uploaded.code === 0 && uploaded.data?.id && uploaded.data.id !== pictures.a.id, `Race actual upload failed business=${uploaded.code}`);
+      uploadedId = uploaded.data.id;
+      await waitName(uploaded.data.name);
+      ensure(Date.now() - started < 8000, 'Probe exceeded original Axios timeout safety window');
+      console.log(`RACE: actual upload business=0 id=${uploadedId}; target-id=absent; displayed successful uploaded name before original detail release`);
+      ensure(pictureRow(uploadedId), 'Uploaded row missing');
+    } finally { await pending.release(); }
+    await page.waitForTimeout(400);
+    const displayedName = await page.getByPlaceholder('请输入名称', { exact: true }).inputValue();
+    ensure(pictureRow(pictures.a.id) === originalA, 'Probe unexpectedly modified original A');
+    ensure(!blockedUpload && pageErrors.length === 0, 'Unexpected browser failure during probe');
+    if (displayedName === pictures.a.name) {
+      console.log(`REGRESSION: P2 confirmed in real Chrome/HTTP; late detail A=${pictures.a.id} overwrites successful uploaded row=${uploadedId}; route context unchanged`);
+      console.log('RESULT: REGRESSION DETECTED (actual HTTP upload + unchanged delayed actual detail; no edit/save performed; original A unchanged)');
+      process.exitCode = 2;
+    } else {
+      ensure(displayedName !== '', 'Probe ended with empty unrelated state');
+      console.log('RESULT: PENDING DETAIL REGRESSION NOT OBSERVED; inspect whether upload correctly remained current');
+      process.exitCode = 3;
+    }
+    console.log(`RESIDUALS: fixture=${fixture}; 2 accounts, 1 private space, 2 synthetic pictures, 1 actual uploaded row/COS assets; no cleanup`);
+    return;
+  }
   step('T69 edit A -> top navigation new upload without a document reload');
   await spa(editA);
   await waitName(pictures.a.name);
@@ -265,6 +336,9 @@ async function main() {
   ensure(editUid === await componentUid('#addPicturePage'), 'A -> B did not reuse route component');
   pass('T69 A -> B query change loads B and does not retain A form');
   step('T69 delayed real picture response cannot refill new context');
+  // AntD pauses toast expiry while hovered; keep real clicks unobstructed.
+  await page.mouse.move(8, 800);
+  await page.waitForFunction(() => !document.querySelector('.ant-message-notice'), null, { timeout: 7000 });
   await spa('/add_picture');
   await emptyUpload();
   const delayed = await holdRealResponse(`**/api/picture/get/vo?id=${pictures.a.id}`, () => spa(editA));
@@ -303,8 +377,27 @@ async function main() {
   ensure((await share.innerText()).includes('/picture/' + pictures.a.id), 'Share link mismatch');
   const canvas = share.locator('canvas');
   ensure(await canvas.count() === 1, 'Real QR canvas missing');
-  const drawn = await canvas.evaluate(el => { const data = el.getContext('2d').getImageData(0, 0, el.width, el.height).data; return { width: el.width, height: el.height, dark: Array.from(data).filter((v, i) => i % 4 !== 3 && v < 100).length }; });
-  ensure(drawn.width > 0 && drawn.height > 0 && drawn.dark > 100, 'QR canvas not drawn');
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.share-modal canvas');
+    if (!el || !el.width || !el.height) return false;
+    const data = el.getContext('2d').getImageData(0, 0, el.width, el.height).data;
+    let dark = 0;
+    let light = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 200) continue;
+      if (data[i] < 100 && data[i + 1] < 100 && data[i + 2] < 100) dark++;
+      if (data[i] > 200 && data[i + 1] > 200 && data[i + 2] > 200) light++;
+    }
+    return dark > 100 && light > 100;
+  });
+  const drawn = await canvas.evaluate(el => {
+    const data = el.getContext('2d').getImageData(0, 0, el.width, el.height).data;
+    let opaque = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 200) opaque++;
+    return { width: el.width, height: el.height, opaque };
+  });
+  ensure(drawn.width > 0 && drawn.height > 0 && drawn.opaque > 200, 'QR canvas not drawn');
+  console.log(`QR: actual canvas ${drawn.width}x${drawn.height}; opaquePixels=${drawn.opaque}; both dark and light pixels verified`);
   await share.getByRole('button', { name: 'Close' }).click();
   await share.waitFor({ state: 'hidden' });
   pass('T70 actual AntD Teleport share modal renders private link and nonblank QR canvas');
@@ -336,7 +429,9 @@ async function main() {
     await spa('/space/' + accounts.a.spaceId);
     const result = await (await denied).json();
     ensure(result.code === 40101, `Expected real denied space response, got ${result.code}`);
-    await page.waitForFunction(() => !document.querySelector('#spaceDetailPage .picture-card') && !document.querySelector('.share-modal'));
+    await page.locator('#spaceDetailPage').waitFor();
+    ensure(spaceUid === await componentUid('#spaceDetailPage'), 'Denied refresh did not preserve the same cached page instance');
+    await page.waitForFunction(() => document.querySelector('#spaceDetailPage') && !document.querySelector('#spaceDetailPage .picture-card') && !document.querySelector('.share-modal'));
     ensure(!await page.getByText(oldRule, { exact: true }).count(), 'Old batch rule leaked');
     ensure(await page.locator('#spaceDetailPage').getByRole('button', { name: /批量编辑/ }).count() === 0, 'Denied page retains edit permission');
     ensure(!(await page.locator('body').innerText()).includes(pictures.a.name), 'Denied page retains private name');
@@ -378,15 +473,27 @@ async function main() {
   await uiLogout();
   await uiLogin('a');
   await spa('/');
+  const lateSourceUidBefore = await componentUid('#homePage');
   const held = await holdRealResponse('**/api/picture/list/page/vo/cache', () => spa('/space/' + accounts.a.spaceId), request => request.postDataJSON()?.spaceId === accounts.a.spaceId);
   ensure(held.body.data.records.some(r => r.id === pictures.a.id), 'Delayed real list lacks A fixture');
+  await page.locator('#spaceDetailPage').waitFor();
+  const lateSourceUid = await componentUid('#spaceDetailPage');
+  ensure(lateSourceUid !== lateSourceUidBefore, 'List probe must reach space page');
   await uiLogout();
   await uiLogin('b');
   await held.release();
   await page.waitForTimeout(300);
   ensure(await page.locator('.picture-card').filter({ has: page.locator(`img[alt="${pictures.a.name}"]`) }).count() === 0, 'Delayed private list leaked to B');
   ensure(!(await page.locator('body').innerText()).includes(pictures.a.name), 'Delayed private name leaked to B');
-  pass('T70 delayed real successful private-list reply cannot repopulate B after UI identity switch');
+  const lateDenied = page.waitForResponse(r => r.url().includes('/api/space/get/vo?id=' + accounts.a.spaceId) && r.status() === 200);
+  await spa('/space/' + accounts.a.spaceId);
+  ensure((await (await lateDenied).json()).code === 40101, 'B must still be denied after actual delayed response delivery');
+  await page.locator('#spaceDetailPage').waitFor();
+  ensure(lateSourceUid !== await componentUid('#spaceDetailPage'), 'A private cached parent revived after delayed delivery');
+  ensure(await page.locator('#spaceDetailPage .picture-card').count() === 0, 'Delayed private list leaked on B space re-entry');
+  const lateBody = await page.locator('body').innerText();
+  ensure(!lateBody.includes(pictures.a.name) && !lateBody.includes(fixture + '_private_a') && !lateBody.includes('/picture/' + pictures.a.id), 'Delayed private content exposed on B re-entry');
+  pass('T70 delayed actual successful private-list reply delivered before timeout; B re-entry is denied with new parent and no A content');
   ensure(!blockedUpload, 'Safety guard caught stale id: T69 regression');
   ensure(pageErrors.length === 0, `Uncaught page errors: ${pageErrors.join(' | ')}`);
   const unexpected = consoleErrors.filter(s => !s.includes('[ant-design-vue: Modal]') && !s.includes('[ant-design-vue: Drawer]'));
@@ -398,7 +505,12 @@ async function main() {
   console.log(`BROWSER WARNINGS: ${consoleErrors.length} existing AntD deprecation console entries; PAGE ERRORS: ${pageErrors.length}`);
   console.log('HTTP SUMMARY: ' + JSON.stringify(network.reduce((a, r) => { const k = `${r.path} status=${r.status} business=${r.code}`; a[k] = (a[k] || 0) + 1; return a; }, {})));
 }
-main().catch(error => {
+main().catch(async error => {
+  if (page && !page.isClosed()) {
+    const image = path.join(root, 'backend/target', fixture + '-browser-failure.png');
+    try { await page.screenshot({ path: image, fullPage: true }); console.error(`AUXILIARY SCREENSHOT: ${image}`); }
+    catch (captureError) { console.error(`SCREENSHOT unavailable: ${captureError.name}`); }
+  }
   console.error(`RESULT: FAIL phase=${phase}; ${error.message}`);
   console.error(`RESIDUALS: fixture=${fixture}; completed=${passed}; no deletion/cleanup attempted; inspect retained fixture rows and local service logs`);
   process.exitCode = 1;

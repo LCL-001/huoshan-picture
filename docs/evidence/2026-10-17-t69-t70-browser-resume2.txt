@@ -1,0 +1,26 @@
+BROWSER E2E fixture=e2e_browser_87490128
+BROWSER: Chrome 154.0.8037.100; Playwright 1.64.0-alpha-1790635538000
+PREFLIGHT: PNG=105 bytes; dataURL=162/512 chars; spaceName=30/30 chars
+STEP: Create independent account fixtures over HTTP
+FIXTURE: account=e2e_browser_87490128_a userId=2111428595309613057
+FIXTURE: account=e2e_browser_87490128_b userId=2111428595892621314
+STEP: Real UI login A, no session injection
+PASS 1: Login UI + real captcha/login/get-login HTTP establish account A
+STEP: Create private A space and synthetic picture metadata
+FIXTURE: privateA=2111428607888330753 pictureA=2111427786379366403 pictureB=2111427786379366404
+STEP: T69 edit A -> top navigation new upload without a document reload
+PASS 2: T69 A -> new: same actual route component, blank metadata and file/URL previews
+STEP: T69 real multipart upload from empty context
+FIXTURE: realUploadedPicture=2111428626808836097
+PASS 3: T69 real multipart HTTP/COS upload has no old id; creates distinct DB row; A unchanged
+STEP: T69 A -> B on same component
+PASS 4: T69 A -> B query change loads B and does not retain A form
+STEP: T69 delayed real picture response cannot refill new context
+DELIVERY: /api/picture/get/vo real response completed in browser; held=82ms (<8000); body unchanged
+PASS 5: T69 delayed successful real HTTP picture-A reply ignored after A -> new
+STEP: T69 file/URL request identity after space context changes
+PASS 6: T69 actual URL-upload HTTP has no old id and correct space; backend rejects loopback; A unchanged
+STEP: T70 real private page, Teleport share modal and QR canvas
+AUXILIARY SCREENSHOT: D:\develop\idea_java_projects\huoshan-picture\backend\target\e2e_browser_87490128-browser-failure.png
+RESULT: FAIL phase=T70 real private page, Teleport share modal and QR canvas; page.waitForFunction: Timeout 20000ms exceeded.
+RESIDUALS: fixture=e2e_browser_87490128; completed=6; no deletion/cleanup attempted; inspect retained fixture rows and local service logs

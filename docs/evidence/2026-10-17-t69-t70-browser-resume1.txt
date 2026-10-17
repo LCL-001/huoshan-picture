@@ -1,0 +1,46 @@
+BROWSER E2E fixture=e2e_browser_8c0b77e6
+BROWSER: Chrome 154.0.8037.100; Playwright 1.64.0-alpha-1790635538000
+PREFLIGHT: PNG=105 bytes; dataURL=162/512 chars; spaceName=30/30 chars
+STEP: Create independent account fixtures over HTTP
+FIXTURE: account=e2e_browser_8c0b77e6_a userId=2111427753303085058
+FIXTURE: account=e2e_browser_8c0b77e6_b userId=2111427754003533826
+STEP: Real UI login A, no session injection
+PASS 1: Login UI + real captcha/login/get-login HTTP establish account A
+STEP: Create private A space and synthetic picture metadata
+FIXTURE: privateA=2111427767664381954 pictureA=2111405910378803203 pictureB=2111405910378803204
+STEP: T69 edit A -> top navigation new upload without a document reload
+PASS 2: T69 A -> new: same actual route component, blank metadata and file/URL previews
+STEP: T69 real multipart upload from empty context
+FIXTURE: realUploadedPicture=2111427786379366402
+PASS 3: T69 real multipart HTTP/COS upload has no old id; creates distinct DB row; A unchanged
+STEP: T69 A -> B on same component
+PASS 4: T69 A -> B query change loads B and does not retain A form
+STEP: T69 delayed real picture response cannot refill new context
+RESULT: FAIL phase=T69 delayed real picture response cannot refill new context; locator.click: Timeout 20000ms exceeded.
+Call log:
+  - waiting for getByRole('menuitem', { name: '上传图片', exact: true })
+    - locator resolved to <li title="上传图片" tabindex="-1" role="menuitem" aria-disabled="false" data-menu-id="/add_picture" class="ant-menu-overflow-item ant-menu-item ant-menu-item-selected ant-menu-item-only-child">…</li>
+  - attempting click action
+    2 × waiting for element to be visible, enabled and stable
+      - element is visible, enabled and stable
+      - scrolling into view if needed
+      - done scrolling
+      - <span>图片上传成功</span> from <div>…</div> subtree intercepts pointer events
+    - retrying click action
+    - waiting 20ms
+    2 × waiting for element to be visible, enabled and stable
+      - element is visible, enabled and stable
+      - scrolling into view if needed
+      - done scrolling
+      - <span>图片上传成功</span> from <div>…</div> subtree intercepts pointer events
+    - retrying click action
+      - waiting 100ms
+    38 × waiting for element to be visible, enabled and stable
+       - element is visible, enabled and stable
+       - scrolling into view if needed
+       - done scrolling
+       - <span>图片上传成功</span> from <div>…</div> subtree intercepts pointer events
+     - retrying click action
+       - waiting 500ms
+
+RESIDUALS: fixture=e2e_browser_8c0b77e6; completed=4; no deletion/cleanup attempted; inspect retained fixture rows and local service logs
