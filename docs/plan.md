@@ -74,3 +74,11 @@
 - 安全加固与优化批次 T27–T42（2026-09-16~10-01，T27 写确认门 2026-10-01 部署上线）→ `docs/plans/archive/2026-09-安全加固与优化批次.md`
 - 助手安全与回收站收口批次 T27.10、T43–T54（2026-09-29~10-13）→ `docs/plans/archive/2026-10-助手安全与回收站收口批次.md`
 - 未决与关闭事项全文（2026-09-15~17）→ `docs/plans/archive/2026-09-未决与关闭事项.md`
+
+### T68–T70：项目级 review 前三项 P1（用户批准先计划后执行）
+
+> 方案、边界与验收见 `docs/designs/2026-10-17-P1账户与页面状态修复计划.md`；不处理本轮其余 P2，不新增依赖、进程或表，spec 关键三行不变。
+
+- [ ] T68（P1）**阻断旧 Session 换绑邮箱接管账号**：范围 backend `service/impl/UserServiceImpl.java`、`manager/auth/LoginSessionValidator.java` 及对应单测/既有会话集成测试；验收：缺失、撤销、异人 Sa-Token 均在发码校验/邮箱更新前拒绝，有效同人正常绑定；状态：计划已写，待红绿。功能说明见 `docs/features/F19-邮箱绑定安全.md`。
+- [ ] T69（P1）**上传页编辑上下文隔离**：范围 frontend `src/pages/AddPicturePage.vue`、必要上传组件、`scripts/check-picture-upload-context.mjs` 与 `package.json`；验收：编辑 A→新增不发送 A 的 id，A→B 不残留 A，旧异步回包不覆盖新上下文；状态：计划已写，待红绿。功能说明见 `docs/features/F20-页面身份与上传生命周期.md`。
+- [ ] T70（P1）**跨身份销毁私有页面缓存**：范围 frontend `src/components/PageTransition.vue`、`src/pages/SpaceDetailPage.vue`、必要用户 store、`scripts/check-private-page-cache.mjs` 与 `package.json`；验收：A→退出→B 后无 A 私有内容/权限，拒绝刷新清空旧数据，同账号返回保留缓存；状态：计划已写，待红绿。功能说明见 `docs/features/F20-页面身份与上传生命周期.md`。
