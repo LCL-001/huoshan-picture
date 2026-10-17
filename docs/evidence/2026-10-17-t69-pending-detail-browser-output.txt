@@ -1,0 +1,17 @@
+BROWSER E2E fixture=e2e_browser_a2dc5864
+BROWSER: Chrome 154.0.8037.100; Playwright 1.64.0-alpha-1790635538000
+PREFLIGHT: PNG=105 bytes; dataURL=162/512 chars; spaceName=30/30 chars
+STEP: Create independent account fixtures over HTTP
+FIXTURE: account=e2e_browser_a2dc5864_a userId=2111431054950227970
+FIXTURE: account=e2e_browser_a2dc5864_b userId=2111431055596150786
+STEP: Real UI login A, no session injection
+PASS 1: Login UI + real captcha/login/get-login HTTP establish account A
+STEP: Create private A space and synthetic picture metadata
+FIXTURE: privateA=2111431067776409602 pictureA=2111430893473718274 pictureB=2111430893473718275
+STEP: T69 same-context pending detail vs real successful upload regression probe
+RACE: actual upload business=0 id=2111431075917553666; target-id=absent; displayed successful uploaded name before original detail release
+DELIVERY: /api/picture/get/vo real response completed in browser; held=1233ms (<8000); body unchanged
+REGRESSION: P2 confirmed in real Chrome/HTTP; late detail A=2111430893473718274 overwrites successful uploaded row=2111431075917553666; route context unchanged
+RESULT: REGRESSION DETECTED (actual HTTP upload + unchanged delayed actual detail; no edit/save performed; original A unchanged)
+RESIDUALS: fixture=e2e_browser_a2dc5864; 2 accounts, 1 private space, 2 synthetic pictures, 1 actual uploaded row/COS assets; no cleanup
+NATIVE_EXIT_CODE: 2

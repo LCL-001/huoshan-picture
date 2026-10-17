@@ -1,0 +1,35 @@
+BROWSER E2E fixture=e2e_browser_bbb56fbb
+BROWSER: Chrome 154.0.8037.100; Playwright 1.64.0-alpha-1790635538000
+PREFLIGHT: PNG=105 bytes; dataURL=162/512 chars; spaceName=30/30 chars
+STEP: Create independent account fixtures over HTTP
+FIXTURE: account=e2e_browser_bbb56fbb_a userId=2111430859508244482
+FIXTURE: account=e2e_browser_bbb56fbb_b userId=2111430860330328065
+STEP: Real UI login A, no session injection
+PASS 1: Login UI + real captcha/login/get-login HTTP establish account A
+STEP: Create private A space and synthetic picture metadata
+FIXTURE: privateA=2111430872804188162 pictureA=2111428626808836098 pictureB=2111428626808836099
+STEP: T69 edit A -> top navigation new upload without a document reload
+PASS 2: T69 A -> new: same actual route component, blank metadata and file/URL previews
+STEP: T69 real multipart upload from empty context
+FIXTURE: realUploadedPicture=2111430893473718273
+PASS 3: T69 real multipart HTTP/COS upload has no old id; creates distinct DB row; A unchanged
+STEP: T69 A -> B on same component
+PASS 4: T69 A -> B query change loads B and does not retain A form
+STEP: T69 delayed real picture response cannot refill new context
+DELIVERY: /api/picture/get/vo real response completed in browser; held=72ms (<8000); body unchanged
+PASS 5: T69 delayed successful real HTTP picture-A reply ignored after A -> new
+STEP: T69 file/URL request identity after space context changes
+PASS 6: T69 actual URL-upload HTTP has no old id and correct space; backend rejects loopback; A unchanged
+STEP: T70 real private page, Teleport share modal and QR canvas
+QR: actual canvas 134x134; sourceTransparent=6800; white-copy dark=8471, light=7360
+PASS 7: T70 actual AntD Teleport share modal renders private link and nonblank QR canvas
+STEP: T70 same-user KeepAlive return preserves parent and batch form
+AUXILIARY SCREENSHOT: D:\develop\idea_java_projects\huoshan-picture\backend\target\e2e_browser_bbb56fbb-browser-failure.png
+RESULT: FAIL phase=T70 same-user KeepAlive return preserves parent and batch form; locator.click: Error: strict mode violation: getByRole('dialog', { name: '批量编辑图片' }).getByRole('button', { name: 'Close' }) resolved to 2 elements:
+    1) <button type="button" aria-label="Close" class="ant-modal-close">…</button> aka getByRole('button', { name: 'Close', exact: true })
+    2) <span role="button" tabindex="-1" class="ant-input-clear-icon">…</span> aka getByRole('button', { name: 'close-circle' })
+
+Call log:
+  - waiting for getByRole('dialog', { name: '批量编辑图片' }).getByRole('button', { name: 'Close' })
+
+RESIDUALS: fixture=e2e_browser_bbb56fbb; completed=7; no deletion/cleanup attempted; inspect retained fixture rows and local service logs

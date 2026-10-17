@@ -1,0 +1,42 @@
+BROWSER E2E fixture=e2e_browser_a686ee00
+BROWSER: Chrome 154.0.8037.100; Playwright 1.64.0-alpha-1790635538000
+PREFLIGHT: PNG=105 bytes; dataURL=162/512 chars; spaceName=30/30 chars
+STEP: Create independent account fixtures over HTTP
+FIXTURE: account=e2e_browser_a686ee00_a userId=2111431327823257602
+FIXTURE: account=e2e_browser_a686ee00_b userId=2111431328611786754
+STEP: Real UI login A, no session injection
+PASS 1: Login UI + real captcha/login/get-login HTTP establish account A
+STEP: Create private A space and synthetic picture metadata
+FIXTURE: privateA=2111431339152072706 pictureA=2111431075917553667 pictureB=2111431075917553668
+STEP: T69 edit A -> top navigation new upload without a document reload
+PASS 2: T69 A -> new: same actual route component, blank metadata and file/URL previews
+STEP: T69 real multipart upload from empty context
+FIXTURE: realUploadedPicture=2111431358089355265
+PASS 3: T69 real multipart HTTP/COS upload has no old id; creates distinct DB row; A unchanged
+STEP: T69 A -> B on same component
+PASS 4: T69 A -> B query change loads B and does not retain A form
+STEP: T69 delayed real picture response cannot refill new context
+DELIVERY: /api/picture/get/vo real response completed in browser; held=77ms (<8000); body unchanged
+PASS 5: T69 delayed successful real HTTP picture-A reply ignored after A -> new
+STEP: T69 file/URL request identity after space context changes
+PASS 6: T69 actual URL-upload HTTP has no old id and correct space; backend rejects loopback; A unchanged
+STEP: T70 real private page, Teleport share modal and QR canvas
+QR: actual canvas 134x134; sourceTransparent=6691; white-copy dark=8470, light=7240
+PASS 7: T70 actual AntD Teleport share modal renders private link and nonblank QR canvas
+STEP: T70 same-user KeepAlive return preserves parent and batch form
+PASS 8: T70 same identity return keeps actual component and non-submitted batch form
+STEP: T70 same identity denied refresh destroys Teleport and old child state
+PASS 9: T70 real backend 40101 on reactivation clears private cards/actions and destroys active Teleport share modal
+PASS 10: T70 authorized retry recreates blank batch form after failed permission refresh
+STEP: T70 real UI A logout -> B login without reload destroys private cache
+PASS 11: T70 real UI logout/login A -> B, same document: fresh parent, real backend denial, zero A cards/links/dialogs
+PASS 12: T70 B own authorized private space renders correctly without A title or cards
+STEP: T70 delayed real private-list response crossing logout/login
+DELIVERY: /api/picture/list/page/vo/cache real response completed in browser; held=2049ms (<8000); body unchanged
+PASS 13: T70 delayed actual successful private-list reply delivered before timeout; B re-entry is denied with new parent and no A content
+PASS 14: No uncaught browser errors, no unexpected console errors and no stale-id upload blocked
+RESULT: PASS (14 groups; 87 observed browser API responses)
+RESIDUALS: 2 account rows, 2 private spaces, 2 SQL fixture pictures, 1 real uploaded picture/COS object; no cleanup or deletion
+LIMITS: email delivery bypassed using dedicated codes; SQL image metadata fixture; local Chrome/HTTP, no nginx/TLS/production. Delayed-response cases use route.fetch+unchanged response, explicitly not a fully untouched network.
+BROWSER WARNINGS: 2 existing AntD deprecation console entries; PAGE ERRORS: 0
+HTTP SUMMARY: {"/api/user/get/login status=200 business=40100":1,"/api/user/captcha/img status=200 business=0":11,"/api/user/login status=200 business=0":4,"/api/user/get/login status=200 business=0":4,"/api/spaceUser/list/my status=200 business=0":4,"/api/picture/tag_category status=200 business=0":25,"/api/picture/list/page/vo/cache status=200 business=0":11,"/api/space/get/vo status=200 business=0":11,"/api/picture/get/vo status=200 business=0":5,"/api/picture/upload status=200 business=0":1,"/api/picture/upload/url status=200 business=50000":1,"/api/space/get/vo status=200 business=40101":3,"/api/user/logout status=200 business=0":3,"/api/space/get/vo status=200 business=40100":3}

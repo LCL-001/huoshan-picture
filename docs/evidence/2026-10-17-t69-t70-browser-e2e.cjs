@@ -377,28 +377,36 @@ async function main() {
   ensure((await share.innerText()).includes('/picture/' + pictures.a.id), 'Share link mismatch');
   const canvas = share.locator('canvas');
   ensure(await canvas.count() === 1, 'Real QR canvas missing');
-  await page.waitForFunction(() => {
-    const el = document.querySelector('.share-modal canvas');
-    if (!el || !el.width || !el.height) return false;
-    const data = el.getContext('2d').getImageData(0, 0, el.width, el.height).data;
-    let dark = 0;
-    let light = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] < 200) continue;
-      if (data[i] < 100 && data[i + 1] < 100 && data[i + 2] < 100) dark++;
-      if (data[i] > 200 && data[i + 1] > 200 && data[i + 2] > 200) light++;
-    }
-    return dark > 100 && light > 100;
-  });
-  const drawn = await canvas.evaluate(el => {
-    const data = el.getContext('2d').getImageData(0, 0, el.width, el.height).data;
-    let opaque = 0;
-    for (let i = 3; i < data.length; i += 4) if (data[i] > 200) opaque++;
-    return { width: el.width, height: el.height, opaque };
-  });
-  ensure(drawn.width > 0 && drawn.height > 0 && drawn.opaque > 200, 'QR canvas not drawn');
-  console.log(`QR: actual canvas ${drawn.width}x${drawn.height}; opaquePixels=${drawn.opaque}; both dark and light pixels verified`);
-  await share.getByRole('button', { name: 'Close' }).click();
+  // The production QR background is transparent: inspect a white-backed COPY,
+  // never change production props or require opaque white in the source.
+  let drawn;
+  const qrDeadline = Date.now() + 5000;
+  do {
+    drawn = await canvas.evaluate(el => {
+      const copy = document.createElement('canvas');
+      copy.width = el.width; copy.height = el.height;
+      const context = copy.getContext('2d');
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, copy.width, copy.height);
+      context.drawImage(el, 0, 0);
+      const data = context.getImageData(0, 0, copy.width, copy.height).data;
+      const original = el.getContext('2d').getImageData(0, 0, el.width, el.height).data;
+      let dark = 0;
+      let light = 0;
+      let transparent = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] < 100 && data[i + 1] < 100 && data[i + 2] < 100) dark++;
+        if (data[i] > 200 && data[i + 1] > 200 && data[i + 2] > 200) light++;
+        if (original[i + 3] === 0) transparent++;
+      }
+      return { width: el.width, height: el.height, dark, light, transparent };
+    });
+    if (drawn.dark > 100 && drawn.light > 100) break;
+    await page.waitForTimeout(50);
+  } while (Date.now() < qrDeadline);
+  ensure(drawn.width > 0 && drawn.height > 0 && drawn.dark > 100 && drawn.light > 100, 'Actual QR canvas has no drawn contrasting pattern');
+  console.log(`QR: actual canvas ${drawn.width}x${drawn.height}; sourceTransparent=${drawn.transparent}; white-copy dark=${drawn.dark}, light=${drawn.light}`);
+  await share.getByRole('button', { name: 'Close', exact: true }).click();
   await share.waitFor({ state: 'hidden' });
   pass('T70 actual AntD Teleport share modal renders private link and nonblank QR canvas');
   step('T70 same-user KeepAlive return preserves parent and batch form');
@@ -407,7 +415,7 @@ async function main() {
   await batch.waitFor();
   const oldRule = fixture + '_old_private_rule';
   await batch.getByPlaceholder('请输入命名规则，输入 {序号} 可动态生成').fill(oldRule);
-  await batch.getByRole('button', { name: 'Close' }).click();
+  await batch.getByRole('button', { name: 'Close', exact: true }).click();
   await spa('/');
   await page.locator('#homePage').waitFor();
   await spa('/space/' + accounts.a.spaceId);
@@ -416,7 +424,7 @@ async function main() {
   await page.getByRole('button', { name: /批量编辑/ }).click();
   await batch.waitFor();
   ensure(await batch.getByPlaceholder('请输入命名规则，输入 {序号} 可动态生成').inputValue() === oldRule, 'Same-user local form was unnecessarily destroyed');
-  await batch.getByRole('button', { name: 'Close' }).click();
+  await batch.getByRole('button', { name: 'Close', exact: true }).click();
   pass('T70 same identity return keeps actual component and non-submitted batch form');
   step('T70 same identity denied refresh destroys Teleport and old child state');
   await card.locator('[aria-label="share-alt"]').click();
@@ -446,7 +454,7 @@ async function main() {
   await page.getByRole('button', { name: /批量编辑/ }).click();
   await batch.waitFor();
   ensure(await batch.getByPlaceholder('请输入命名规则，输入 {序号} 可动态生成').inputValue() === '', 'Denied refresh retains old batch child form');
-  await batch.getByRole('button', { name: 'Close' }).click();
+  await batch.getByRole('button', { name: 'Close', exact: true }).click();
   pass('T70 authorized retry recreates blank batch form after failed permission refresh');
   step('T70 real UI A logout -> B login without reload destroys private cache');
   const oldUid = await componentUid('#spaceDetailPage');
