@@ -6,7 +6,7 @@
 
 | 验收层 | 结果 | 证据 |
 |---|---|---|
-| 先红后绿专项测试 | 通过 | 新增同上下文详情／上传竞态、失败上传、连续上传、路由交错等断言；最终 **23/23**，红灯输出见 `docs/evidence/2026-10-17-t69-race-unit-red.txt`，绿灯输出见 `docs/evidence/2026-10-17-t69-race-unit-final.txt` |
+| 先红后绿专项测试 | 通过 | 新增同上下文详情／上传竞态、失败上传、连续上传、路由交错等断言；红灯输出见 `docs/evidence/2026-10-17-t69-race-unit-red.txt`（18/20 组失败），修复后先达 20/20（`docs/evidence/2026-10-17-t69-race-unit-green.txt`），再补入三项断言达最终 **23/23**（`docs/evidence/2026-10-17-t69-race-unit-final.txt`） |
 | 独立真实 Chrome／HTTP 竞态探针 | 通过 | 真实上传成功后延迟详情实际交付，held **1850ms**；最终 picture id 和名称仍是新上传结果，且同一页面组件未重建；输出见 `docs/evidence/2026-10-17-t69-race-browser-green.txt` |
 | T69/T70 默认浏览器流程 | 通过 | **14/14 组、87 个页面 API 响应、exit 0**；输出见 `docs/evidence/2026-10-17-t69-race-browser-full.txt` |
 | 类型与静态检查 | 通过 | `npm run type-check`、只读 ESLint 均 exit 0；提交门禁另完成 backend 204、AI 325 单测 |

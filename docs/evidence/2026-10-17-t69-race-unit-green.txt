@@ -1,0 +1,25 @@
+
+> yu-picture-frontend@0.0.0 check:picture-upload-context
+> node scripts/check-picture-upload-context.mjs
+
+PASS normal edit preserves exact string IDs in both actual upload requests
+PASS A to new clears picture and all form fields before save can target A
+PASS A to new omits old ID in file AND URL request assembly
+PASS A to B clears state before B fetch and blocks save while B is pending
+PASS space change resets state, refetches picture and assembles new space ID
+PASS removing space clears old space and never sends its ID
+PASS old picture response cannot refill new context
+PASS same-context file upload success wins over pending detail and remains the save target
+PASS failed file upload does not suppress pending detail initialization
+PASS same-context url upload success wins over pending detail and remains the save target
+PASS failed url upload does not suppress pending detail initialization
+PASS new route detail still initializes after a prior successful upload
+PASS A to B to A ignores first A response even when query IDs match again
+PASS old space response cannot overwrite new space or refill public context
+PASS late file upload response cannot refill new context; local input is remounted
+PASS late url upload response cannot refill new context; local input is remounted
+PASS old crop and AI callbacks cannot refill next context
+PASS save success from old context does not redirect the new page
+PASS normal create upload and save still work
+PASS unmounted page ignores late picture response
+RESULT: PASS (20/20 groups)
