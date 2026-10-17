@@ -3,6 +3,7 @@ package com.lcl.yunpicturebackend.controller;
 import com.lcl.yunpicturebackend.common.BaseResponse;
 import com.lcl.yunpicturebackend.common.DeleteRequest;
 import com.lcl.yunpicturebackend.constant.UserConstant;
+import com.lcl.yunpicturebackend.domain.dto.user.UserEmailBindRequest;
 import com.lcl.yunpicturebackend.domain.dto.user.UserLoginRequest;
 import com.lcl.yunpicturebackend.domain.dto.user.UserPasswordResetRequest;
 import com.lcl.yunpicturebackend.domain.dto.user.UserUpdateRequest;
@@ -92,6 +93,8 @@ class UserSessionLifecycleIntegrationTest {
     void resetPasswordShouldRevokeSaTokenSession() {
         login(resetTarget, RAW_PASSWORD);
         assertNotNull(StpKit.SPACE.getSessionByLoginId(resetTarget.getId(), false), "前置：登录后应有 Sa-Token 会话");
+        String oldToken = StpKit.SPACE.getTokenValue();
+        MockHttpServletRequest oldRequest = currentRequest();
         stringRedisTemplate.opsForValue().set(EMAIL_CAPTCHA_KEY + resetTarget.getEmail(), "123456",
                 5, TimeUnit.MINUTES);
         UserPasswordResetRequest resetRequest = new UserPasswordResetRequest();
@@ -102,11 +105,48 @@ class UserSessionLifecycleIntegrationTest {
         assertTrue(response.getData());
         assertNull(StpKit.SPACE.getSessionByLoginId(resetTarget.getId(), false),
                 "改密后旧 Sa-Token 会话必须被踢掉");
+        // T68：模拟下一次 HTTP 请求，仅复用旧 Session/token，不复制登录请求的内部属性。
+        MockHttpServletRequest staleRequest = new MockHttpServletRequest();
+        staleRequest.setSession(oldRequest.getSession(false));
+        staleRequest.addHeader("satoken", oldToken);
+        RequestContextHolder.setRequestAttributes(
+                new ServletRequestAttributes(staleRequest, new MockHttpServletResponse()));
+        String attackerEmail = "t68-" + UUID.randomUUID() + "@test.com";
+        String captchaKey = EMAIL_CAPTCHA_KEY + attackerEmail;
+        stringRedisTemplate.opsForValue().set(captchaKey, "654321", 5, TimeUnit.MINUTES);
+        UserEmailBindRequest bind = new UserEmailBindRequest();
+        bind.setEmail(attackerEmail);
+        bind.setEmailCode("654321");
+        try {
+            BusinessException denied = assertThrows(BusinessException.class,
+                    () -> userService.bindEmail(bind, staleRequest));
+            assertEquals(ErrorCode.SPACE_NOT_LOGIN.getCode(), denied.getCode());
+            assertEquals(resetTarget.getEmail(), userService.getById(resetTarget.getId()).getEmail());
+            assertEquals("654321", stringRedisTemplate.opsForValue().get(captchaKey),
+                    "被拒绝的旧会话不得消费新邮箱验证码");
+        } finally {
+            stringRedisTemplate.delete(captchaKey);
+        }
         // 旧密码登录失败、新密码登录成功，确认密码确已更换
         UserLoginRequest oldPassword = buildLoginRequest(resetTarget, RAW_PASSWORD);
         assertThrows(BusinessException.class, () -> userService.login(oldPassword, currentRequest()));
         login(resetTarget, "newpass4567");
         assertNotNull(StpKit.SPACE.getSessionByLoginId(resetTarget.getId(), false));
+        // 新登录后模拟下一次请求，验证真实验证码消费和数据库写入仍正常。
+        MockHttpServletRequest freshRequest = new MockHttpServletRequest();
+        freshRequest.setSession(currentRequest().getSession(false));
+        freshRequest.addHeader("satoken", StpKit.SPACE.getTokenValue());
+        RequestContextHolder.setRequestAttributes(
+                new ServletRequestAttributes(freshRequest, new MockHttpServletResponse()));
+        stringRedisTemplate.opsForValue().set(captchaKey, "654321", 5, TimeUnit.MINUTES);
+        try {
+            assertTrue(userController.bindEmail(bind, freshRequest).getData());
+            assertEquals(attackerEmail, userService.getById(resetTarget.getId()).getEmail());
+            assertNull(stringRedisTemplate.opsForValue().get(captchaKey),
+                    "有效双登录态绑定成功后应消费验证码");
+        } finally {
+            stringRedisTemplate.delete(captchaKey);
+        }
     }
 
     // ===== 删号踢会话 =====

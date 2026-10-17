@@ -26,6 +26,7 @@ import com.lcl.yunpicturebackend.enums.UserRoleEnum;
 import com.lcl.yunpicturebackend.exception.BusinessException;
 import com.lcl.yunpicturebackend.exception.ErrorCode;
 import com.lcl.yunpicturebackend.exception.ThrowUtils;
+import com.lcl.yunpicturebackend.manager.auth.LoginSessionValidator;
 import com.lcl.yunpicturebackend.manager.auth.StpKit;
 import com.lcl.yunpicturebackend.mapper.UserMapper;
 import com.lcl.yunpicturebackend.service.IUserService;
@@ -253,6 +254,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     public BaseResponse<Boolean> bindEmail(UserEmailBindRequest userEmailBindRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(userEmailBindRequest == null, ErrorCode.PARAMS_ERROR);
         User loginUser = getLoginUser(request);
+        // 改密已撤销 Sa-Token；残留 Spring Session 不能继续变更账号找回渠道。
+        LoginSessionValidator.requireMatchingSpaceLogin(loginUser);
         String email = userEmailBindRequest.getEmail();
         ThrowUtils.throwIf(StrUtil.isBlank(email) || !Validator.isEmail(email.trim()),
                 ErrorCode.PARAMS_ERROR, "邮箱格式不正确");
