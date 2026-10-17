@@ -18,6 +18,7 @@
     "check:format-size": "node scripts/check-format-size.mjs",
     "check:analyze-numbers": "node scripts/check-analyze-numbers.mjs",
     "check:private-page-cache": "node scripts/check-private-page-cache.mjs",
+    "check:picture-upload-context": "node scripts/check-picture-upload-context.mjs",
     "lint": "eslint . --fix",
     "format": "prettier --write src/"
   },

@@ -3,7 +3,9 @@
     <!-- 页头 -->
     <header class="page-header animate-fade-in-up">
       <h2 class="page-title">{{ route.query?.id ? '修改图片' : '上传图片' }}</h2>
-      <p class="page-desc">上传图片并完善信息，即可{{ route.query?.id ? '保存修改' : '加入你的图库' }}</p>
+      <p class="page-desc">
+        上传图片并完善信息，即可{{ route.query?.id ? '保存修改' : '加入你的图库' }}
+      </p>
       <div v-if="spaceId" class="space-chip animate-fade-in-up stagger-1">
         保存至空间：<a :href="`/space/${spaceId}`">{{ space?.spaceName ?? spaceId }}</a>
       </div>
@@ -12,7 +14,7 @@
     <a-row :gutter="[20, 20]" class="content-row">
       <!-- 左列：上传与编辑 -->
       <a-col :xs="24" :md="13">
-        <div class="panel-card animate-fade-in-up stagger-1">
+        <div :key="contextVersion" class="panel-card animate-fade-in-up stagger-1">
           <a-tabs v-model:activeKey="uploadType">
             <a-tab-pane key="file" tab="文件上传">
               <!-- 图片上传组件 -->
@@ -110,7 +112,7 @@
 
 <script setup lang="ts">
 import PictureUpload from '@/components/PictureUpload.vue'
-import { computed, h, onMounted, reactive, ref, watchEffect } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   editPictureUsingPost,
@@ -130,6 +132,13 @@ const route = useRoute()
 const picture = ref<API.PictureVO>()
 const pictureForm = reactive<API.PictureEditRequest>({})
 const uploadType = ref<'file' | 'url'>('file')
+const contextVersion = ref(0)
+// 用户上传成功后，尚未完成的详情初始化不得覆盖上传结果。
+let pictureDetailVersion = 0
+const pictureId = computed(() => {
+  const raw = route.query?.id
+  return typeof raw === 'string' ? raw : undefined
+})
 // 空间 id（路由参数是字符串，后端 Long 也以字符串下发，原样透传——Number() 会丢雪花 id 精度）
 const spaceId = computed<string | undefined>(() => {
   const raw = route.query?.spaceId
@@ -140,10 +149,15 @@ const spaceId = computed<string | undefined>(() => {
  * 图片上传成功
  * @param newPicture
  */
-const onSuccess = (newPicture: API.PictureVO) => {
-  picture.value = newPicture
-  pictureForm.name = newPicture.name
-}
+const onSuccess = computed(() => {
+  const version = contextVersion.value
+  return (newPicture: API.PictureVO) => {
+    if (version !== contextVersion.value) return
+    pictureDetailVersion++
+    picture.value = newPicture
+    pictureForm.name = newPicture.name
+  }
+})
 
 /**
  * 提交表单
@@ -154,10 +168,12 @@ const handleSubmit = async (values: API.PictureEditRequest) => {
   if (!pictureId) {
     return
   }
+  const version = contextVersion.value
   const res = await editPictureUsingPost({
     id: pictureId,
     ...values,
   })
+  if (version !== contextVersion.value) return
   // 操作成功
   if (res.data.code === 0 && res.data.data) {
     message.success('创建成功')
@@ -202,13 +218,13 @@ onMounted(() => {
 })
 
 // 获取老数据
-const getOldPicture = async () => {
-  // 获取到 id
-  const id = route.query?.id
-  if (typeof id === 'string') {
+const getOldPicture = async (id: string | undefined, version: number) => {
+  if (id) {
+    const detailVersion = ++pictureDetailVersion
     const res = await getPictureVoByIdUsingGet({
       id,
     })
+    if (version !== contextVersion.value || detailVersion !== pictureDetailVersion) return
     if (res.data.code === 0 && res.data.data) {
       const data = res.data.data
       picture.value = data
@@ -220,10 +236,6 @@ const getOldPicture = async () => {
   }
 }
 
-onMounted(() => {
-  getOldPicture()
-})
-
 // ----- 图片编辑器引用 ------
 const imageCropperRef = ref()
 
@@ -233,9 +245,13 @@ const doEditPicture = async () => {
 }
 
 // 编辑成功事件
-const onCropSuccess = (newPicture: API.PictureVO) => {
-  picture.value = newPicture
-}
+const onCropSuccess = computed(() => {
+  const version = contextVersion.value
+  return (newPicture: API.PictureVO) => {
+    if (version !== contextVersion.value) return
+    picture.value = newPicture
+  }
+})
 
 // ----- AI 扩图引用 -----
 const imageOutPaintingRef = ref()
@@ -246,28 +262,44 @@ const doImagePainting = async () => {
 }
 
 // AI 扩图保存事件
-const onImageOutPaintingSuccess = (newPicture: API.PictureVO) => {
-  picture.value = newPicture
-}
+const onImageOutPaintingSuccess = onCropSuccess
 
 // 获取空间信息
 const space = ref<API.SpaceVO>()
 
 // 获取空间信息
-const fetchSpace = async () => {
-  // 获取数据
-  if (spaceId.value) {
-    const res = await getSpaceVoByIdUsingGet({
-      id: spaceId.value,
-    })
+const fetchSpace = async (id: string | undefined, version: number) => {
+  if (id) {
+    const res = await getSpaceVoByIdUsingGet({ id })
+    if (version !== contextVersion.value) return
     if (res.data.code === 0 && res.data.data) {
       space.value = res.data.data
     }
   }
 }
 
-watchEffect(() => {
-  fetchSpace()
+watch(
+  [pictureId, spaceId],
+  ([id, currentSpaceId]) => {
+    const version = ++contextVersion.value
+    // 先同步清空，再发请求，避免加载下一张图片时仍可保存到上一张。
+    picture.value = undefined
+    space.value = undefined
+    Object.assign(pictureForm, {
+      name: undefined,
+      introduction: undefined,
+      category: undefined,
+      tags: [],
+    })
+    uploadType.value = 'file'
+    getOldPicture(id, version)
+    fetchSpace(currentSpaceId, version)
+  },
+  { immediate: true, flush: 'sync' },
+)
+
+onBeforeUnmount(() => {
+  contextVersion.value++
 })
 </script>
 
