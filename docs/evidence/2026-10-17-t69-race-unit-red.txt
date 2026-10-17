@@ -1,0 +1,33 @@
+PASS normal edit preserves exact string IDs in both actual upload requests
+PASS A to new clears picture and all form fields before save can target A
+PASS A to new omits old ID in file AND URL request assembly
+PASS A to B clears state before B fetch and blocks save while B is pending
+PASS space change resets state, refetches picture and assembles new space ID
+PASS removing space clears old space and never sends its ID
+PASS old picture response cannot refill new context
+FAIL same-context file upload success wins over pending detail and remains the save target: late initialization must not replace successful upload
++ actual - expected
+
++ '2111027283732324354'
+- '2111027283732324355'
+                     ^
+
+PASS failed file upload does not suppress pending detail initialization
+FAIL same-context url upload success wins over pending detail and remains the save target: late initialization must not replace successful upload
++ actual - expected
+
++ '2111027283732324354'
+- '2111027283732324355'
+                     ^
+
+PASS failed url upload does not suppress pending detail initialization
+PASS new route detail still initializes after a prior successful upload
+PASS A to B to A ignores first A response even when query IDs match again
+PASS old space response cannot overwrite new space or refill public context
+PASS late file upload response cannot refill new context; local input is remounted
+PASS late url upload response cannot refill new context; local input is remounted
+PASS old crop and AI callbacks cannot refill next context
+PASS save success from old context does not redirect the new page
+PASS normal create upload and save still work
+PASS unmounted page ignores late picture response
+RESULT: FAIL (18/20 groups)

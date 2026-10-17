@@ -275,6 +275,8 @@ async function main() {
     await waitName(pictures.b.name);
     const pending = await holdRealResponse(`**/api/picture/get/vo?id=${pictures.a.id}`, () => spa(editA));
     let uploadedId;
+    let uploadedName;
+    const raceUid = await componentUid('#addPicturePage');
     try {
       ensure(pending.body.data.id === pictures.a.id, 'Wrong held detail');
       await emptyUpload();
@@ -287,7 +289,8 @@ async function main() {
       const uploaded = await (await responsePromise).json();
       ensure(uploaded.code === 0 && uploaded.data?.id && uploaded.data.id !== pictures.a.id, `Race actual upload failed business=${uploaded.code}`);
       uploadedId = uploaded.data.id;
-      await waitName(uploaded.data.name);
+      uploadedName = uploaded.data.name;
+      await waitName(uploadedName);
       ensure(Date.now() - started < 8000, 'Probe exceeded original Axios timeout safety window');
       console.log(`RACE: actual upload business=0 id=${uploadedId}; target-id=absent; displayed successful uploaded name before original detail release`);
       ensure(pictureRow(uploadedId), 'Uploaded row missing');
@@ -297,13 +300,17 @@ async function main() {
     ensure(pictureRow(pictures.a.id) === originalA, 'Probe unexpectedly modified original A');
     ensure(!blockedUpload && pageErrors.length === 0, 'Unexpected browser failure during probe');
     if (displayedName === pictures.a.name) {
-      console.log(`REGRESSION: P2 confirmed in real Chrome/HTTP; late detail A=${pictures.a.id} overwrites successful uploaded row=${uploadedId}; route context unchanged`);
+      console.log(`REGRESSION: P2 confirmed in real Chrome/HTTP; late detail A=${pictures.a.id} overwrites frontend upload result=${uploadedId}; route context unchanged`);
       console.log('RESULT: REGRESSION DETECTED (actual HTTP upload + unchanged delayed actual detail; no edit/save performed; original A unchanged)');
       process.exitCode = 2;
     } else {
-      ensure(displayedName !== '', 'Probe ended with empty unrelated state');
-      console.log('RESULT: PENDING DETAIL REGRESSION NOT OBSERVED; inspect whether upload correctly remained current');
-      process.exitCode = 3;
+      const currentId = await page.locator('#addPicturePage').evaluate(el => el.__vueParentComponent.setupState.picture?.id);
+      ensure(displayedName === uploadedName && currentId === uploadedId, 'Successful upload did not remain the current picture and form');
+      ensure(raceUid === await componentUid('#addPicturePage'), 'Probe accidentally remounted route component');
+      const unexpected = consoleErrors.filter(s => !s.includes('[ant-design-vue: Modal]') && !s.includes('[ant-design-vue: Drawer]'));
+      ensure(unexpected.length === 0, 'Unexpected browser console errors during probe');
+      console.log(`STATE: current picture id=${currentId}; successful uploaded name retained; same route component`);
+      console.log('RESULT: PASS (late actual detail ignored; successful upload remains current; no edit/save performed; original A unchanged)');
     }
     console.log(`RESIDUALS: fixture=${fixture}; 2 accounts, 1 private space, 2 synthetic pictures, 1 actual uploaded row/COS assets; no cleanup`);
     return;

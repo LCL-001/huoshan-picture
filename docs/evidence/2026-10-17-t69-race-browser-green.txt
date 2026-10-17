@@ -1,0 +1,16 @@
+BROWSER E2E fixture=e2e_browser_3574d864
+BROWSER: Chrome 154.0.8037.100; Playwright 1.64.0-alpha-1790635538000
+PREFLIGHT: PNG=105 bytes; dataURL=162/512 chars; spaceName=30/30 chars
+STEP: Create independent account fixtures over HTTP
+FIXTURE: account=e2e_browser_3574d864_a userId=2111435390803619841
+FIXTURE: account=e2e_browser_3574d864_b userId=2111435391462125569
+STEP: Real UI login A, no session injection
+PASS 1: Login UI + real captcha/login/get-login HTTP establish account A
+STEP: Create private A space and synthetic picture metadata
+FIXTURE: privateA=2111435401872388097 pictureA=2111431358089355266 pictureB=2111431358089355267
+STEP: T69 same-context pending detail vs real successful upload regression probe
+RACE: actual upload business=0 id=2111435412744024066; target-id=absent; displayed successful uploaded name before original detail release
+DELIVERY: /api/picture/get/vo real response completed in browser; held=1850ms (<8000); body unchanged
+STATE: current picture id=2111435412744024066; successful uploaded name retained; same route component
+RESULT: PASS (late actual detail ignored; successful upload remains current; no edit/save performed; original A unchanged)
+RESIDUALS: fixture=e2e_browser_3574d864; 2 accounts, 1 private space, 2 synthetic pictures, 1 actual uploaded row/COS assets; no cleanup
